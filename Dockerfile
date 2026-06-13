@@ -64,6 +64,9 @@ RUN bundle config set --local path 'vendor/bundle' \
 
 COPY . ./
 
+# Install JS deps (daisyui + tailwind plugins) needed by tailwind.config.js for the CSS build
+RUN npm install --no-audit --no-fund --loglevel=error
+
 # Precompile assets
 RUN SECRET_KEY_BASE_DUMMY=1 bundle exec rake assets:precompile \
     && rm -rf node_modules tmp/cache
