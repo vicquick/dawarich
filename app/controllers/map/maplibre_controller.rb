@@ -50,7 +50,7 @@ module Map
       return date_param_range.begin.to_i if date_param_range
       return import_window_start if import_window_start
 
-      Time.zone.today.beginning_of_day.to_i
+      (current_user.points.minimum(:timestamp) || Time.zone.today.beginning_of_day.to_i)
     end
 
     def end_at
