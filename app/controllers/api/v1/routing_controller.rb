@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'resolv'
+
 # Directions/routing proxy to a self-hosted Valhalla engine.
 # Added in the vicquick/dawarich fork to bring turn-by-turn routing into
 # Dawarich's own map (synthesizing Dawarich + Atlas). Geometry is decoded
@@ -46,7 +48,17 @@ class Api::V1::RoutingController < ApiController
   end
 
   def valhalla_base
-    ENV['VALHALLA_URL'].presence || 'http://localhost:8002'
+    url = ENV['VALHALLA_URL'].presence || 'http://localhost:8002'
+    uri = URI(url)
+    # Docker assigns both A and AAAA records; Valhalla binds IPv4 only, and Ruby's
+    # resolver may prefer the IPv6 address → "connection refused". Pin to IPv4.
+    begin
+      ipv4 = Resolv.getaddresses(uri.host).find { |a| a.match?(/\A\d{1,3}(\.\d{1,3}){3}\z/) }
+      uri.host = ipv4 if ipv4
+    rescue StandardError
+      # fall back to the original host
+    end
+    uri.to_s
   end
 
   def valhalla_post(path, body)
