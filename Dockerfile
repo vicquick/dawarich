@@ -90,4 +90,5 @@ EXPOSE $RAILS_PORT
 
 STOPSIGNAL SIGINT
 
-ENTRYPOINT [ "bundle", "exec" ]
+ENTRYPOINT ["web-entrypoint.sh"]
+CMD ["bin/rails", "server", "-p", "3000", "-b", "::"]
