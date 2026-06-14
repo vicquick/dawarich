@@ -15,6 +15,20 @@ export default class extends Controller {
     this.onOpen = (e) => this.open(e.detail)
     document.addEventListener("place-sheet:open", this.onOpen)
     this.expanded = false
+    this.backdrop = document.getElementById("place-sheet-backdrop")
+    if (this.backdrop) this.backdrop.addEventListener("click", () => this.close())
+  }
+
+  showBackdrop() {
+    if (!this.backdrop) return
+    this.backdrop.style.opacity = "1"
+    this.backdrop.style.pointerEvents = "auto"
+  }
+
+  hideBackdrop() {
+    if (!this.backdrop) return
+    this.backdrop.style.opacity = "0"
+    this.backdrop.style.pointerEvents = "none"
   }
 
   disconnect() {
@@ -59,16 +73,22 @@ export default class extends Controller {
     this.element.style.height = "34vh"
     this.element.style.transform = "translateY(0)"
     this.expanded = false
+    this.showBackdrop()
     this.enrich()
   }
 
   // Fetch open-now / hours / phone / website (OSM) and render it.
   async enrich() {
-    if (!this.hasEnrichmentTarget || !this.place.osmType || !this.place.osmId) return
+    if (!this.hasEnrichmentTarget || !this.place) return
+    const hasOsm = this.place.osmType && this.place.osmId
+    const hasCoords = this.place.lat != null && this.place.lon != null
+    if (!hasOsm && !hasCoords) return
     try {
-      const res = await fetch(
-        `/api/v1/place_info?api_key=${encodeURIComponent(this.apiKeyValue)}&osm_type=${this.place.osmType}&osm_id=${this.place.osmId}`,
-      )
+      const params = new URLSearchParams({ api_key: this.apiKeyValue })
+      if (hasOsm) { params.set("osm_type", this.place.osmType); params.set("osm_id", this.place.osmId) }
+      if (hasCoords) { params.set("lat", this.place.lat); params.set("lon", this.place.lon) }
+      if (this.place.name) params.set("name", this.place.name)
+      const res = await fetch(`/api/v1/place_info?${params.toString()}`)
       if (!res.ok) return
       const d = await res.json()
       const parts = []
@@ -96,6 +116,7 @@ export default class extends Controller {
 
   close() {
     this.element.style.transform = "translateY(100%)"
+    this.hideBackdrop()
   }
 
   directions() {

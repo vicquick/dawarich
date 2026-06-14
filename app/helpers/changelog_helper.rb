@@ -21,6 +21,9 @@ module ChangelogHelper
   # and respect the per-user consent choice.
   def changelog_indicator_state(user = current_user)
     return :badge if user.nil?
+    # vicquick fork: self-hosted never loads the external chibichange widget or
+    # its consent prompt — privacy (no third-party request) + declutter (no popup).
+    return :badge if DawarichSettings.self_hosted?
     return :badge if user.changelog_consent_declined?
     return :widget if user.changelog_consent_granted?
     return :widget unless DawarichSettings.self_hosted?

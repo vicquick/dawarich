@@ -54,15 +54,26 @@ class Api::V1::DiscoveryController < ApiController
   def place_info
     type = { 'N' => 'node', 'W' => 'way', 'R' => 'relation' }[params[:osm_type].to_s.upcase[0]]
     id = params[:osm_id].to_s[/\d+/]
-    return render_error('osm_type + osm_id required') if type.nil? || id.nil?
 
-    # Self-hosted Overpass first (local, fast); fall back to the open OSM API.
-    tags = overpass_element(type, id)
-    if tags.nil?
-      uri = URI("https://api.openstreetmap.org/api/0.6/#{type}/#{id}.json")
-      resp = http_get(uri, host_header: nil)
-      tags = resp&.is_a?(Net::HTTPSuccess) ? (Oj.load(resp.body)['elements'] || []).first&.dig('tags') : nil
+    tags = nil
+    if type && id
+      # Self-hosted Overpass first (local, fast); fall back to the open OSM API.
+      tags = overpass_element(type, id)
+      if tags.nil?
+        uri = URI("https://api.openstreetmap.org/api/0.6/#{type}/#{id}.json")
+        resp = http_get(uri, host_header: nil)
+        tags = resp&.is_a?(Net::HTTPSuccess) ? (Oj.load(resp.body)['elements'] || []).first&.dig('tags') : nil
+      end
     end
+
+    # Fallback for POIs tapped on the map: their id is a vector-tile id, not an
+    # OSM id, so resolve tags by coordinates (+ name) via Overpass instead.
+    if tags.blank? && params[:lat].present? && params[:lon].present?
+      tags = overpass_around_tags(params[:lat].to_f, params[:lon].to_f, params[:name])
+    end
+
+    return render_error('osm_type + osm_id or lat + lon required') if type.nil? && params[:lat].blank?
+
     tags ||= {}
     hours = tags['opening_hours']
     render json: {
@@ -111,6 +122,32 @@ class Api::V1::DiscoveryController < ApiController
         distance_m: haversine(lat, lon, plat, plon).round
       }
     end
+  rescue StandardError
+    nil
+  end
+
+  # Resolve a POI's tags by coordinates (map-tapped POIs carry tile ids).
+  # Tries an exact name match first, then the nearest named POI.
+  def overpass_around_tags(lat, lon, name)
+    queries = []
+    if name.present?
+      esc = name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+      queries << "nwr(around:45,#{lat},#{lon})[name=\"#{esc}\"];"
+    end
+    queries << "nwr(around:35,#{lat},#{lon})[name];"
+
+    queries.each do |body|
+      resp = overpass_post("[out:json][timeout:15];#{body}out tags 8;")
+      next unless resp&.is_a?(Net::HTTPSuccess)
+
+      els = Oj.load(resp.body)['elements'] || []
+      next if els.empty?
+
+      # Prefer a richer element (has hours/website) over a bare one.
+      best = els.find { |e| (e['tags'] || {}).key?('opening_hours') || (e['tags'] || {}).key?('website') }
+      return (best || els.first)['tags']
+    end
+    nil
   rescue StandardError
     nil
   end

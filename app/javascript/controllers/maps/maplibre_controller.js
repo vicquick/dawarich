@@ -36,6 +36,8 @@ export default class extends Controller {
     timezone: String,
     userPlan: { type: String, default: "pro" },
     upgradeUrl: { type: String, default: "" },
+    initialLat: Number,
+    initialLon: Number,
   }
 
   static targets = [
@@ -401,11 +403,15 @@ export default class extends Controller {
    * Initialize MapLibre map
    */
   async initializeMap() {
+    // vicquick fork: center on the latest tracked point (city zoom) when known.
+    const hasInitial = this.hasInitialLatValue && this.hasInitialLonValue &&
+      this.initialLatValue !== 0 && this.initialLonValue !== 0
     this.map = await MapInitializer.initialize(this.containerTarget, {
       mapStyle: this.themeBasemap(),
       globeProjection: this.settings.globeProjection,
       hiddenTileCategories: this.settings.hiddenTileCategories || [],
       disabledPoiGroups: this.settings.disabledPoiGroups || [],
+      ...(hasInitial ? { center: [this.initialLonValue, this.initialLatValue], zoom: 14 } : {}),
     })
 
     // vicquick fork: expose the map for the discovery/place-sheet controllers

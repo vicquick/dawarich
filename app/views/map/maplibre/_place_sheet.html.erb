@@ -1,4 +1,8 @@
 <%# Place detail bottom sheet (vicquick fork) — Google-Maps-style %>
+<%# Dimming backdrop — gives the sheet a clear "overlay" background; tap to close. %>
+<div id="place-sheet-backdrop"
+     style="position:fixed; inset:0; z-index:590; background:rgba(0,0,0,.32);
+            opacity:0; pointer-events:none; transition:opacity .28s ease;"></div>
 <div data-controller="place-sheet"
      data-place-sheet-api-key-value="<%= current_user.api_key %>"
      data-place-sheet-starred-tag-id-value="5"

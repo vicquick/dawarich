@@ -10,6 +10,10 @@
      data-maps--maplibre-timezone-value="<%= current_user.timezone %>"
      data-maps--maplibre-user-plan-value="<%= current_user.plan %>"
      data-maps--maplibre-upgrade-url-value="<%= upgrade_url(utm_medium: 'map', utm_content: 'maplibre') %>"
+     <% if @last_lat && @last_lon %>
+     data-maps--maplibre-initial-lat-value="<%= @last_lat %>"
+     data-maps--maplibre-initial-lon-value="<%= @last_lon %>"
+     <% end %>
      data-maps--maplibre-realtime-enabled-value="true"
      data-maps--maplibre-realtime-live-mode-value="<%= current_user.safe_settings.live_map_enabled %>"
      data-family-members-features-value="<%= DawarichSettings.features.to_json %>"

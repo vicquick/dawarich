@@ -25,6 +25,10 @@ module Map
 
       # Tag chips displayed in the rail; capped so the list doesn't explode.
       @timeline_tags = current_user.tags.order(:name).limit(8)
+
+      # vicquick fork: open the map centred on the most recent tracked point
+      # (city-level default zoom) instead of the null-island world view.
+      @last_lon, @last_lat = current_user.points.order(timestamp: :desc).limit(1).pick(:longitude, :latitude)
     end
 
     private
