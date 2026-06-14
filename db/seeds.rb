@@ -39,19 +39,6 @@ if Country.none?
   end
 end
 
-if Tag.none?
-  Rails.logger.debug 'Creating default tags...'
-
-  default_tags = [
-    { name: 'Home', color: '#FF5733', icon: '🏡' },
-    { name: 'Work', color: '#33FF57', icon: '💼' },
-    { name: 'Favorite', color: '#3357FF', icon: '⭐' },
-    { name: 'Travel Plans', color: '#F1C40F', icon: '🗺️' }
-  ]
-
-  User.find_each do |user|
-    default_tags.each do |tag_attrs|
-      Tag.create!(tag_attrs.merge(user: user))
-    end
-  end
-end
+# vicquick fork: do NOT seed Dawarich's default tags (Home/Work/Favorite/Travel
+# Plans). We organise places Google-style (Starred / Want to go / Favourite),
+# and the empty defaults were just clutter. Leaving tags entirely user-defined.
