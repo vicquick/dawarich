@@ -108,14 +108,14 @@ end
 # model is identical: an attacker grinding passwords against /api/v1/auth/login
 # would otherwise bypass the Devise web throttles entirely.
 Rack::Attack.throttle('logins/api_email', limit: 5, period: 1.minute) do |req|
-  next if DawarichSettings.self_hosted?
+  # vicquick fork: applies on self-hosted too — this instance is public, so the
+  # mobile-login endpoint needs the same brute-force protection as web sign-in.
   next unless req.path == '/api/v1/auth/login' && req.post?
 
   req.params['email']&.to_s&.downcase&.strip
 end
 
 Rack::Attack.throttle('logins/api_ip', limit: 20, period: 1.minute) do |req|
-  next if DawarichSettings.self_hosted?
   next unless req.path == '/api/v1/auth/login' && req.post?
 
   req.ip
