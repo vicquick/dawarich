@@ -250,6 +250,9 @@ Rails.application.routes.draw do
       # Directions/routing proxy to self-hosted Valhalla (vicquick fork)
       post  'directions', to: 'routing#directions'
       get   'directions', to: 'routing#directions'
+      # Discovery: nearby POIs (Photon) + place info (OSM tags) — vicquick fork
+      get   'nearby',     to: 'discovery#nearby'
+      get   'place_info', to: 'discovery#place_info'
       patch 'settings', to: 'settings#update'
       get   'settings', to: 'settings#index'
       get   'settings/transportation_recalculation_status', to: 'settings#transportation_recalculation_status'
