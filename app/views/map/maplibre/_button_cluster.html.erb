@@ -8,7 +8,8 @@
           aria-keyshortcuts="T"
           title="Timeline (T)">
     <%= icon 'calendar-clock' %>
-    <%= render 'map/timeline_feeds/suggestions_badge', count: @suggestions_pending_count.to_i %>
+    <%# vicquick fork: visit-suggestion badge hidden by default — the suggestions
+        still generate and live in the Timeline tab; this just drops the nag count. %>
   </button>
 
   <button type="button"
