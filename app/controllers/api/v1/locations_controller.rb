@@ -28,7 +28,9 @@ class Api::V1::LocationsController < ApiController
           name: suggestion[:name],
           address: suggestion[:address],
           coordinates: [suggestion[:lat], suggestion[:lon]],
-          type: suggestion[:type]
+          type: suggestion[:type],
+          osm_type: suggestion[:osm_type],
+          osm_id: suggestion[:osm_id]
         }
       end
 

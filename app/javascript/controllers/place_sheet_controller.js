@@ -31,6 +31,8 @@ export default class extends Controller {
       type: loc.type || "",
       lat: Number(coords[0]),
       lon: Number(coords[1]),
+      osmType: loc.osm_type || loc.osmType,
+      osmId: loc.osm_id || loc.osmId,
     }
     if (this.hasTitleTarget) this.titleTarget.textContent = this.place.name
     if (this.hasAddressTarget) this.addressTarget.textContent = this.place.address
@@ -42,6 +44,34 @@ export default class extends Controller {
     this.element.style.height = "34vh"
     this.element.style.transform = "translateY(0)"
     this.expanded = false
+    this.enrich()
+  }
+
+  // Fetch open-now / hours / phone / website (OSM) and render it.
+  async enrich() {
+    if (!this.hasEnrichmentTarget || !this.place.osmType || !this.place.osmId) return
+    try {
+      const res = await fetch(
+        `/api/v1/place_info?api_key=${encodeURIComponent(this.apiKeyValue)}&osm_type=${this.place.osmType}&osm_id=${this.place.osmId}`,
+      )
+      if (!res.ok) return
+      const d = await res.json()
+      const parts = []
+      if (d.open_now === true) parts.push(`<span style="color:#16a34a;font-weight:600">Open now</span>`)
+      else if (d.open_now === false) parts.push(`<span style="color:#dc2626;font-weight:600">Closed now</span>`)
+      if (d.opening_hours) parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
+      let html = parts.length ? `<div style="font-size:.85rem;margin-bottom:8px">${parts.join(" · ")}</div>` : ""
+      const links = []
+      if (d.phone) links.push(`<a href="tel:${this.esc(d.phone)}" class="btn btn-outline btn-sm gap-1">📞 Call</a>`)
+      if (d.website) links.push(`<a href="${this.esc(d.website)}" target="_blank" rel="noopener" class="btn btn-outline btn-sm gap-1">🌐 Website</a>`)
+      if (links.length) html += `<div style="display:flex;gap:8px;flex-wrap:wrap">${links.join("")}</div>`
+      if (d.cuisine) html += `<p style="font-size:.75rem;opacity:.6;margin-top:8px">${this.esc(d.cuisine.replace(/;/g, ", "))}</p>`
+      this.enrichmentTarget.innerHTML = html
+    } catch (e) { /* enrichment is best-effort */ }
+  }
+
+  esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
   }
 
   togglePullUp() {
