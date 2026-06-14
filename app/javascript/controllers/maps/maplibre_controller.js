@@ -19,6 +19,7 @@ import { LayerManager } from "./maplibre/layer_manager"
 import { MapDataManager } from "./maplibre/map_data_manager"
 import { MapInitializer } from "./maplibre/map_initializer"
 import { PlacesManager } from "./maplibre/places_manager"
+import { POIsManager } from "./maplibre/pois_manager"
 import { RoutesManager } from "./maplibre/routes_manager"
 import { SettingsController } from "./maplibre/settings_manager"
 import { VisitsManager } from "./maplibre/visits_manager"
@@ -223,6 +224,14 @@ export default class extends Controller {
     this.routesManager = new RoutesManager(this)
     this.directionsManager = new DirectionsManager(this)
     window.dawarichDirections = this.directionsManager
+
+    // vicquick fork: interactive basemap POIs (tap desktop / long-press mobile).
+    this.poisManager = new POIsManager(this)
+    if (this.map.isStyleLoaded()) {
+      this.poisManager.setup()
+    } else {
+      this.map.once("load", () => this.poisManager.setup())
+    }
 
     // Listen for tab changes to trigger timeline feed loading via Turbo Frame
     this.boundHandleTabChanged = this.handleTabChanged.bind(this)

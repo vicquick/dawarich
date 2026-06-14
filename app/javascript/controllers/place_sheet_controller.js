@@ -34,7 +34,22 @@ export default class extends Controller {
       osmType: loc.osm_type || loc.osmType,
       osmId: loc.osm_id || loc.osmId,
     }
-    if (this.hasTitleTarget) this.titleTarget.textContent = this.place.name
+    this.editableName = !!loc.editableName
+    if (this.hasTitleTarget) {
+      this.titleTarget.textContent = this.place.name
+      // Dropped pins: let the user label the place inline before saving.
+      this.titleTarget.contentEditable = this.editableName ? "true" : "false"
+      this.titleTarget.style.outline = this.editableName ? "1px dashed rgba(128,128,128,.5)" : ""
+      this.titleTarget.style.borderRadius = this.editableName ? "6px" : ""
+      this.titleTarget.style.padding = this.editableName ? "0 4px" : ""
+      if (this.editableName) {
+        this.titleTarget.setAttribute("aria-label", "Pin label (editable)")
+        requestAnimationFrame(() => {
+          this.titleTarget.focus()
+          document.getSelection()?.selectAllChildren(this.titleTarget)
+        })
+      }
+    }
     if (this.hasAddressTarget) this.addressTarget.textContent = this.place.address
     if (this.hasMetaTarget) {
       this.metaTarget.textContent = [this.place.type, `${this.place.lat.toFixed(5)}, ${this.place.lon.toFixed(5)}`]
@@ -93,13 +108,17 @@ export default class extends Controller {
 
   async save() {
     if (!this.place) return
+    // Pick up an edited label for dropped pins.
+    const name = this.hasTitleTarget && this.editableName
+      ? (this.titleTarget.textContent || "").trim() || this.place.name
+      : this.place.name
     try {
       const res = await fetch(`/api/v1/places?api_key=${encodeURIComponent(this.apiKeyValue)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           place: {
-            name: this.place.name,
+            name,
             latitude: this.place.lat,
             longitude: this.place.lon,
             tag_ids: [this.starredTagIdValue],
