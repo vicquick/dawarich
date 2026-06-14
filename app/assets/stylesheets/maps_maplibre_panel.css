@@ -456,6 +456,11 @@
   .maps-maplibre-container.panel-timeline-expanded ~ .map-button-cluster {
     left: 12px;
   }
+  /* vicquick fork: drop the cluster below the full-width floating search bar
+     so the two never overlap on narrow screens. */
+  .map-button-cluster {
+    top: 4.75rem;
+  }
 }
 
 .map-button-cluster__btn {

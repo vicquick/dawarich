@@ -1,6 +1,7 @@
-<%# Floating Google-Maps-style search bar (vicquick fork). Sits over the map,
-    queries self-hosted Photon via /api/v1/locations/suggestions, opens the
-    place detail sheet on selection. Self-contained; failures never break the map. %>
+<%# Floating Google-Maps-style search (vicquick fork). Owns the top of the map.
+    Tapping it reveals category chips beneath it (replacing the old always-on
+    discovery sheet); typing queries self-hosted Photon. Selecting a result or
+    category opens results, then the place detail sheet. Self-contained. %>
 <div data-controller="map-search"
      data-map-search-api-key-value="<%= current_user.api_key %>"
      class="map-search">
@@ -19,17 +20,29 @@
             class="map-search__clear"
             hidden aria-label="Clear search">✕</button>
   </div>
-  <ul data-map-search-target="results" class="map-search__results" hidden></ul>
+
+  <div data-map-search-target="panel" class="map-search__panel" hidden>
+    <div data-map-search-target="chips" class="map-search__chips">
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="restaurant">🍴 Restaurants</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="cafe">☕ Cafés</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="fuel">⛽ Fuel</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="atm">🏧 ATMs</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="shopping">🛒 Shops</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="pharmacy">💊 Pharmacy</button>
+    </div>
+    <ul data-map-search-target="results" class="map-search__results" hidden></ul>
+  </div>
 </div>
 
 <style>
   .map-search {
     position: absolute;
     top: max(0.75rem, env(safe-area-inset-top));
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(92vw, 30rem);
-    z-index: 550;
+    left: 0.75rem;
+    right: 0.75rem;
+    margin: 0 auto;
+    max-width: 30rem;
+    z-index: 560;
     font: inherit;
   }
   .map-search__bar {
@@ -41,37 +54,52 @@
     background: var(--b1, #fff);
     color: var(--bc, #1f1f1f);
     border-radius: 1.6rem;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.04);
   }
-  .map-search__icon { display: flex; opacity: 0.6; }
+  .map-search__icon { display: flex; opacity: 0.55; }
   .map-search__icon svg { width: 1.2rem; height: 1.2rem; }
   .map-search__input {
-    flex: 1 1 auto;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font-size: 1rem;
-    outline: none;
+    flex: 1 1 auto; min-width: 0;
+    border: 0; background: transparent; color: inherit;
+    font-size: 1rem; outline: none;
   }
   .map-search__clear {
-    flex: 0 0 auto;
-    width: 2rem; height: 2rem;
-    border: 0; border-radius: 50%;
-    background: transparent; color: inherit;
+    flex: 0 0 auto; width: 2rem; height: 2rem;
+    border: 0; border-radius: 50%; background: transparent; color: inherit;
     opacity: 0.55; cursor: pointer; font-size: 0.9rem;
   }
   .map-search__clear:hover { background: rgba(128, 128, 128, 0.15); opacity: 0.9; }
-  .map-search__results {
-    margin: 0.4rem 0 0;
-    padding: 0.3rem;
-    list-style: none;
+
+  .map-search__panel {
+    margin-top: 0.5rem;
     background: var(--b1, #fff);
     color: var(--bc, #1f1f1f);
     border-radius: 1rem;
-    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
-    max-height: 60vh;
-    overflow: auto;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    overflow: hidden;
+  }
+  .map-search__chips {
+    display: flex; gap: 0.45rem;
+    padding: 0.6rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .map-search__chips::-webkit-scrollbar { display: none; }
+  .map-search__chip {
+    flex: 0 0 auto;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 1.1rem;
+    padding: 0.35rem 0.8rem;
+    background: transparent; color: inherit;
+    font-size: 0.85rem; white-space: nowrap; cursor: pointer;
+  }
+  .map-search__chip:hover, .map-search__chip[aria-pressed="true"] {
+    background: rgba(128, 128, 128, 0.14);
+  }
+  .map-search__results {
+    margin: 0; padding: 0.3rem; list-style: none;
+    max-height: 56vh; overflow: auto;
+    border-top: 1px solid rgba(128, 128, 128, 0.14);
   }
   .map-search__row {
     display: flex; align-items: center; gap: 0.7rem;
@@ -80,22 +108,15 @@
     background: transparent; color: inherit;
     text-align: left; cursor: pointer; font: inherit;
   }
-  .map-search__row:hover, .map-search__row[aria-selected="true"] {
-    background: rgba(128, 128, 128, 0.12);
-  }
+  .map-search__row:hover, .map-search__row[aria-selected="true"] { background: rgba(128, 128, 128, 0.12); }
   .map-search__row-dot {
     flex: 0 0 auto; width: 1.9rem; height: 1.9rem;
     border-radius: 50%; display: flex; align-items: center; justify-content: center;
     background: rgba(128, 128, 128, 0.14); font-size: 0.95rem;
   }
-  .map-search__row-text { min-width: 0; }
-  .map-search__row-name {
-    display: block; font-weight: 600;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .map-search__row-sub {
-    display: block; font-size: 0.78rem; opacity: 0.6;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
+  .map-search__row-text { min-width: 0; flex: 1 1 auto; }
+  .map-search__row-name { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .map-search__row-sub { display: block; font-size: 0.78rem; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .map-search__row-dist { flex: 0 0 auto; font-size: 0.75rem; opacity: 0.55; white-space: nowrap; }
   .map-search__empty { padding: 0.8rem; opacity: 0.6; font-size: 0.9rem; }
 </style>

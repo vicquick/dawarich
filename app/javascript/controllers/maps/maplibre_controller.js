@@ -422,7 +422,7 @@ export default class extends Controller {
         trackUserLocation: true,
         showUserHeading: true,
       })
-      this.map.addControl(this.geolocateControl, "top-right")
+      this.map.addControl(this.geolocateControl, "bottom-right")
     } catch (e) {
       // non-fatal if geolocation is unavailable
     }
