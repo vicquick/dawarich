@@ -1,29 +1,25 @@
-<%# Directions UI (vicquick fork — Valhalla-backed routing on the map) %>
-<button type="button" id="directions-toggle"
-        class="btn btn-circle btn-primary shadow-lg"
-        style="position:absolute;left:1rem;bottom:7rem;z-index:500"
-        title="Directions"
-        onclick="(function(){var d=window.dawarichDirections;if(!d)return;var on=d.toggle();document.getElementById('directions-toggle').classList.toggle('btn-active',on);})()">
-  <%= icon 'route' %>
-</button>
-
+<%# Directions UI (vicquick fork — Valhalla-backed routing on the map).
+    No standalone toggle button any more: directions start from a place's
+    detail sheet (Directions action). This panel only shows the active route. %>
 <div id="directions-panel"
      class="hidden card bg-base-100 shadow-xl"
-     style="position:absolute;left:1rem;bottom:11rem;z-index:500;width:18rem;max-height:60vh;overflow:auto">
+     style="position:absolute;left:1rem;bottom:1.5rem;z-index:500;width:min(20rem,calc(100vw - 2rem));max-height:55vh;overflow:auto;border-radius:16px">
   <div class="card-body p-3 gap-2">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-2">
       <span class="font-semibold text-sm">Directions</span>
-      <select id="directions-mode" class="select select-xs select-bordered"
-              onchange="window.dawarichDirections && window.dawarichDirections.setCosting(this.value)">
-        <option value="auto">🚗 Drive</option>
-        <option value="bicycle">🚲 Bike</option>
-        <option value="pedestrian">🚶 Walk</option>
-      </select>
+      <div class="flex items-center gap-1">
+        <select id="directions-mode" class="select select-xs select-bordered"
+                onchange="window.dawarichDirections && window.dawarichDirections.setCosting(this.value)">
+          <option value="auto">🚗 Drive</option>
+          <option value="bicycle">🚲 Bike</option>
+          <option value="pedestrian">🚶 Walk</option>
+        </select>
+        <button type="button" class="btn btn-xs btn-ghost btn-circle" title="Close"
+                onclick="window.dawarichDirections && window.dawarichDirections.disable()">✕</button>
+      </div>
     </div>
-    <p id="directions-status" class="text-xs opacity-70">Click the map to set a start point.</p>
+    <p id="directions-status" class="text-xs opacity-70">Pick a place, then tap Directions.</p>
     <p id="directions-summary" class="text-base font-bold text-primary"></p>
     <ol id="directions-turns" class="m-0 p-0 list-none"></ol>
-    <button type="button" class="btn btn-xs btn-ghost"
-            onclick="window.dawarichDirections && window.dawarichDirections.clear()">Clear</button>
   </div>
 </div>
