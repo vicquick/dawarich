@@ -19,32 +19,35 @@ class Api::V1::DiscoveryController < ApiController
     'pharmacy'   => 'amenity:pharmacy',
   }.freeze
 
+  # Overpass tag filters per category (richer than Photon — carries opening_hours).
+  OVERPASS_FILTERS = {
+    'restaurant'  => '[amenity=restaurant]',
+    'cafe'        => '[amenity=cafe]',
+    'bar'         => '[amenity~"^(bar|pub)$"]',
+    'fuel'        => '[amenity=fuel]',
+    'atm'         => '[amenity~"^(atm|bank)$"]',
+    'shopping'    => '[shop]',
+    'supermarket' => '[shop=supermarket]',
+    'hotel'       => '[tourism=hotel]',
+    'pharmacy'    => '[amenity=pharmacy]'
+  }.freeze
+
   def nearby
     lat = params[:lat]&.to_f
     lon = params[:lon]&.to_f
     return render_error('lat/lon required') if lat.nil? || lon.nil?
 
-    osm_tag = CATEGORIES[params[:category].to_s] || 'amenity:restaurant'
-    q = params[:q].presence || params[:category].presence || 'place'
+    category = params[:category].to_s
+    limit = (params[:limit] || 15).to_i.clamp(1, 50)
+    radius = (params[:radius] || 1500).to_i.clamp(100, 5000)
+    open_only = params[:open_now].to_s == 'true'
 
-    uri = URI("#{photon_base}/api")
-    uri.query = URI.encode_www_form(q: q, lat: lat, lon: lon, limit: (params[:limit] || 15).to_i, osm_tag: osm_tag)
-    resp = http_get(uri)
-    return render_error('Search engine error', :bad_gateway) unless resp&.is_a?(Net::HTTPSuccess)
+    # Prefer self-hosted Overpass (full tags + open-now); fall back to Photon.
+    results = overpass_nearby(lat, lon, category, radius) || photon_nearby(lat, lon, category, limit)
+    return render_error('Search engine error', :bad_gateway) if results.nil?
 
-    features = Oj.load(resp.body)['features'] || []
-    results = features.map do |f|
-      p = f['properties']; c = f['geometry']['coordinates']
-      {
-        name: p['name'] || [p['street'], p['housenumber']].compact.join(' '),
-        category: p['osm_value'],
-        address: [p['street'], p['housenumber'], p['postcode'], p['city']].compact.join(' '),
-        lat: c[1], lon: c[0],
-        osm_type: p['osm_type'], osm_id: p['osm_id'],
-        distance_m: haversine(lat, lon, c[1], c[0]).round
-      }
-    end.sort_by { |r| r[:distance_m] }
-
+    results = results.select { |r| r[:open_now] } if open_only
+    results = results.sort_by { |r| r[:distance_m] }.first(limit)
     render json: { results: results }
   end
 
@@ -53,11 +56,14 @@ class Api::V1::DiscoveryController < ApiController
     id = params[:osm_id].to_s[/\d+/]
     return render_error('osm_type + osm_id required') if type.nil? || id.nil?
 
-    uri = URI("https://api.openstreetmap.org/api/0.6/#{type}/#{id}.json")
-    resp = http_get(uri, host_header: nil)
-    return render json: { tags: {} } unless resp&.is_a?(Net::HTTPSuccess)
-
-    tags = (Oj.load(resp.body)['elements'] || []).first&.dig('tags') || {}
+    # Self-hosted Overpass first (local, fast); fall back to the open OSM API.
+    tags = overpass_element(type, id)
+    if tags.nil?
+      uri = URI("https://api.openstreetmap.org/api/0.6/#{type}/#{id}.json")
+      resp = http_get(uri, host_header: nil)
+      tags = resp&.is_a?(Net::HTTPSuccess) ? (Oj.load(resp.body)['elements'] || []).first&.dig('tags') : nil
+    end
+    tags ||= {}
     hours = tags['opening_hours']
     render json: {
       opening_hours: hours,
@@ -71,6 +77,112 @@ class Api::V1::DiscoveryController < ApiController
   end
 
   private
+
+  # --- Overpass (self-hosted Germany DB) ---
+
+  def overpass_nearby(lat, lon, category, radius)
+    filter = OVERPASS_FILTERS[category]
+    return nil unless filter
+
+    ql = "[out:json][timeout:25];nwr(around:#{radius},#{lat},#{lon})#{filter};out center tags 80;"
+    resp = overpass_post(ql)
+    return nil unless resp&.is_a?(Net::HTTPSuccess)
+
+    els = Oj.load(resp.body)['elements'] || []
+    els.filter_map do |e|
+      tags = e['tags'] || {}
+      name = tags['name'] || tags['brand']
+      next if name.blank?
+
+      plat = e['lat'] || e.dig('center', 'lat')
+      plon = e['lon'] || e.dig('center', 'lon')
+      next if plat.nil? || plon.nil?
+
+      hours = tags['opening_hours']
+      {
+        name: name,
+        category: tags['amenity'] || tags['shop'] || tags['tourism'] || category,
+        address: [tags['addr:street'], tags['addr:housenumber'], tags['addr:postcode'], tags['addr:city']].compact.join(' '),
+        lat: plat, lon: plon,
+        osm_type: e['type'], osm_id: e['id'],
+        opening_hours: hours,
+        open_now: hours ? open_now?(hours) : nil,
+        cuisine: tags['cuisine'],
+        distance_m: haversine(lat, lon, plat, plon).round
+      }
+    end
+  rescue StandardError
+    nil
+  end
+
+  # Single element lookup (place_info) straight from Overpass.
+  def overpass_element(type, id)
+    ql = "[out:json][timeout:10];#{type}(#{id});out tags;"
+    resp = overpass_post(ql)
+    return nil unless resp&.is_a?(Net::HTTPSuccess)
+
+    (Oj.load(resp.body)['elements'] || []).first&.dig('tags')
+  rescue StandardError
+    nil
+  end
+
+  def overpass_post(ql)
+    base = overpass_base
+    return nil unless base
+
+    uri = URI("#{base}/api/interpreter")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = uri.scheme == 'https'
+    http.open_timeout = 5
+    http.read_timeout = 30
+    req = Net::HTTP::Post.new(uri)
+    req['User-Agent'] = 'Dawarich-vicquick/1.0'
+    req.body = "data=#{URI.encode_www_form_component(ql)}"
+    http.request(req)
+  rescue StandardError
+    nil
+  end
+
+  def overpass_base
+    host = ENV['OVERPASS_API_HOST'].presence
+    return nil if host.blank?
+
+    scheme = ENV['OVERPASS_API_USE_HTTPS'] == 'true' ? 'https' : 'http'
+    url = host.include?('://') ? host : "#{scheme}://#{host}"
+    uri = URI(url)
+    begin
+      ipv4 = Resolv.getaddresses(uri.host).find { |a| a.match?(/\A\d{1,3}(\.\d{1,3}){3}\z/) }
+      uri.host = ipv4 if ipv4
+    rescue StandardError
+    end
+    uri.to_s.chomp('/')
+  end
+
+  # --- Photon fallback (no opening_hours) ---
+
+  def photon_nearby(lat, lon, category, limit)
+    osm_tag = CATEGORIES[category] || 'amenity:restaurant'
+    q = params[:q].presence || category.presence || 'place'
+
+    uri = URI("#{photon_base}/api")
+    uri.query = URI.encode_www_form(q: q, lat: lat, lon: lon, limit: limit, osm_tag: osm_tag)
+    resp = http_get(uri)
+    return nil unless resp&.is_a?(Net::HTTPSuccess)
+
+    features = Oj.load(resp.body)['features'] || []
+    features.map do |f|
+      p = f['properties']; c = f['geometry']['coordinates']
+      {
+        name: p['name'] || [p['street'], p['housenumber']].compact.join(' '),
+        category: p['osm_value'],
+        address: [p['street'], p['housenumber'], p['postcode'], p['city']].compact.join(' '),
+        lat: c[1], lon: c[0],
+        osm_type: p['osm_type'], osm_id: p['osm_id'],
+        open_now: nil,
+        distance_m: haversine(lat, lon, c[1], c[0]).round
+      }
+    end
+  end
 
   def photon_base
     host = ENV['PHOTON_API_HOST'].presence || 'localhost:2322'

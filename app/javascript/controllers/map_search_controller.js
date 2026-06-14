@@ -73,17 +73,23 @@ export default class extends Controller {
   }
 
   // --- category (nearby) search ---
-  async category(e) {
+  category(e) {
     const btn = e.currentTarget
     const cat = btn?.dataset?.category
     if (!cat) return
-    this.chipsTarget.querySelectorAll(".map-search__chip").forEach((c) => c.setAttribute("aria-pressed", c === btn ? "true" : "false"))
+    this.chipsTarget.querySelectorAll("[data-category]").forEach((c) => c.setAttribute("aria-pressed", c === btn ? "true" : "false"))
+    this.runCategory(cat)
+  }
+
+  async runCategory(cat) {
+    this._lastCategory = cat
     const map = window.dawarichMap
     if (!map) return
     const c = map.getCenter()
     this.renderEmpty("Searching nearby…")
     try {
-      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&category=${encodeURIComponent(cat)}&limit=15`)
+      const openParam = this._openNow ? "&open_now=true" : ""
+      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&category=${encodeURIComponent(cat)}&limit=20${openParam}`)
       if (!res.ok) return this.renderEmpty("Nearby unavailable")
       const data = await res.json()
       const list = (data.results || []).map((r) => ({
@@ -115,7 +121,7 @@ export default class extends Controller {
             <span class="map-search__row-dot">${this.glyph(s.type)}</span>
             <span class="map-search__row-text">
               <span class="map-search__row-name">${this.esc(s.name)}</span>
-              ${s.address ? `<span class="map-search__row-sub">${this.esc(s.address)}</span>` : ""}
+              <span class="map-search__row-sub">${this.openBadge(s.open_now)}${s.address ? this.esc(s.address) : ""}</span>
             </span>
             ${s.distance_m != null ? `<span class="map-search__row-dist">${this.fmtDist(s.distance_m)}</span>` : ""}
           </button>
@@ -161,7 +167,7 @@ export default class extends Controller {
   }
 
   clearChipState() {
-    this.chipsTarget?.querySelectorAll('.map-search__chip[aria-pressed="true"]').forEach((c) => c.setAttribute("aria-pressed", "false"))
+    this.chipsTarget?.querySelectorAll('[data-category][aria-pressed="true"]').forEach((c) => c.setAttribute("aria-pressed", "false"))
   }
 
   onKeydown(e) {
@@ -179,6 +185,20 @@ export default class extends Controller {
   }
 
   fmtDist(m) { return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km` }
+
+  openBadge(open) {
+    if (open === true) return `<span style="color:#16a34a;font-weight:600">Open</span> · `
+    if (open === false) return `<span style="color:#dc2626;font-weight:600">Closed</span> · `
+    return ""
+  }
+
+  // "Open now" filter toggle — re-runs the active category, open ones only.
+  toggleOpenNow(e) {
+    const btn = e.currentTarget
+    this._openNow = !this._openNow
+    btn.setAttribute("aria-pressed", this._openNow ? "true" : "false")
+    if (this._lastCategory) this.runCategory(this._lastCategory)
+  }
 
   glyph(type) {
     const t = String(type || "").toLowerCase()
