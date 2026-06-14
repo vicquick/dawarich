@@ -52,10 +52,14 @@
     gap: 0.5rem;
     height: 3rem;
     padding: 0 0.5rem 0 0.9rem;
-    background: var(--b1, #fff);
-    color: var(--bc, #1f1f1f);
+    background: oklch(var(--b1));
+    color: oklch(var(--bc));
     border-radius: 1.6rem;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  }
+  /* Blue ring when the textbox is focused. */
+  .map-search__bar:focus-within {
+    box-shadow: 0 0 0 2px #1a73e8, 0 2px 12px rgba(0, 0, 0, 0.20);
   }
   .map-search__icon { display: flex; opacity: 0.55; }
   .map-search__icon svg { width: 1.2rem; height: 1.2rem; }
@@ -73,8 +77,8 @@
 
   .map-search__panel {
     margin-top: 0.5rem;
-    background: var(--b1, #fff);
-    color: var(--bc, #1f1f1f);
+    background: oklch(var(--b1));
+    color: oklch(var(--bc));
     border-radius: 1rem;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
     overflow: hidden;

@@ -24,12 +24,18 @@ export default class extends Controller {
   // --- open / close ---
   onFocus() {
     this.panelTarget.hidden = false
+    this.dateFloat()?.style.setProperty("display", "none")
     if (this.inputTarget.value.trim().length < 2) this.showChips()
   }
 
   close() {
     this.panelTarget.hidden = true
+    this.dateFloat()?.style.removeProperty("display")
     this.clearChipState()
+  }
+
+  dateFloat() {
+    return document.querySelector(".map-date-float")
   }
 
   showChips() {
