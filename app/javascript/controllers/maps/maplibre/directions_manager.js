@@ -91,17 +91,51 @@ export class DirectionsManager {
     this.markers.push(marker)
   }
 
-  // Programmatic "directions to here" — destination = given coords, start = map center.
-  routeTo(lat, lon) {
+  // Programmatic "directions to here" — destination = given coords, start =
+  // the user's current location (falls back to map center if unavailable).
+  // The start marker stays draggable so it can be corrected.
+  async routeTo(lat, lon) {
     if (!this.map) return
     this.enable()
     this.clear()
-    const c = this.map.getCenter()
-    this.start = { lat: c.lat, lon: c.lng }
     this.end = { lat: Number(lat), lon: Number(lon) }
-    this.addMarker([this.start.lon, this.start.lat], "#22c55e", "A")
     this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.setStatus("Locating you…")
+    this.start = await this.currentLocation()
+    this.addStartMarker([this.start.lon, this.start.lat])
     this.computeRoute()
+  }
+
+  // Resolve the user's position; resolve to map center on denial/timeout.
+  currentLocation() {
+    const center = () => {
+      const c = this.map.getCenter()
+      return { lat: c.lat, lon: c.lng }
+    }
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(center())
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => resolve(center()),
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 },
+      )
+    })
+  }
+
+  // Draggable green start marker — lets the user re-pick the origin.
+  addStartMarker(lngLat) {
+    const el = document.createElement("div")
+    el.style.cssText = `background:#22c55e;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:bold 12px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:grab`
+    el.textContent = "A"
+    const marker = new maplibregl.Marker({ element: el, draggable: true })
+      .setLngLat(lngLat)
+      .addTo(this.map)
+    marker.on("dragend", () => {
+      const ll = marker.getLngLat()
+      this.start = { lat: ll.lat, lon: ll.lng }
+      if (this.end) this.computeRoute()
+    })
+    this.markers.push(marker)
   }
 
   async computeRoute() {
