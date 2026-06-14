@@ -42,6 +42,9 @@ export class DirectionsManager {
       this.map.getCanvas().style.cursor = ""
       this.map.off("click", this.boundClick)
     }
+    // Second press of the toggle: fully clear route/markers and close the panel.
+    this.clear()
+    this.panel()?.classList.add("hidden")
   }
 
   clear() {

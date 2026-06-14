@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import maplibregl from "maplibre-gl"
 import { Toast } from "maps_maplibre/components/toast"
 import { ReplayManager } from "maps_maplibre/managers/replay_manager"
 import { ApiClient } from "maps_maplibre/services/api_client"
@@ -396,6 +397,18 @@ export default class extends Controller {
       hiddenTileCategories: this.settings.hiddenTileCategories || [],
       disabledPoiGroups: this.settings.disabledPoiGroups || [],
     })
+
+    // vicquick fork: device geolocation control (locate me / start point for routing)
+    try {
+      this.geolocateControl = new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+        showUserHeading: true,
+      })
+      this.map.addControl(this.geolocateControl, "top-right")
+    } catch (e) {
+      // non-fatal if geolocation is unavailable
+    }
   }
 
   /**
