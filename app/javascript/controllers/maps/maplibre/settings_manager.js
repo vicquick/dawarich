@@ -1073,6 +1073,20 @@ export class SettingsController {
     })
   }
 
+  // vicquick fork: apply a basemap by name (theme-following), reloading layers.
+  // Does NOT persist the setting — keeps the user's manual style preference intact.
+  async applyBasemap(styleName) {
+    const style = await getMapStyle(styleName, {
+      hiddenTileCategories: this.settings.hiddenTileCategories || [],
+      disabledPoiGroups: this.settings.disabledPoiGroups || [],
+    })
+    this.layerManager.clearLayerReferences()
+    this.map.setStyle(style)
+    this.map.once("style.load", () => {
+      this.controller.loadMapData()
+    })
+  }
+
   /**
    * Reset settings to defaults
    */

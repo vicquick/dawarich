@@ -1,5 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 import maplibregl from "maplibre-gl"
+import { getCurrentTheme } from "maps_maplibre/utils/popup_theme"
 import { Toast } from "maps_maplibre/components/toast"
 import { ReplayManager } from "maps_maplibre/managers/replay_manager"
 import { ApiClient } from "maps_maplibre/services/api_client"
@@ -392,11 +393,15 @@ export default class extends Controller {
    */
   async initializeMap() {
     this.map = await MapInitializer.initialize(this.containerTarget, {
-      mapStyle: this.settings.mapStyle,
+      mapStyle: this.themeBasemap(),
       globeProjection: this.settings.globeProjection,
       hiddenTileCategories: this.settings.hiddenTileCategories || [],
       disabledPoiGroups: this.settings.disabledPoiGroups || [],
     })
+
+    // vicquick fork: basemap follows the UI theme (white UI → white OSM, dark UI → dark)
+    this._currentBasemap = this.themeBasemap()
+    this.observeThemeForBasemap()
 
     // vicquick fork: device geolocation control (locate me / start point for routing)
     try {
@@ -408,6 +413,31 @@ export default class extends Controller {
       this.map.addControl(this.geolocateControl, "top-right")
     } catch (e) {
       // non-fatal if geolocation is unavailable
+    }
+  }
+
+  // vicquick fork: pick basemap from the current UI theme.
+  themeBasemap() {
+    return getCurrentTheme() === "dark" ? "dark" : "white"
+  }
+
+  // vicquick fork: swap the basemap when the UI theme toggles (white ↔ dark).
+  observeThemeForBasemap() {
+    try {
+      this._themeObserver = new MutationObserver(() => {
+        const want = this.themeBasemap()
+        if (want === this._currentBasemap) return
+        this._currentBasemap = want
+        if (this.settingsController?.applyBasemap) {
+          this.settingsController.applyBasemap(want)
+        }
+      })
+      this._themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme", "class"],
+      })
+    } catch (e) {
+      // observer is best-effort
     }
   }
 
