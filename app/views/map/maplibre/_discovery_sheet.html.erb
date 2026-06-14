@@ -1,0 +1,23 @@
+<%# "Nearby places" discovery panel (vicquick fork) — Google-Maps-style chips %>
+<div data-controller="discovery-sheet"
+     data-discovery-sheet-api-key-value="<%= current_user.api_key %>"
+     style="position:absolute; left:50%; transform:translateX(-50%); bottom:1rem; z-index:450;
+            width:min(92vw, 30rem); background:var(--b1,#fff); color:var(--bc,#111);
+            border-radius:16px; box-shadow:0 4px 18px rgba(0,0,0,.22); overflow:hidden;"
+     class="bg-base-100 text-base-content">
+  <div style="display:flex; gap:8px; padding:10px; overflow-x:auto;">
+    <button type="button" data-action="click->discovery-sheet#category" data-category="restaurant"
+            class="btn btn-sm btn-outline gap-1">🍴 Restaurants</button>
+    <button type="button" data-action="click->discovery-sheet#category" data-category="cafe"
+            class="btn btn-sm btn-outline gap-1">☕ Cafés</button>
+    <button type="button" data-action="click->discovery-sheet#category" data-category="fuel"
+            class="btn btn-sm btn-outline gap-1">⛽ Fuel</button>
+    <button type="button" data-action="click->discovery-sheet#category" data-category="atm"
+            class="btn btn-sm btn-outline gap-1">🏧 ATMs</button>
+    <button type="button" data-action="click->discovery-sheet#category" data-category="shopping"
+            class="btn btn-sm btn-outline gap-1">🛒 Shopping</button>
+    <button type="button" data-action="click->discovery-sheet#category" data-category="pharmacy"
+            class="btn btn-sm btn-outline gap-1">💊 Pharmacy</button>
+  </div>
+  <div data-discovery-sheet-target="results" style="max-height:34vh; overflow:auto; padding:0 10px;"></div>
+</div>

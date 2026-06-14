@@ -399,6 +399,9 @@ export default class extends Controller {
       disabledPoiGroups: this.settings.disabledPoiGroups || [],
     })
 
+    // vicquick fork: expose the map for the discovery/place-sheet controllers
+    window.dawarichMap = this.map
+
     // vicquick fork: basemap follows the UI theme (white UI → white OSM, dark UI → dark)
     this._currentBasemap = this.themeBasemap()
     this.observeThemeForBasemap()
