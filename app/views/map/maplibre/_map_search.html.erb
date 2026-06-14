@@ -120,4 +120,23 @@
   .map-search__row-sub { display: block; font-size: 0.78rem; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .map-search__row-dist { flex: 0 0 auto; font-size: 0.75rem; opacity: 0.55; white-space: nowrap; }
   .map-search__empty { padding: 0.8rem; opacity: 0.6; font-size: 0.9rem; }
+
+  /* Date control floats as a compact pill just under the search bar, instead of
+     a full-width strip pushing the map down. */
+  .map-date-float {
+    position: absolute;
+    top: 4.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 540;
+    max-width: 94vw;
+    pointer-events: none;
+  }
+  .map-date-float > * { pointer-events: auto; }
+  .map-date-float [data-controller="map-controls"] {
+    background: transparent !important;
+    border: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+  }
 </style>

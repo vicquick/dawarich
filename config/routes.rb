@@ -240,7 +240,9 @@ Rails.application.routes.draw do
   end
 
   # Backward compatibility redirects
-  get '/map', to: 'map/leaflet#index'
+  # vicquick fork: send bare /map to the MapLibre v2 map (where the search /
+  # POIs / directions work lives). Explicit /map/v1 still serves Leaflet.
+  get '/map', to: redirect('/map/v2', status: 302)
   get '/maps/v2', to: redirect('/map/v2')
 
   namespace :api do
