@@ -79,12 +79,37 @@ class Api::V1::DiscoveryController < ApiController
     render json: {
       opening_hours: hours,
       open_now: hours ? open_now?(hours) : nil,
+      today_hours: hours ? today_hours(hours) : nil,
       phone: tags['phone'] || tags['contact:phone'],
       website: tags['website'] || tags['contact:website'],
       cuisine: tags['cuisine'],
       brand: tags['brand'],
       wheelchair: tags['wheelchair']
     }
+  end
+
+  # Today's opening ranges from an opening_hours spec, e.g. "08:00–18:00" or
+  # "08:00–13:00, 15:00–19:00", or "Closed today" / nil if not parseable.
+  def today_hours(spec)
+    return nil if spec.blank? || spec.include?('"')
+    return '24 hours' if spec.strip == '24/7'
+
+    day = %w[Mo Tu We Th Fr Sa Su][(Time.current.wday + 6) % 7]
+    ranges = []
+    spec.split(';').each do |rule|
+      rule = rule.strip
+      days_part, times_part = rule.split(/\s+/, 2)
+      next unless times_part
+      next unless day_matches?(days_part, day)
+
+      times_part.split(',').each do |r|
+        r = r.strip
+        ranges << r.tr('-', '–') if r.match?(/\A\d{1,2}:\d{2}-\d{1,2}:\d{2}\z/)
+      end
+    end
+    ranges.empty? ? 'Closed today' : ranges.join(', ')
+  rescue StandardError
+    nil
   end
 
   private

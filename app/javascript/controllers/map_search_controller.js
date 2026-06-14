@@ -83,6 +83,13 @@ export default class extends Controller {
     const btn = e.currentTarget
     const cat = btn?.dataset?.category
     if (!cat) return
+    // Tapping the active category again clears the filter (back to chips).
+    if (this._lastCategory === cat && btn.getAttribute("aria-pressed") === "true") {
+      btn.setAttribute("aria-pressed", "false")
+      this._lastCategory = null
+      this.showChips()
+      return
+    }
     this.chipsTarget.querySelectorAll("[data-category]").forEach((c) => c.setAttribute("aria-pressed", c === btn ? "true" : "false"))
     this.runCategory(cat)
   }

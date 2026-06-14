@@ -94,7 +94,8 @@ export default class extends Controller {
       const parts = []
       if (d.open_now === true) parts.push(`<span style="color:#16a34a;font-weight:600">Open now</span>`)
       else if (d.open_now === false) parts.push(`<span style="color:#dc2626;font-weight:600">Closed now</span>`)
-      if (d.opening_hours) parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
+      if (d.today_hours) parts.push(`<span style="opacity:.75">Today ${this.esc(d.today_hours)}</span>`)
+      else if (d.opening_hours) parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
       let html = parts.length ? `<div style="font-size:.85rem;margin-bottom:8px">${parts.join(" · ")}</div>` : ""
       const links = []
       if (d.phone) links.push(`<a href="tel:${this.esc(d.phone)}" class="btn btn-outline btn-sm gap-1">📞 Call</a>`)
