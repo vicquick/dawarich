@@ -1,0 +1,45 @@
+<%# Place detail bottom sheet (vicquick fork) — Google-Maps-style %>
+<div data-controller="place-sheet"
+     data-place-sheet-api-key-value="<%= current_user.api_key %>"
+     data-place-sheet-starred-tag-id-value="5"
+     style="position:fixed; left:0; right:0; bottom:0; z-index:600; height:34vh;
+            transform:translateY(100%); transition:transform .28s ease, height .28s ease;
+            background:var(--b1,#fff); color:var(--bc,#111);
+            border-top-left-radius:18px; border-top-right-radius:18px;
+            box-shadow:0 -6px 24px rgba(0,0,0,.25); overflow:hidden; display:flex; flex-direction:column;"
+     class="bg-base-100 text-base-content">
+
+  <%# drag handle / pull-up %>
+  <div data-action="click->place-sheet#togglePullUp"
+       style="cursor:grab; padding:8px 0 4px; display:flex; justify-content:center; flex:0 0 auto;">
+    <span style="width:42px; height:5px; border-radius:3px; background:rgba(128,128,128,.5); display:block;"></span>
+  </div>
+
+  <div style="padding:0 18px 14px; overflow:auto; flex:1 1 auto;">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+      <div style="min-width:0;">
+        <h3 data-place-sheet-target="title" style="margin:0; font-size:1.15rem; font-weight:700; line-height:1.2;">Place</h3>
+        <p data-place-sheet-target="address" style="margin:2px 0 0; font-size:.85rem; opacity:.75;"></p>
+        <p data-place-sheet-target="meta" style="margin:2px 0 0; font-size:.72rem; opacity:.55;"></p>
+      </div>
+      <button type="button" data-action="click->place-sheet#close" aria-label="Close"
+              class="btn btn-ghost btn-sm btn-circle">✕</button>
+    </div>
+
+    <%# action row %>
+    <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+      <button type="button" data-action="click->place-sheet#directions" class="btn btn-primary btn-sm gap-1">
+        <%= icon 'route' %> Directions
+      </button>
+      <button type="button" data-action="click->place-sheet#save" class="btn btn-outline btn-sm gap-1">
+        ⭐ <span data-save-label>Save</span>
+      </button>
+      <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
+        🔗 <span data-share-label>Share</span>
+      </button>
+    </div>
+
+    <%# enrichment area (Brave/OSM overview — populated later) %>
+    <div data-place-sheet-target="enrichment" style="margin-top:14px;"></div>
+  </div>
+</div>

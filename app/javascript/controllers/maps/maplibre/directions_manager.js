@@ -91,6 +91,19 @@ export class DirectionsManager {
     this.markers.push(marker)
   }
 
+  // Programmatic "directions to here" — destination = given coords, start = map center.
+  routeTo(lat, lon) {
+    if (!this.map) return
+    this.enable()
+    this.clear()
+    const c = this.map.getCenter()
+    this.start = { lat: c.lat, lon: c.lng }
+    this.end = { lat: Number(lat), lon: Number(lon) }
+    this.addMarker([this.start.lon, this.start.lat], "#22c55e", "A")
+    this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.computeRoute()
+  }
+
   async computeRoute() {
     this.setStatus("Routing…")
     try {
