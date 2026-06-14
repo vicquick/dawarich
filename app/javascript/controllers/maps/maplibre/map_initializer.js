@@ -60,7 +60,9 @@ export class MapInitializer {
     }
 
     if (showControls) {
-      map.addControl(new maplibregl.NavigationControl(), "top-right")
+      // vicquick fork: zoom controls live bottom-right (with geolocate) so the
+      // top stays clear for the full-width floating search bar.
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right")
     }
 
     map.addControl(

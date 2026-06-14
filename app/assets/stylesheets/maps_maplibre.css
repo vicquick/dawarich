@@ -40,7 +40,8 @@
 /* Loading Progress Badge */
 .map-progress-badge {
   position: absolute;
-  top: 16px;
+  /* vicquick fork: bottom-center, clear of the floating search bar up top. */
+  bottom: 96px;
   left: 50%;
   padding: 8px 16px;
   background: white;
@@ -55,7 +56,7 @@
   z-index: 20;
   white-space: nowrap;
   opacity: 0;
-  transform: translateX(-50%) translateY(-8px);
+  transform: translateX(-50%) translateY(8px);
   transition:
     opacity 0.3s ease,
     transform 0.3s ease;
