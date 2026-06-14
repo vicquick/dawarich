@@ -30,20 +30,37 @@
               class="btn btn-ghost btn-sm btn-circle">✕</button>
     </div>
 
-    <%# action row %>
-    <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
-      <button type="button" data-action="click->place-sheet#directions" class="btn btn-primary btn-sm gap-1">
-        <%= icon 'route' %> Directions
-      </button>
-      <button type="button" data-action="click->place-sheet#save" class="btn btn-outline btn-sm gap-1">
-        ⭐ <span data-save-label>Save</span>
-      </button>
-      <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
-        🔗 <span data-share-label>Share</span>
-      </button>
+    <%# INFO mode: actions + enrichment %>
+    <div data-place-sheet-target="info">
+      <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+        <button type="button" data-action="click->place-sheet#directions" class="btn btn-primary btn-sm gap-1">
+          <%= icon 'route' %> Directions
+        </button>
+        <button type="button" data-action="click->place-sheet#save" class="btn btn-outline btn-sm gap-1">
+          ⭐ <span data-save-label>Save</span>
+        </button>
+        <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
+          🔗 <span data-share-label>Share</span>
+        </button>
+      </div>
+      <div data-place-sheet-target="enrichment" style="margin-top:14px;"></div>
     </div>
 
-    <%# enrichment area (Brave/OSM overview — populated later) %>
-    <div data-place-sheet-target="enrichment" style="margin-top:14px;"></div>
+    <%# DIRECTIONS mode: the route panel lives inside the sheet (no separate
+        floating popup). directions_manager fills these by id. %>
+    <div id="directions-panel" data-place-sheet-target="directions" class="hidden" style="margin-top:14px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <button type="button" data-action="click->place-sheet#backToInfo" class="btn btn-ghost btn-sm gap-1">‹ Place</button>
+        <select id="directions-mode" class="select select-sm select-bordered"
+                onchange="window.dawarichDirections && window.dawarichDirections.setCosting(this.value)">
+          <option value="auto">🚗 Drive</option>
+          <option value="bicycle">🚲 Bike</option>
+          <option value="pedestrian">🚶 Walk</option>
+        </select>
+      </div>
+      <p id="directions-status" style="margin:10px 0 0; font-size:.8rem; opacity:.7;">Locating you…</p>
+      <p id="directions-summary" style="margin:6px 0 0; font-size:1.05rem; font-weight:700; color:#2563eb;"></p>
+      <ol id="directions-turns" style="margin:10px 0 0; padding:0; list-style:none;"></ol>
+    </div>
   </div>
 </div>

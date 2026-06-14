@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'resolv'
+require 'digest'
 
 # Google-Maps-style discovery (vicquick fork) — fully self-hosted where possible.
 # `nearby`     → category POIs around a point via self-hosted Photon (private).
@@ -42,10 +43,15 @@ class Api::V1::DiscoveryController < ApiController
     radius = (params[:radius] || 1500).to_i.clamp(100, 5000)
     open_only = params[:open_now].to_s == 'true'
 
-    # Prefer self-hosted Overpass (full tags + open-now); fall back to Photon.
-    results = overpass_nearby(lat, lon, category, radius) || photon_nearby(lat, lon, category, limit)
+    # Cache the raw POI list (Redis, ~111m bucket); open-now is recomputed fresh
+    # below so it's never stale. Prefer Overpass, fall back to Photon.
+    key = "v1/nearby/#{category}/#{lat.round(3)}/#{lon.round(3)}/#{radius}"
+    results = Rails.cache.fetch(key, expires_in: 6.hours) do
+      overpass_nearby(lat, lon, category, radius) || photon_nearby(lat, lon, category, limit)
+    end
     return render_error('Search engine error', :bad_gateway) if results.nil?
 
+    results = results.map { |r| r.merge(open_now: r[:opening_hours] ? open_now?(r[:opening_hours]) : nil) }
     results = results.select { |r| r[:open_now] } if open_only
     results = results.sort_by { |r| r[:distance_m] }.first(limit)
     render json: { results: results }
@@ -54,10 +60,39 @@ class Api::V1::DiscoveryController < ApiController
   def place_info
     type = { 'N' => 'node', 'W' => 'way', 'R' => 'relation' }[params[:osm_type].to_s.upcase[0]]
     id = params[:osm_id].to_s[/\d+/]
+    return render_error('osm_type + osm_id or lat + lon required') if type.nil? && params[:lat].blank?
 
+    # Cache the stable OSM tags (Redis); open_now / today_hours are recomputed
+    # fresh on every request so they're never served stale.
+    cache_key = if type && id
+                  "v2/place_info/#{type}/#{id}"
+                else
+                  "v2/place_info/coord/#{params[:lat].to_f.round(5)}/#{params[:lon].to_f.round(5)}/#{Digest::MD5.hexdigest(params[:name].to_s)}"
+                end
+    tags = Rails.cache.fetch(cache_key, expires_in: 14.days) { fetch_place_tags(type, id) || {} }
+
+    # Wikidata fills gaps OSM lacks (description, image, sometimes website).
+    wd = wikidata_info(tags['wikidata'] || tags['brand:wikidata'])
+    hours = tags['opening_hours']
+    render json: {
+      opening_hours: hours,
+      open_now: hours ? open_now?(hours) : nil,
+      today_hours: hours ? today_hours(hours) : nil,
+      phone: tags['phone'] || tags['contact:phone'],
+      website: tags['website'] || tags['contact:website'] || wd&.dig(:website),
+      description: wd&.dig(:description),
+      image: wd&.dig(:image),
+      cuisine: tags['cuisine'],
+      brand: tags['brand'],
+      wheelchair: tags['wheelchair']
+    }
+  end
+
+  # OSM tags for a place, by OSM id (Overpass→OSM API) or by coords+name
+  # (Overpass around) for map-tapped POIs that only carry vector-tile ids.
+  def fetch_place_tags(type, id)
     tags = nil
     if type && id
-      # Self-hosted Overpass first (local, fast); fall back to the open OSM API.
       tags = overpass_element(type, id)
       if tags.nil?
         uri = URI("https://api.openstreetmap.org/api/0.6/#{type}/#{id}.json")
@@ -65,27 +100,32 @@ class Api::V1::DiscoveryController < ApiController
         tags = resp&.is_a?(Net::HTTPSuccess) ? (Oj.load(resp.body)['elements'] || []).first&.dig('tags') : nil
       end
     end
-
-    # Fallback for POIs tapped on the map: their id is a vector-tile id, not an
-    # OSM id, so resolve tags by coordinates (+ name) via Overpass instead.
     if tags.blank? && params[:lat].present? && params[:lon].present?
       tags = overpass_around_tags(params[:lat].to_f, params[:lon].to_f, params[:name])
     end
+    tags
+  end
 
-    return render_error('osm_type + osm_id or lat + lon required') if type.nil? && params[:lat].blank?
+  # Open-data lookup (Wikidata) to fill fields OSM lacks. Sends only an
+  # anonymous Q-id; cached 30 days. No Google/Brave.
+  def wikidata_info(qid)
+    return nil unless qid.is_a?(String) && qid.match?(/\AQ\d+\z/)
 
-    tags ||= {}
-    hours = tags['opening_hours']
-    render json: {
-      opening_hours: hours,
-      open_now: hours ? open_now?(hours) : nil,
-      today_hours: hours ? today_hours(hours) : nil,
-      phone: tags['phone'] || tags['contact:phone'],
-      website: tags['website'] || tags['contact:website'],
-      cuisine: tags['cuisine'],
-      brand: tags['brand'],
-      wheelchair: tags['wheelchair']
-    }
+    Rails.cache.fetch("v1/wikidata/#{qid}", expires_in: 30.days) do
+      uri = URI("https://www.wikidata.org/wiki/Special:EntityData/#{qid}.json")
+      resp = http_get(uri, host_header: nil)
+      if resp&.is_a?(Net::HTTPSuccess)
+        ent = Oj.load(resp.body).dig('entities', qid) || {}
+        claims = ent['claims'] || {}
+        website = claims.dig('P856', 0, 'mainsnak', 'datavalue', 'value')
+        image = claims.dig('P18', 0, 'mainsnak', 'datavalue', 'value')
+        image_url = image ? "https://commons.wikimedia.org/wiki/Special:FilePath/#{URI.encode_www_form_component(image)}?width=480" : nil
+        desc = ent.dig('descriptions', 'en', 'value') || ent.dig('descriptions', 'de', 'value')
+        { website: website, image: image_url, description: desc }
+      end
+    end
+  rescue StandardError
+    nil
   end
 
   # Today's opening ranges from an opening_hours spec, e.g. "08:00–18:00" or
@@ -142,7 +182,6 @@ class Api::V1::DiscoveryController < ApiController
         lat: plat, lon: plon,
         osm_type: e['type'], osm_id: e['id'],
         opening_hours: hours,
-        open_now: hours ? open_now?(hours) : nil,
         cuisine: tags['cuisine'],
         distance_m: haversine(lat, lon, plat, plon).round
       }

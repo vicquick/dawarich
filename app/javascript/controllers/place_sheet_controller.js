@@ -5,7 +5,7 @@ import { Controller } from "@hotwired/stimulus"
 // place + actions (directions, save as starred, share). Pull the handle to expand.
 // Self-contained: failures here never break the core map.
 export default class extends Controller {
-  static targets = ["title", "address", "meta", "enrichment"]
+  static targets = ["title", "address", "meta", "enrichment", "info", "directions"]
   static values = { apiKey: String, starredTagId: { type: Number, default: 5 } }
 
   connect() {
@@ -96,12 +96,16 @@ export default class extends Controller {
       else if (d.open_now === false) parts.push(`<span style="color:#dc2626;font-weight:600">Closed now</span>`)
       if (d.today_hours) parts.push(`<span style="opacity:.75">Today ${this.esc(d.today_hours)}</span>`)
       else if (d.opening_hours) parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
-      let html = parts.length ? `<div style="font-size:.85rem;margin-bottom:8px">${parts.join(" · ")}</div>` : ""
+      let html = ""
+      // Wikidata photo (Wikimedia Commons) when available.
+      if (d.image) html += `<img src="${this.esc(d.image)}" alt="" loading="lazy" style="width:100%;max-height:160px;object-fit:cover;border-radius:12px;margin-bottom:10px" onerror="this.remove()">`
+      if (parts.length) html += `<div style="font-size:.85rem;margin-bottom:8px">${parts.join(" · ")}</div>`
       const links = []
       if (d.phone) links.push(`<a href="tel:${this.esc(d.phone)}" class="btn btn-outline btn-sm gap-1">📞 Call</a>`)
       if (d.website) links.push(`<a href="${this.esc(d.website)}" target="_blank" rel="noopener" class="btn btn-outline btn-sm gap-1">🌐 Website</a>`)
       if (links.length) html += `<div style="display:flex;gap:8px;flex-wrap:wrap">${links.join("")}</div>`
-      if (d.cuisine) html += `<p style="font-size:.75rem;opacity:.6;margin-top:8px">${this.esc(d.cuisine.replace(/;/g, ", "))}</p>`
+      if (d.description) html += `<p style="font-size:.8rem;opacity:.7;margin-top:8px">${this.esc(d.description)}</p>`
+      if (d.cuisine) html += `<p style="font-size:.75rem;opacity:.6;margin-top:6px">${this.esc(d.cuisine.replace(/;/g, ", "))}</p>`
       this.enrichmentTarget.innerHTML = html
     } catch (e) { /* enrichment is best-effort */ }
   }
@@ -118,14 +122,27 @@ export default class extends Controller {
   close() {
     this.element.style.transform = "translateY(100%)"
     this.hideBackdrop()
+    try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
+    this.backToInfo()
   }
 
+  // Switch the sheet into directions mode (route panel lives inside the sheet).
   directions() {
     if (!this.place) return
-    try {
-      window.dawarichDirections?.routeTo(this.place.lat, this.place.lon)
-    } catch (e) { /* noop */ }
-    this.close()
+    if (this.hasInfoTarget) this.infoTarget.style.display = "none"
+    if (this.hasDirectionsTarget) this.directionsTarget.classList.remove("hidden")
+    this.element.style.height = "78vh"
+    this.expanded = true
+    try { window.dawarichDirections?.routeTo(this.place.lat, this.place.lon) } catch (e) { /* noop */ }
+  }
+
+  // Back from directions to the place info view.
+  backToInfo() {
+    if (this.hasDirectionsTarget) this.directionsTarget.classList.add("hidden")
+    if (this.hasInfoTarget) this.infoTarget.style.display = ""
+    this.element.style.height = "34vh"
+    this.expanded = false
+    try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
   }
 
   async save() {
