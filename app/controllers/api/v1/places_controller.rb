@@ -78,7 +78,7 @@ module Api
                                    .first
         if existing
           @place = existing
-          set_tags if params.dig(:place, :tag_ids)
+          add_tags if tag_ids.present? # merge — never wipe existing tags
           @place = current_api_user.places.includes(:tags, :visits).find(@place.id)
           return render json: serialize_place(@place), status: :ok
         end
@@ -86,7 +86,7 @@ module Api
         @place = current_api_user.places.build(place_params.except(:tag_ids))
 
         if @place.save
-          set_tags if params.dig(:place, :tag_ids)
+          add_tags if tag_ids.present?
           @place = current_api_user.places.includes(:tags, :visits).find(@place.id)
 
           render json: serialize_place(@place), status: :created
@@ -173,7 +173,8 @@ module Api
         return if tag_ids.empty?
 
         tags = current_api_user.tags.where(id: tag_ids)
-        @place.tags << tags
+        new_tags = tags.to_a - @place.tags.to_a
+        @place.tags << new_tags if new_tags.any?
       end
 
       def set_tags
