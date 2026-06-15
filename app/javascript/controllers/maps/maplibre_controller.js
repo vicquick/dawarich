@@ -223,12 +223,33 @@ export default class extends Controller {
     this.areaSelectionManager = new AreaSelectionManager(this)
     this.visitsManager = new VisitsManager(this)
     this.placesManager = new PlacesManager(this)
-    // vicquick fork: let the place sheet recolour markers live after re-tagging.
-    window.dawarichReloadPlaces = () => {
+    // vicquick fork: surgically update ONE place marker after re-tagging — no
+    // full reload (which was wiping every point). `place` is a serialized place
+    // ({id,name,latitude,longitude,note,tags,color}); null colour removes it.
+    window.dawarichUpsertPlace = (place) => {
       try {
-        const ids = (this.placesManager.getSelectedPlaceTagIds?.() || [])
-          .filter((id) => id !== "untagged")
-        this.placesManager.loadPlacesWithTags(ids)
+        const layer = this.layerManager.getLayer("places")
+        if (!layer || !place) return
+        const fc = layer.data || { type: "FeatureCollection", features: [] }
+        const features = (fc.features || []).filter(
+          (f) => String(f.properties?.id) !== String(place.id),
+        )
+        if (place.color) {
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [place.longitude, place.latitude] },
+            properties: {
+              id: place.id,
+              name: place.name,
+              latitude: place.latitude,
+              longitude: place.longitude,
+              note: place.note,
+              tags: JSON.stringify(place.tags || []),
+              color: place.color,
+            },
+          })
+        }
+        layer.update({ type: "FeatureCollection", features })
       } catch (e) { /* noop */ }
     }
     this.routesManager = new RoutesManager(this)

@@ -172,23 +172,18 @@ export default class extends Controller {
       el.addEventListener("click", () => this.toggleTag(Number(el.dataset.tagId))))
   }
 
-  // Toggle a tag on/off (or clear all with id 0), persist, refresh UI + map.
+  // Exclusive category: pick one (replace), or clear (None / tap the active one).
   async toggleTag(tagId) {
-    let ids
-    if (tagId === 0) {
-      ids = []
-    } else {
-      const set = new Set(this.currentTagIds())
-      set.has(tagId) ? set.delete(tagId) : set.add(tagId)
-      ids = [...set]
-    }
+    const current = this.currentTagIds()
+    const ids = (tagId === 0 || (current.length === 1 && current[0] === tagId)) ? [] : [tagId]
     const data = await this.persistTags(ids)
     if (!data) return
     this.place.tags = Array.isArray(data.tags) ? data.tags : []
     if (data.id) this.place.savedPlaceId = data.id
     this.renderCategoryButton()
     this.renderTagChips()
-    try { window.dawarichReloadPlaces?.() } catch (e) { /* recolours on next load */ }
+    // Surgically recolour just this marker — no full reload.
+    try { window.dawarichUpsertPlace?.(data) } catch (e) { /* updates on next load */ }
   }
 
   // PATCH replaces the exact tag set (saved place); POST creates/dedupes + merges.

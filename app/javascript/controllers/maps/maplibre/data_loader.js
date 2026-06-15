@@ -471,8 +471,9 @@ export class DataLoader {
           note: place.note,
           // Stringify tags for MapLibre GL JS compatibility
           tags: JSON.stringify(place.tags || []),
-          // Use first tag's color if available
-          color: place.tags?.[0]?.color || "#6366f1",
+          // vicquick fork: use the server-computed colour (null for hidden tags
+          // like Default list / untagged) so those get filtered off the map.
+          color: place.color || null,
         },
       })),
     }

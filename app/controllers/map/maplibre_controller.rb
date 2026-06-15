@@ -27,8 +27,13 @@ module Map
       @timeline_tags = current_user.tags.order(:name).limit(8)
 
       # vicquick fork: open the map centred on the most recent tracked point
-      # (city-level default zoom) instead of the null-island world view.
-      @last_lon, @last_lat = current_user.points.order(timestamp: :desc).limit(1).pick(:longitude, :latitude)
+      # (city-level default zoom). Coords live in the PostGIS `lonlat` geometry —
+      # the latitude/longitude columns are often nil — so read from there.
+      last = current_user.points.where.not(lonlat: nil).order(timestamp: :desc).first
+      if last&.lonlat
+        @last_lon = last.lonlat.x
+        @last_lat = last.lonlat.y
+      end
     end
 
     private

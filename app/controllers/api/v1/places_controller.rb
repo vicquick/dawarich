@@ -78,7 +78,7 @@ module Api
                                    .first
         if existing
           @place = existing
-          add_tags if tag_ids.present? # merge — never wipe existing tags
+          set_tags if params.dig(:place, :tag_ids) # categories are exclusive
           @place = current_api_user.places.includes(:tags, :visits).find(@place.id)
           return render json: serialize_place(@place), status: :ok
         end
@@ -86,7 +86,7 @@ module Api
         @place = current_api_user.places.build(place_params.except(:tag_ids))
 
         if @place.save
-          add_tags if tag_ids.present?
+          set_tags if params.dig(:place, :tag_ids)
           @place = current_api_user.places.includes(:tags, :visits).find(@place.id)
 
           render json: serialize_place(@place), status: :created
