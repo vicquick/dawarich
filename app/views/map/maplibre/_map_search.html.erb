@@ -55,11 +55,13 @@
     background: oklch(var(--b1));
     color: oklch(var(--bc));
     border-radius: 1.6rem;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.20), 0 0 0 1px rgba(0, 0, 0, 0.06);
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 16%, transparent);
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.30);
   }
-  /* Blue ring when the textbox is focused. */
+  /* Subtle neutral emphasis on focus (no blue). */
   .map-search__bar:focus-within {
-    box-shadow: 0 0 0 2px #1a73e8, 0 2px 12px rgba(0, 0, 0, 0.20);
+    border-color: color-mix(in oklch, oklch(var(--bc)) 32%, transparent);
+    box-shadow: 0 3px 18px rgba(0, 0, 0, 0.34);
   }
   .map-search__icon { display: flex; opacity: 0.55; }
   .map-search__icon svg { width: 1.2rem; height: 1.2rem; }
