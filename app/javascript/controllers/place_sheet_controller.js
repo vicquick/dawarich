@@ -76,6 +76,10 @@ export default class extends Controller {
         .filter(Boolean).join(" · ")
     }
     if (this.hasEnrichmentTarget) this.enrichmentTarget.innerHTML = ""
+    // Reset transient button states from a previous place.
+    const shareLabel = this.element.querySelector("[data-share-label]")
+    if (shareLabel) shareLabel.textContent = "Share"
+    if (this.hasTagPickerTarget) this.tagPickerTarget.hidden = true
     this.element.style.height = "34vh"
     this.element.style.transform = "translateY(0)"
     this.expanded = false

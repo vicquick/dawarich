@@ -141,7 +141,7 @@ class Api::V1::DiscoveryController < ApiController
 
   # All 7 days (Mon-first) as [{day, hours, today}] for the place sheet dropdown.
   def week_hours(spec)
-    return nil if spec.blank? || spec.include?('"')
+    return nil if spec.blank?
 
     names = { 'Mo' => 'Mon', 'Tu' => 'Tue', 'We' => 'Wed', 'Th' => 'Thu', 'Fr' => 'Fri', 'Sa' => 'Sat', 'Su' => 'Sun' }
     today = %w[Mo Tu We Th Fr Sa Su][(Time.current.wday + 6) % 7]
@@ -152,12 +152,13 @@ class Api::V1::DiscoveryController < ApiController
     nil
   end
 
-  # Opening ranges for one weekday, "08:00–18:00" / "Closed" / "24 hours".
+  # Opening ranges for one weekday: "08:00–18:00", "08:00–12:30, 15:00–18:00",
+  # a quoted comment like "by appointment", "Closed", or "24 hours".
   def day_ranges(spec, day)
-    return nil if spec.blank? || spec.include?('"')
+    return nil if spec.blank?
     return '24 hours' if spec.strip == '24/7'
 
-    ranges = []
+    parts = []
     spec.split(';').each do |rule|
       rule = rule.strip
       days_part, times_part = rule.split(/\s+/, 2)
@@ -166,10 +167,14 @@ class Api::V1::DiscoveryController < ApiController
 
       times_part.split(',').each do |r|
         r = r.strip
-        ranges << r.tr('-', '–') if r.match?(/\A\d{1,2}:\d{2}-\d{1,2}:\d{2}\z/)
+        if r.match?(/\A\d{1,2}:\d{2}-\d{1,2}:\d{2}\z/)
+          parts << r.tr('-', '–')
+        elsif (m = r.match(/\A"(.+)"\z/)) # free-text note, e.g. "nach Vereinbarung"
+          parts << m[1]
+        end
       end
     end
-    ranges.empty? ? 'Closed' : ranges.join(', ')
+    parts.empty? ? 'Closed' : parts.join(', ')
   end
 
   private
@@ -341,7 +346,7 @@ class Api::V1::DiscoveryController < ApiController
 
   # Best-effort "open now" for common opening_hours patterns. Complex rules → nil (unknown).
   def open_now?(spec)
-    return nil if spec.blank? || spec.include?('PH') || spec.include?('week') || spec.include?('"')
+    return nil if spec.blank? || spec.include?('week')
     return true if spec.strip == '24/7'
 
     now = Time.current
