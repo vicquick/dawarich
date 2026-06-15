@@ -185,31 +185,21 @@ export class EventHandlers {
    */
   handlePlaceClick(e) {
     const feature = e.features[0]
-    const properties = feature.properties
-
-    const content = `
-      <div class="space-y-2">
-        ${properties.tag ? `<div class="badge badge-sm badge-primary">${escapeHtml(properties.tag)}</div>` : ""}
-        ${properties.description ? `<div>${escapeHtml(properties.description)}</div>` : ""}
-      </div>
-    `
-
-    const actions = properties.id
-      ? [
-          {
-            type: "button",
-            handler: "handleEdit",
-            id: properties.id,
-            entityType: "place",
-            label: "Edit",
-          },
-        ]
-      : []
-
-    this.controller.showInfo(
-      escapeHtml(properties.name) || "Place",
-      content,
-      actions,
+    const p = feature.properties
+    const coords = feature.geometry?.coordinates || []
+    // vicquick fork: a saved place opens the Google-style place sheet
+    // (info + open-now/hours + Directions/Save/Share), same as POIs/search.
+    document.dispatchEvent(
+      new CustomEvent("place-sheet:open", {
+        detail: {
+          name: p.name || "Place",
+          address: p.description || "",
+          lat: coords[1],
+          lon: coords[0],
+          type: p.tag || "Saved place",
+          savedPlaceId: p.id,
+        },
+      }),
     )
   }
 
