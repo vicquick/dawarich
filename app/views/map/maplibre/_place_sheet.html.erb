@@ -23,11 +23,6 @@
   <div style="padding:0 18px 14px; overflow:auto; flex:1 1 auto;">
     <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
       <div style="min-width:0;">
-        <button type="button" data-place-sheet-target="tagBadge"
-                data-action="click->place-sheet#toggleTagPicker"
-                style="display:inline-flex; align-items:center; gap:4px; border:0; cursor:pointer;
-                       font-size:.7rem; font-weight:600; color:#fff; background:#9ca3af;
-                       padding:3px 10px; border-radius:999px; margin-bottom:5px;">+ Label</button>
         <h3 data-place-sheet-target="title" style="margin:0; font-size:1.15rem; font-weight:700; line-height:1.2;">Place</h3>
         <p data-place-sheet-target="address" style="margin:2px 0 0; font-size:.85rem; opacity:.75;"></p>
         <p data-place-sheet-target="meta" style="margin:2px 0 0; font-size:.72rem; opacity:.55;"></p>
@@ -36,23 +31,26 @@
               class="btn btn-ghost btn-sm btn-circle">✕</button>
     </div>
 
-    <%# Tag picker — choose what kind of place this is (re-tags it). %>
-    <div data-place-sheet-target="tagPicker" hidden
-         style="display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;"></div>
-
     <%# INFO mode: actions + enrichment %>
     <div data-place-sheet-target="info">
       <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
         <button type="button" data-action="click->place-sheet#directions" class="btn btn-primary btn-sm gap-1">
           <%= icon 'route' %> Directions
         </button>
-        <button type="button" data-action="click->place-sheet#save" class="btn btn-outline btn-sm gap-1">
-          ⭐ <span data-save-label>Save</span>
-        </button>
+        <%# One button: "Save" when untagged, or the current category (colour) when
+            saved. Tapping it opens the category picker. %>
+        <button type="button" data-place-sheet-target="categoryBtn"
+                data-action="click->place-sheet#toggleTagPicker"
+                class="btn btn-sm gap-1">⭐ Save</button>
         <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
           🔗 <span data-share-label>Share</span>
         </button>
       </div>
+
+      <%# Category picker (chips) — opens from the category button %>
+      <div data-place-sheet-target="tagPicker" hidden
+           style="display:flex; gap:6px; flex-wrap:wrap; margin-top:12px;"></div>
+
       <div data-place-sheet-target="enrichment" style="margin-top:14px;"></div>
     </div>
 

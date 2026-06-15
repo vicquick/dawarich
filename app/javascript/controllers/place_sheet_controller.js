@@ -5,7 +5,7 @@ import { Controller } from "@hotwired/stimulus"
 // place + actions (directions, save as starred, share). Pull the handle to expand.
 // Self-contained: failures here never break the core map.
 export default class extends Controller {
-  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "tagBadge", "tagPicker"]
+  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "categoryBtn", "tagPicker"]
   static values = { apiKey: String, starredTagId: { type: Number, default: 5 }, tags: { type: Array, default: [] } }
 
   connect() {
@@ -48,8 +48,8 @@ export default class extends Controller {
       osmType: loc.osm_type || loc.osmType,
       osmId: loc.osm_id || loc.osmId,
       savedPlaceId: loc.savedPlaceId || null,
-      tag: loc.tag || "",
-      tagColor: loc.tagColor || "",
+      // Full tag set [{id,name,color,icon}] (server-ordered by priority).
+      tags: Array.isArray(loc.tags) ? loc.tags : (loc.tag ? [{ name: loc.tag, color: loc.tagColor }] : []),
     }
     if (this.hasTagPickerTarget) this.tagPickerTarget.hidden = true
     this.editableName = !!loc.editableName
@@ -69,9 +69,9 @@ export default class extends Controller {
       }
     }
     if (this.hasAddressTarget) this.addressTarget.textContent = this.place.address
-    this.renderBadge()
+    this.renderCategoryButton()
     if (this.hasMetaTarget) {
-      const showType = this.place.tag ? "" : this.place.type
+      const showType = this.place.tags.length ? "" : this.place.type
       this.metaTarget.textContent = [showType, `${this.place.lat.toFixed(5)}, ${this.place.lon.toFixed(5)}`]
         .filter(Boolean).join(" · ")
     }
@@ -121,15 +121,32 @@ export default class extends Controller {
     } catch (e) { /* noop */ }
   }
 
-  // --- "what kind of place" tag badge + picker ---
-  renderBadge() {
-    if (!this.hasTagBadgeTarget) return
-    if (this.place.tag) {
-      this.tagBadgeTarget.textContent = this.place.tag
-      this.tagBadgeTarget.style.backgroundColor = this.place.tagColor || "#6366f1"
+  // --- one button: Save / current category, gateway to the picker ---
+  // "Default list" is an internal bucket — never offered as a category.
+  pickerTags() {
+    return (this.tagsValue || []).filter((t) => t.name !== "Default list")
+  }
+
+  currentTagIds() {
+    return this.place.tags.map((t) => t.id).filter((x) => x != null)
+  }
+
+  renderCategoryButton() {
+    if (!this.hasCategoryBtnTarget) return
+    const primary = this.place.tags[0] // server-ordered by priority
+    const btn = this.categoryBtnTarget
+    if (primary && primary.name) {
+      btn.className = "btn btn-sm gap-1"
+      btn.textContent = `${primary.icon ? primary.icon + " " : "⭐ "}${primary.name}`
+      btn.style.background = primary.color || "#6366f1"
+      btn.style.color = "#fff"
+      btn.style.border = "0"
     } else {
-      this.tagBadgeTarget.textContent = "+ Label"
-      this.tagBadgeTarget.style.backgroundColor = "#9ca3af"
+      btn.className = "btn btn-outline btn-sm gap-1"
+      btn.textContent = "⭐ Save"
+      btn.style.background = ""
+      btn.style.color = ""
+      btn.style.border = ""
     }
   }
 
@@ -141,31 +158,42 @@ export default class extends Controller {
   }
 
   renderTagChips() {
-    const tags = this.tagsValue || []
-    const chip = (id, label, color, active) =>
+    const active = new Set(this.currentTagIds())
+    const chip = (id, label, color, on) =>
       `<button type="button" class="ps-tag-chip" data-tag-id="${id}"
-        style="border:1px solid ${color};color:${active ? "#fff" : color};background:${active ? color : "transparent"};
-        border-radius:999px;padding:4px 10px;font-size:.78rem;font-weight:600;cursor:pointer">${this.esc(label)}</button>`
-    let html = tags.map((t) => chip(t.id, (t.icon ? t.icon + " " : "") + t.name, t.color || "#9ca3af", t.name === this.place.tag)).join("")
-    if (this.place.tag) html += chip(0, "✕ None", "#9ca3af", false)
+        style="border:1px solid ${color};color:${on ? "#fff" : color};background:${on ? color : "transparent"};
+        border-radius:999px;padding:5px 11px;font-size:.8rem;font-weight:600;cursor:pointer">${this.esc(label)}</button>`
+    let html = this.pickerTags()
+      .map((t) => chip(t.id, (t.icon ? t.icon + " " : "") + t.name, t.color || "#9ca3af", active.has(t.id)))
+      .join("")
+    if (active.size) html += chip(0, "✕ None", "#9ca3af", false)
     this.tagPickerTarget.innerHTML = html
     this.tagPickerTarget.querySelectorAll(".ps-tag-chip").forEach((el) =>
-      el.addEventListener("click", () => this.chooseTag(Number(el.dataset.tagId))))
+      el.addEventListener("click", () => this.toggleTag(Number(el.dataset.tagId))))
   }
 
-  async chooseTag(tagId) {
-    const ok = await this.applyTags(tagId ? [tagId] : [])
-    if (!ok) return
-    const t = (this.tagsValue || []).find((x) => x.id === tagId)
-    this.place.tag = t ? t.name : ""
-    this.place.tagColor = t ? t.color : ""
-    this.renderBadge()
-    if (this.hasTagPickerTarget) this.tagPickerTarget.hidden = true
+  // Toggle a tag on/off (or clear all with id 0), persist, refresh UI + map.
+  async toggleTag(tagId) {
+    let ids
+    if (tagId === 0) {
+      ids = []
+    } else {
+      const set = new Set(this.currentTagIds())
+      set.has(tagId) ? set.delete(tagId) : set.add(tagId)
+      ids = [...set]
+    }
+    const data = await this.persistTags(ids)
+    if (!data) return
+    this.place.tags = Array.isArray(data.tags) ? data.tags : []
+    if (data.id) this.place.savedPlaceId = data.id
+    this.renderCategoryButton()
+    this.renderTagChips()
     try { window.dawarichReloadPlaces?.() } catch (e) { /* recolours on next load */ }
   }
 
-  async applyTags(tagIds) {
-    if (this.place.lat == null || this.place.lon == null) return false
+  // PATCH replaces the exact tag set (saved place); POST creates/dedupes + merges.
+  async persistTags(tagIds) {
+    if (this.place.lat == null || this.place.lon == null) return null
     const saved = this.place.savedPlaceId
     const url = saved
       ? `/api/v1/places/${saved}?api_key=${encodeURIComponent(this.apiKeyValue)}`
@@ -178,12 +206,10 @@ export default class extends Controller {
           place: { name: this.place.name, latitude: this.place.lat, longitude: this.place.lon, tag_ids: tagIds },
         }),
       })
-      if (!res.ok) return false
-      const data = await res.json().catch(() => ({}))
-      if (data.id) this.place.savedPlaceId = data.id
-      return true
+      if (!res.ok) return null
+      return await res.json().catch(() => ({}))
     } catch (e) {
-      return false
+      return null
     }
   }
 
