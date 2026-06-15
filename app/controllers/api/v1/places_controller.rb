@@ -167,7 +167,17 @@ module Api
         @place.tags = tags
       end
 
+      # vicquick fork: tags hidden from the map (their places drop off unless
+      # also tagged something meaningful) + priority so Home/Work win the
+      # colour/badge over generic tags like Starred.
+      MAP_HIDDEN_TAGS = ['Default list'].freeze
+      MAP_TAG_PRIORITY = { 'Home' => 0, 'Work' => 1, 'Favourite' => 2 }.freeze
+
       def serialize_place(place)
+        tags = place.tags.to_a
+                    .reject { |t| MAP_HIDDEN_TAGS.include?(t.name) }
+                    .sort_by { |t| MAP_TAG_PRIORITY.fetch(t.name, 10) }
+        primary = tags.first
         {
           id: place.id,
           name: place.name,
@@ -175,11 +185,12 @@ module Api
           longitude: place.lon,
           source: place.source,
           note: place.note,
-          icon: place.tags.first&.icon,
-          color: place.tags.first&.color,
+          icon: primary&.icon,
+          # nil colour for places with no shown tag -> filtered off the map.
+          color: primary&.color,
           visits_count: place.visits.size,
           created_at: place.created_at,
-          tags: place.tags.map do |tag|
+          tags: tags.map do |tag|
             {
               id: tag.id,
               name: tag.name,
