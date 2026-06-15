@@ -5,8 +5,8 @@ import { Controller } from "@hotwired/stimulus"
 // place + actions (directions, save as starred, share). Pull the handle to expand.
 // Self-contained: failures here never break the core map.
 export default class extends Controller {
-  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "tagBadge"]
-  static values = { apiKey: String, starredTagId: { type: Number, default: 5 } }
+  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "tagBadge", "tagPicker"]
+  static values = { apiKey: String, starredTagId: { type: Number, default: 5 }, tags: { type: Array, default: [] } }
 
   connect() {
     this.onSelected = (e) => this.open(e.detail?.location)
@@ -47,7 +47,11 @@ export default class extends Controller {
       lon: Number(coords[1]),
       osmType: loc.osm_type || loc.osmType,
       osmId: loc.osm_id || loc.osmId,
+      savedPlaceId: loc.savedPlaceId || null,
+      tag: loc.tag || "",
+      tagColor: loc.tagColor || "",
     }
+    if (this.hasTagPickerTarget) this.tagPickerTarget.hidden = true
     this.editableName = !!loc.editableName
     if (this.hasTitleTarget) {
       this.titleTarget.textContent = this.place.name
@@ -65,18 +69,9 @@ export default class extends Controller {
       }
     }
     if (this.hasAddressTarget) this.addressTarget.textContent = this.place.address
-    // Tag badge (saved places carry a tag + colour).
-    if (this.hasTagBadgeTarget) {
-      if (loc.tag) {
-        this.tagBadgeTarget.textContent = loc.tag
-        this.tagBadgeTarget.style.backgroundColor = loc.tagColor || "#6366f1"
-        this.tagBadgeTarget.hidden = false
-      } else {
-        this.tagBadgeTarget.hidden = true
-      }
-    }
+    this.renderBadge()
     if (this.hasMetaTarget) {
-      const showType = loc.tag ? "" : this.place.type
+      const showType = this.place.tag ? "" : this.place.type
       this.metaTarget.textContent = [showType, `${this.place.lat.toFixed(5)}, ${this.place.lon.toFixed(5)}`]
         .filter(Boolean).join(" · ")
     }
@@ -124,6 +119,72 @@ export default class extends Controller {
       if (map?.getLayer("place-highlight")) map.removeLayer("place-highlight")
       if (map?.getSource("place-highlight")) map.removeSource("place-highlight")
     } catch (e) { /* noop */ }
+  }
+
+  // --- "what kind of place" tag badge + picker ---
+  renderBadge() {
+    if (!this.hasTagBadgeTarget) return
+    if (this.place.tag) {
+      this.tagBadgeTarget.textContent = this.place.tag
+      this.tagBadgeTarget.style.backgroundColor = this.place.tagColor || "#6366f1"
+    } else {
+      this.tagBadgeTarget.textContent = "+ Label"
+      this.tagBadgeTarget.style.backgroundColor = "#9ca3af"
+    }
+  }
+
+  toggleTagPicker() {
+    if (!this.hasTagPickerTarget) return
+    const show = this.tagPickerTarget.hidden
+    if (show) this.renderTagChips()
+    this.tagPickerTarget.hidden = !show
+  }
+
+  renderTagChips() {
+    const tags = this.tagsValue || []
+    const chip = (id, label, color, active) =>
+      `<button type="button" class="ps-tag-chip" data-tag-id="${id}"
+        style="border:1px solid ${color};color:${active ? "#fff" : color};background:${active ? color : "transparent"};
+        border-radius:999px;padding:4px 10px;font-size:.78rem;font-weight:600;cursor:pointer">${this.esc(label)}</button>`
+    let html = tags.map((t) => chip(t.id, (t.icon ? t.icon + " " : "") + t.name, t.color || "#9ca3af", t.name === this.place.tag)).join("")
+    if (this.place.tag) html += chip(0, "✕ None", "#9ca3af", false)
+    this.tagPickerTarget.innerHTML = html
+    this.tagPickerTarget.querySelectorAll(".ps-tag-chip").forEach((el) =>
+      el.addEventListener("click", () => this.chooseTag(Number(el.dataset.tagId))))
+  }
+
+  async chooseTag(tagId) {
+    const ok = await this.applyTags(tagId ? [tagId] : [])
+    if (!ok) return
+    const t = (this.tagsValue || []).find((x) => x.id === tagId)
+    this.place.tag = t ? t.name : ""
+    this.place.tagColor = t ? t.color : ""
+    this.renderBadge()
+    if (this.hasTagPickerTarget) this.tagPickerTarget.hidden = true
+    try { window.dawarichReloadPlaces?.() } catch (e) { /* recolours on next load */ }
+  }
+
+  async applyTags(tagIds) {
+    if (this.place.lat == null || this.place.lon == null) return false
+    const saved = this.place.savedPlaceId
+    const url = saved
+      ? `/api/v1/places/${saved}?api_key=${encodeURIComponent(this.apiKeyValue)}`
+      : `/api/v1/places?api_key=${encodeURIComponent(this.apiKeyValue)}`
+    try {
+      const res = await fetch(url, {
+        method: saved ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          place: { name: this.place.name, latitude: this.place.lat, longitude: this.place.lon, tag_ids: tagIds },
+        }),
+      })
+      if (!res.ok) return false
+      const data = await res.json().catch(() => ({}))
+      if (data.id) this.place.savedPlaceId = data.id
+      return true
+    } catch (e) {
+      return false
+    }
   }
 
   // Fetch open-now / hours / phone / website (OSM) and render it.

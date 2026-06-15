@@ -6,6 +6,7 @@
 <div data-controller="place-sheet"
      data-place-sheet-api-key-value="<%= current_user.api_key %>"
      data-place-sheet-starred-tag-id-value="5"
+     data-place-sheet-tags-value="<%= current_user.tags.order(:name).map { |t| { id: t.id, name: t.name, color: t.color, icon: t.icon } }.to_json %>"
      style="position:fixed; left:0; right:0; bottom:0; z-index:600; height:34vh;
             transform:translateY(100%); transition:transform .28s ease, height .28s ease;
             background:oklch(var(--b1)); color:oklch(var(--bc));
@@ -22,9 +23,11 @@
   <div style="padding:0 18px 14px; overflow:auto; flex:1 1 auto;">
     <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
       <div style="min-width:0;">
-        <span data-place-sheet-target="tagBadge" hidden
-              style="display:inline-block; font-size:.7rem; font-weight:600; color:#fff;
-                     padding:2px 9px; border-radius:999px; margin-bottom:4px;"></span>
+        <button type="button" data-place-sheet-target="tagBadge"
+                data-action="click->place-sheet#toggleTagPicker"
+                style="display:inline-flex; align-items:center; gap:4px; border:0; cursor:pointer;
+                       font-size:.7rem; font-weight:600; color:#fff; background:#9ca3af;
+                       padding:3px 10px; border-radius:999px; margin-bottom:5px;">+ Label</button>
         <h3 data-place-sheet-target="title" style="margin:0; font-size:1.15rem; font-weight:700; line-height:1.2;">Place</h3>
         <p data-place-sheet-target="address" style="margin:2px 0 0; font-size:.85rem; opacity:.75;"></p>
         <p data-place-sheet-target="meta" style="margin:2px 0 0; font-size:.72rem; opacity:.55;"></p>
@@ -32,6 +35,10 @@
       <button type="button" data-action="click->place-sheet#close" aria-label="Close"
               class="btn btn-ghost btn-sm btn-circle">✕</button>
     </div>
+
+    <%# Tag picker — choose what kind of place this is (re-tags it). %>
+    <div data-place-sheet-target="tagPicker" hidden
+         style="display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;"></div>
 
     <%# INFO mode: actions + enrichment %>
     <div data-place-sheet-target="info">
