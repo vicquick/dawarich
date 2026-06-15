@@ -204,12 +204,23 @@ export default class extends Controller {
       const parts = []
       if (d.open_now === true) parts.push(`<span style="color:#16a34a;font-weight:600">Open now</span>`)
       else if (d.open_now === false) parts.push(`<span style="color:#dc2626;font-weight:600">Closed now</span>`)
-      if (d.today_hours) parts.push(`<span style="opacity:.75">Today ${this.esc(d.today_hours)}</span>`)
-      else if (d.opening_hours) parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
+      const hasWeek = Array.isArray(d.week_hours) && d.week_hours.length === 7
+      if (d.today_hours) {
+        parts.push(`<span class="ps-hours-toggle" style="opacity:.8;cursor:${hasWeek ? "pointer" : "default"}">Today ${this.esc(d.today_hours)}${hasWeek ? " ▾" : ""}</span>`)
+      } else if (d.opening_hours) {
+        parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
+      }
       let html = ""
       // Wikidata photo (Wikimedia Commons) when available.
       if (d.image) html += `<img src="${this.esc(d.image)}" alt="" loading="lazy" style="width:100%;max-height:160px;object-fit:cover;border-radius:12px;margin-bottom:10px" onerror="this.remove()">`
       if (parts.length) html += `<div style="font-size:.85rem;margin-bottom:8px">${parts.join(" · ")}</div>`
+      // Full week hours (Mon-first), hidden until the toggle is tapped.
+      if (hasWeek) {
+        const rows = d.week_hours.map((w) =>
+          `<div style="display:flex;justify-content:space-between;font-size:.8rem;padding:3px 0;${w.today ? "font-weight:700" : "opacity:.75"}">
+             <span>${this.esc(w.day)}</span><span>${this.esc(w.hours || "Closed")}</span></div>`).join("")
+        html += `<div class="ps-week" hidden style="margin:-2px 0 10px;padding:6px 2px;border-top:1px solid rgba(128,128,128,.15)">${rows}</div>`
+      }
       const links = []
       if (d.phone) links.push(`<a href="tel:${this.esc(d.phone)}" class="btn btn-outline btn-sm gap-1">📞 Call</a>`)
       if (d.website) links.push(`<a href="${this.esc(d.website)}" target="_blank" rel="noopener" class="btn btn-outline btn-sm gap-1">🌐 Website</a>`)
@@ -217,6 +228,9 @@ export default class extends Controller {
       if (d.description) html += `<p style="font-size:.8rem;opacity:.7;margin-top:8px">${this.esc(d.description)}</p>`
       if (d.cuisine) html += `<p style="font-size:.75rem;opacity:.6;margin-top:6px">${this.esc(d.cuisine.replace(/;/g, ", "))}</p>`
       this.enrichmentTarget.innerHTML = html
+      const toggle = this.enrichmentTarget.querySelector(".ps-hours-toggle")
+      const week = this.enrichmentTarget.querySelector(".ps-week")
+      if (toggle && week) toggle.addEventListener("click", () => { week.hidden = !week.hidden })
     } catch (e) { /* enrichment is best-effort */ }
   }
 

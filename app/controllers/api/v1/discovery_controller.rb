@@ -78,6 +78,7 @@ class Api::V1::DiscoveryController < ApiController
       opening_hours: hours,
       open_now: hours ? open_now?(hours) : nil,
       today_hours: hours ? today_hours(hours) : nil,
+      week_hours: hours ? week_hours(hours) : nil,
       phone: tags['phone'] || tags['contact:phone'],
       website: tags['website'] || tags['contact:website'] || wd&.dig(:website),
       description: wd&.dig(:description),
@@ -131,10 +132,31 @@ class Api::V1::DiscoveryController < ApiController
   # Today's opening ranges from an opening_hours spec, e.g. "08:00–18:00" or
   # "08:00–13:00, 15:00–19:00", or "Closed today" / nil if not parseable.
   def today_hours(spec)
+    day = %w[Mo Tu We Th Fr Sa Su][(Time.current.wday + 6) % 7]
+    r = day_ranges(spec, day)
+    r == 'Closed' ? 'Closed today' : r
+  rescue StandardError
+    nil
+  end
+
+  # All 7 days (Mon-first) as [{day, hours, today}] for the place sheet dropdown.
+  def week_hours(spec)
+    return nil if spec.blank? || spec.include?('"')
+
+    names = { 'Mo' => 'Mon', 'Tu' => 'Tue', 'We' => 'Wed', 'Th' => 'Thu', 'Fr' => 'Fri', 'Sa' => 'Sat', 'Su' => 'Sun' }
+    today = %w[Mo Tu We Th Fr Sa Su][(Time.current.wday + 6) % 7]
+    %w[Mo Tu We Th Fr Sa Su].map do |d|
+      { day: names[d], hours: day_ranges(spec, d), today: d == today }
+    end
+  rescue StandardError
+    nil
+  end
+
+  # Opening ranges for one weekday, "08:00–18:00" / "Closed" / "24 hours".
+  def day_ranges(spec, day)
     return nil if spec.blank? || spec.include?('"')
     return '24 hours' if spec.strip == '24/7'
 
-    day = %w[Mo Tu We Th Fr Sa Su][(Time.current.wday + 6) % 7]
     ranges = []
     spec.split(';').each do |rule|
       rule = rule.strip
@@ -147,9 +169,7 @@ class Api::V1::DiscoveryController < ApiController
         ranges << r.tr('-', '–') if r.match?(/\A\d{1,2}:\d{2}-\d{1,2}:\d{2}\z/)
       end
     end
-    ranges.empty? ? 'Closed today' : ranges.join(', ')
-  rescue StandardError
-    nil
+    ranges.empty? ? 'Closed' : ranges.join(', ')
   end
 
   private

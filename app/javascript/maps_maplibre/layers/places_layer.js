@@ -55,7 +55,9 @@ export class PlacesLayer extends BaseLayer {
         minzoom: 13,
         layout: {
           "text-field": ["get", "name"],
-          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          // Basemap glyph source only serves Noto Sans — using a font it lacks
+          // renders boxes/garbage. Match it.
+          "text-font": ["Noto Sans Regular"],
           "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 17, 13],
           "text-offset": [0, 1.2],
           "text-anchor": "top",

@@ -59,7 +59,7 @@ export default class extends Controller {
 
   async search(q) {
     try {
-      const res = await fetch(`/api/v1/locations/suggestions?q=${encodeURIComponent(q)}`)
+      const res = await fetch(`/api/v1/locations/suggestions?q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(this.apiKeyValue)}`)
       if (!res.ok) return this.renderEmpty("Search unavailable")
       const data = await res.json()
       const list = (data.suggestions || []).map((s) => ({
