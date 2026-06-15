@@ -85,7 +85,45 @@ export default class extends Controller {
     this.element.style.transform = "translateY(0)"
     this.expanded = false
     this.showBackdrop()
+    this.highlightOnMap()
     this.enrich()
+  }
+
+  // Blue selection ring on the map for the active place (Google-style).
+  highlightOnMap() {
+    const map = window.dawarichMap
+    if (!map || this.place.lat == null || this.place.lon == null) return
+    const data = {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", geometry: { type: "Point", coordinates: [this.place.lon, this.place.lat] }, properties: {} }],
+    }
+    try {
+      if (map.getSource("place-highlight")) {
+        map.getSource("place-highlight").setData(data)
+      } else {
+        map.addSource("place-highlight", { type: "geojson", data })
+        map.addLayer({
+          id: "place-highlight",
+          type: "circle",
+          source: "place-highlight",
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 9, 15, 16, 18, 22],
+            "circle-color": "#2563eb",
+            "circle-opacity": 0.22,
+            "circle-stroke-color": "#2563eb",
+            "circle-stroke-width": 3,
+          },
+        })
+      }
+    } catch (e) { /* style not ready — non-fatal */ }
+  }
+
+  clearHighlight() {
+    const map = window.dawarichMap
+    try {
+      if (map?.getLayer("place-highlight")) map.removeLayer("place-highlight")
+      if (map?.getSource("place-highlight")) map.removeSource("place-highlight")
+    } catch (e) { /* noop */ }
   }
 
   // Fetch open-now / hours / phone / website (OSM) and render it.
@@ -133,6 +171,7 @@ export default class extends Controller {
   close() {
     this.element.style.transform = "translateY(100%)"
     this.hideBackdrop()
+    this.clearHighlight()
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
     this.backToInfo()
   }

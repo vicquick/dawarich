@@ -29,7 +29,11 @@ export class PlacesLayer extends BaseLayer {
         source: this.sourceId,
         filter: ["to-boolean", ["get", "color"]],
         paint: {
-          "circle-radius": 10,
+          // Smaller dots when zoomed out, larger up close — less clutter.
+          "circle-radius": [
+            "interpolate", ["linear"], ["zoom"],
+            8, 4, 12, 6, 15, 9, 18, 12,
+          ],
           "circle-color": [
             "coalesce",
             ["get", "color"], //  Use tag color if available
@@ -37,22 +41,27 @@ export class PlacesLayer extends BaseLayer {
           ],
           "circle-stroke-width": 2,
           "circle-stroke-color": "#ffffff",
-          "circle-opacity": 0.85,
+          "circle-opacity": 0.9,
         },
       },
 
-      // Place labels (tagged only, matching the circles)
+      // Place labels (tagged only) — only from street zoom, with collision
+      // declutter so a zoomed-out view shows dots, not a wall of text.
       {
         id: `${this.id}-labels`,
         type: "symbol",
         source: this.sourceId,
         filter: ["to-boolean", ["get", "color"]],
+        minzoom: 13,
         layout: {
           "text-field": ["get", "name"],
           "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-          "text-size": 11,
-          "text-offset": [0, 1.3],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 17, 13],
+          "text-offset": [0, 1.2],
           "text-anchor": "top",
+          "text-optional": true,
+          "text-allow-overlap": false,
+          "text-max-width": 8,
         },
         paint: {
           "text-color": "#111827",
