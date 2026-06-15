@@ -68,10 +68,25 @@ module Api
       end
 
       def create
+        # vicquick fork: dedupe — reuse an existing place at ~the same spot with
+        # the same name instead of creating duplicates on repeated Save/tag.
+        lat = place_params[:latitude].to_f
+        lon = place_params[:longitude].to_f
+        existing = current_api_user.places
+                                   .where(name: place_params[:name])
+                                   .where('ABS(latitude - ?) < 0.0006 AND ABS(longitude - ?) < 0.001', lat, lon)
+                                   .first
+        if existing
+          @place = existing
+          set_tags if params.dig(:place, :tag_ids)
+          @place = current_api_user.places.includes(:tags, :visits).find(@place.id)
+          return render json: serialize_place(@place), status: :ok
+        end
+
         @place = current_api_user.places.build(place_params.except(:tag_ids))
 
         if @place.save
-          add_tags if tag_ids.present?
+          set_tags if params.dig(:place, :tag_ids)
           @place = current_api_user.places.includes(:tags, :visits).find(@place.id)
 
           render json: serialize_place(@place), status: :created
