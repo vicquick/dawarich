@@ -21,11 +21,13 @@ export class PlacesLayer extends BaseLayer {
 
   getLayerConfigs() {
     return [
-      // Place circles
+      // Place circles — only tagged places (untagged auto-visit places are
+      // noise; a tagged place always has a color from its tag).
       {
         id: this.id,
         type: "circle",
         source: this.sourceId,
+        filter: ["to-boolean", ["get", "color"]],
         paint: {
           "circle-radius": 10,
           "circle-color": [
@@ -39,11 +41,12 @@ export class PlacesLayer extends BaseLayer {
         },
       },
 
-      // Place labels
+      // Place labels (tagged only, matching the circles)
       {
         id: `${this.id}-labels`,
         type: "symbol",
         source: this.sourceId,
+        filter: ["to-boolean", ["get", "color"]],
         layout: {
           "text-field": ["get", "name"],
           "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],

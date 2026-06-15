@@ -187,16 +187,29 @@ export class EventHandlers {
     const feature = e.features[0]
     const p = feature.properties
     const coords = feature.geometry?.coordinates || []
+    // The map feature carries `tags` as a (stringified) array — surface the
+    // first tag's name + colour to the sheet as a badge.
+    let tag = ""
+    let tagColor = ""
+    try {
+      const tags = typeof p.tags === "string" ? JSON.parse(p.tags) : p.tags
+      if (Array.isArray(tags) && tags.length) {
+        tag = tags[0].name || ""
+        tagColor = tags[0].color || ""
+      }
+    } catch (_) { /* no tags */ }
     // vicquick fork: a saved place opens the Google-style place sheet
     // (info + open-now/hours + Directions/Save/Share), same as POIs/search.
     document.dispatchEvent(
       new CustomEvent("place-sheet:open", {
         detail: {
           name: p.name || "Place",
-          address: p.description || "",
+          address: p.note || "",
           lat: coords[1],
           lon: coords[0],
-          type: p.tag || "Saved place",
+          type: tag || "Saved place",
+          tag,
+          tagColor,
           savedPlaceId: p.id,
         },
       }),

@@ -5,7 +5,7 @@ import { Controller } from "@hotwired/stimulus"
 // place + actions (directions, save as starred, share). Pull the handle to expand.
 // Self-contained: failures here never break the core map.
 export default class extends Controller {
-  static targets = ["title", "address", "meta", "enrichment", "info", "directions"]
+  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "tagBadge"]
   static values = { apiKey: String, starredTagId: { type: Number, default: 5 } }
 
   connect() {
@@ -65,8 +65,19 @@ export default class extends Controller {
       }
     }
     if (this.hasAddressTarget) this.addressTarget.textContent = this.place.address
+    // Tag badge (saved places carry a tag + colour).
+    if (this.hasTagBadgeTarget) {
+      if (loc.tag) {
+        this.tagBadgeTarget.textContent = loc.tag
+        this.tagBadgeTarget.style.backgroundColor = loc.tagColor || "#6366f1"
+        this.tagBadgeTarget.hidden = false
+      } else {
+        this.tagBadgeTarget.hidden = true
+      }
+    }
     if (this.hasMetaTarget) {
-      this.metaTarget.textContent = [this.place.type, `${this.place.lat.toFixed(5)}, ${this.place.lon.toFixed(5)}`]
+      const showType = loc.tag ? "" : this.place.type
+      this.metaTarget.textContent = [showType, `${this.place.lat.toFixed(5)}, ${this.place.lon.toFixed(5)}`]
         .filter(Boolean).join(" · ")
     }
     if (this.hasEnrichmentTarget) this.enrichmentTarget.innerHTML = ""
