@@ -5,7 +5,9 @@
 
 const DEFAULT_SETTINGS = {
   mapStyle: "light",
-  enabledMapLayers: ["Heatmap", "Tracks"],
+  // vicquick fork: default view shows saved Places only (tracks/heatmap off) —
+  // a clean Google-Maps-style start; other layers toggle on via the Layers panel.
+  enabledMapLayers: ["Places"],
   routeOpacity: 0.6,
   fogOfWarRadius: 50,
   fogOfWarThreshold: 50,
