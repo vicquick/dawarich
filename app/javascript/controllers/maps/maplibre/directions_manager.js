@@ -27,6 +27,8 @@ export class DirectionsManager {
     this.maneuverMarker = null   // highlight at the next turn
     this.userPanned = false      // user dragged the map → pause follow-cam
     this.nav3d = false
+    this.flatView = false        // 2D/3D toggle during nav
+    this.destName = null
     this.boundPanStart = () => {
       if (this.tracking && !this.manualStart) { this.userPanned = true; this.showRecenter(true) }
     }
@@ -125,22 +127,79 @@ export class DirectionsManager {
   // Programmatic "directions to here" — destination = given coords, start =
   // the user's current location (falls back to map center if unavailable).
   // The start marker stays draggable so it can be corrected.
-  async routeTo(lat, lon) {
+  // Route PREVIEW — 2D overview from current location to the place, with ETA +
+  // mode chips + ride hand-off. No live tracking until the user taps Start.
+  async preview(lat, lon, name) {
     if (!this.map) return
-    // Don't enable manual map-click point-picking here — this is "directions to
-    // a place", so the map should stay fully pannable/zoomable.
     this.active = true
     this.clear()
+    this.destName = name || "Destination"
     this.end = { lat: Number(lat), lon: Number(lon) }
     this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
     this.setStatus("Locating you…")
     this.start = await this.currentLocation()
     this.addUserMarker([this.start.lon, this.start.lat])
+    this.showState("preview")
+    this.computeRoute(true) // tracking off → 2D whole-route fit
+    this.renderRideLinks()
+  }
+
+  // Back-compat: older callers may still invoke routeTo.
+  routeTo(lat, lon) { return this.preview(lat, lon) }
+
+  // Preview → live 3D turn-by-turn navigation.
+  startNav() {
+    if (!this.end || !this.start) return
+    this.flatView = false
+    const t = document.getElementById("directions-2d-toggle")
+    if (t) t.textContent = "⊞ 2D"
     this.enterNav()
-    // Follow the user live: move the puck + recompute as they move. Start before
-    // the first compute so it opens straight into the 3D nav view.
     this.startTracking()
-    this.computeRoute(true)
+    this.showState("nav")
+    this.computeRoute(true) // tracking on → 3D follow-cam + guidance
+  }
+
+  // End navigation → back to the 2D route preview (keeps the route on screen).
+  stopNav() {
+    this.stopTracking()
+    this.exitNav()
+    this.showState("preview")
+    if (this.routeCoords.length) this.fitRoute(this.routeCoords)
+    this.updateGuidance(false)
+  }
+
+  // Flip the nav camera between 3D (tilted) and flat 2D.
+  toggleDimension() {
+    this.flatView = !this.flatView
+    const btn = document.getElementById("directions-2d-toggle")
+    if (btn) btn.textContent = this.flatView ? "⊟ 3D" : "⊞ 2D"
+    if (!this.map) return
+    if (this.tracking && !this.userPanned) this.updateGuidance(true)
+    else this.map.easeTo({ pitch: this.flatView ? 0 : 58, duration: 400 })
+  }
+
+  // Show/hide the preview vs nav control groups. These are flex rows with inline
+  // display, so toggle style.display (the [hidden] attribute would lose to it).
+  showState(state) {
+    const nav = state === "nav"
+    const set = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? "flex" : "none" }
+    set("directions-preview-header", !nav)
+    set("directions-preview-actions", !nav)
+    set("directions-nav-controls", nav)
+    if (!nav) set("directions-nav-banner", false)
+  }
+
+  // Build ride-hailing hand-off links (opens the provider app with the route
+  // preset). Pure deep links — no API, no data leaves beyond the two coords.
+  renderRideLinks() {
+    if (!this.start || !this.end) return
+    const s = this.start, e = this.end
+    const name = encodeURIComponent(this.destName || "Destination")
+    const uber = document.getElementById("ride-uber")
+    const bolt = document.getElementById("ride-bolt")
+    if (uber) uber.href = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${s.lat}&pickup[longitude]=${s.lon}&dropoff[latitude]=${e.lat}&dropoff[longitude]=${e.lon}&dropoff[nickname]=${name}`
+    // Bolt app scheme (mobile, app installed). Best-effort — Bolt has no public web fallback.
+    if (bolt) bolt.href = `bolt://action/rideHailing?pickup_lat=${s.lat}&pickup_lng=${s.lon}&destination_lat=${e.lat}&destination_lng=${e.lon}`
   }
 
   // Enter navigation view: tilt to 3D, extrude buildings, watch for the user
@@ -156,7 +215,7 @@ export class DirectionsManager {
     this.remove3DBuildings()
     if (this.maneuverMarker) { this.maneuverMarker.remove(); this.maneuverMarker = null }
     this.showRecenter(false)
-    this.navBanner()?.setAttribute("hidden", "")
+    const bn = this.navBanner(); if (bn) bn.style.display = "none"
     this.userPanned = false
   }
 
@@ -380,7 +439,8 @@ export class DirectionsManager {
     // part of the map (above the sheet), not hidden behind it.
     const sheet = document.querySelector('[data-controller~="place-sheet"]')
     const bottom = sheet && getComputedStyle(sheet).transform !== "none" ? sheet.offsetHeight + 24 : 60
-    this.map.fitBounds(b, { padding: { top: 80, left: 40, right: 40, bottom }, duration: 600 })
+    // Overview is always flat north-up (used for preview + on exiting nav).
+    this.map.fitBounds(b, { padding: { top: 80, left: 40, right: 40, bottom }, bearing: 0, pitch: 0, duration: 600 })
   }
 
   // --- UI hooks (panel rendered by _directions_panel.html.erb) ---
@@ -413,7 +473,7 @@ export class DirectionsManager {
   // next-manoeuvre banner + on-map highlight; optionally move the nav camera.
   updateGuidance(moveCamera) {
     if (!this.routeCoords.length || !this.maneuvers.length || !this.start) {
-      this.navBanner()?.setAttribute("hidden", "")
+      const bn = this.navBanner(); if (bn) bn.style.display = "none"
       return
     }
     const here = [this.start.lon, this.start.lat]
@@ -428,7 +488,7 @@ export class DirectionsManager {
     // Banner
     const banner = this.navBanner()
     if (banner && this.tracking) {
-      banner.hidden = false
+      banner.style.display = "flex"
       const arrow = document.getElementById("directions-nav-arrow")
       const dEl = document.getElementById("directions-nav-dist")
       const iEl = document.getElementById("directions-nav-instr")
@@ -476,8 +536,8 @@ export class DirectionsManager {
     const bottom = sheet && getComputedStyle(sheet).transform !== "none" ? sheet.offsetHeight + 40 : 80
     this.map.easeTo({
       center,
-      bearing: Number.isFinite(bearing) ? bearing : this.map.getBearing(),
-      pitch: 58,
+      bearing: this.flatView ? 0 : (Number.isFinite(bearing) ? bearing : this.map.getBearing()),
+      pitch: this.flatView ? 0 : 58,
       zoom: Math.max(this.map.getZoom(), 16.5),
       padding: { top: 140, bottom, left: 0, right: 0 },
       duration: 900,

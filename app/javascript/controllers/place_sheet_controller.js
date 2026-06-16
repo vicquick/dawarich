@@ -334,7 +334,24 @@ export default class extends Controller {
     // Reset mode to Drive.
     this.element.querySelectorAll(".dir-mode").forEach((b) =>
       b.classList.toggle("btn-active", b.dataset.mode === "auto"))
-    try { window.dawarichDirections?.routeTo(this.place.lat, this.place.lon) } catch (e) { /* noop */ }
+    // Open the route PREVIEW (2D overview + ETA); user taps Start to navigate.
+    try { window.dawarichDirections?.preview(this.place.lat, this.place.lon, this.place.name) } catch (e) { /* noop */ }
+  }
+
+  // Preview → live 3D navigation.
+  startNav() {
+    this.element.style.height = "62vh"
+    try { window.dawarichDirections?.startNav() } catch (_) { /* noop */ }
+  }
+
+  // End navigation → back to the route preview.
+  endNav() {
+    this.element.style.height = "48vh"
+    try { window.dawarichDirections?.stopNav() } catch (_) { /* noop */ }
+  }
+
+  toggle2D() {
+    try { window.dawarichDirections?.toggleDimension() } catch (_) { /* noop */ }
   }
 
   // Resume the live nav follow-camera after the user has panned away.
