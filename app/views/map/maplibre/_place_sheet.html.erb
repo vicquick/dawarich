@@ -14,10 +14,10 @@
             box-shadow:0 -6px 24px rgba(0,0,0,.25); overflow:hidden; display:flex; flex-direction:column;"
      class="bg-base-100 text-base-content">
 
-  <%# drag handle / pull-up %>
-  <div data-action="click->place-sheet#togglePullUp"
-       style="cursor:grab; padding:8px 0 4px; display:flex; justify-content:center; flex:0 0 auto;">
-    <span style="width:42px; height:5px; border-radius:3px; background:rgba(128,128,128,.5); display:block;"></span>
+  <%# drag handle — drag up/down to resize, tap to toggle %>
+  <div data-place-sheet-target="handle"
+       style="cursor:grab; padding:10px 0 6px; display:flex; justify-content:center; flex:0 0 auto; touch-action:none;">
+    <span style="width:44px; height:5px; border-radius:3px; background:rgba(128,128,128,.55); display:block;"></span>
   </div>
 
   <div style="padding:0 18px 14px; overflow:auto; flex:1 1 auto;">

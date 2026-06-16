@@ -5,7 +5,7 @@ import { Controller } from "@hotwired/stimulus"
 // place + actions (directions, save as starred, share). Pull the handle to expand.
 // Self-contained: failures here never break the core map.
 export default class extends Controller {
-  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "categoryBtn", "tagPicker"]
+  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "categoryBtn", "tagPicker", "handle"]
   static values = { apiKey: String, starredTagId: { type: Number, default: 5 }, tags: { type: Array, default: [] } }
 
   connect() {
@@ -17,6 +17,7 @@ export default class extends Controller {
     this.expanded = false
     this.backdrop = document.getElementById("place-sheet-backdrop")
     if (this.backdrop) this.backdrop.addEventListener("click", () => this.close())
+    this.setupDragHandle()
   }
 
   showBackdrop() {
@@ -32,6 +33,8 @@ export default class extends Controller {
   }
 
   disconnect() {
+    if (this._dragMove) window.removeEventListener("pointermove", this._dragMove)
+    if (this._dragUp) window.removeEventListener("pointerup", this._dragUp)
     document.removeEventListener("location-search:selected", this.onSelected)
     document.removeEventListener("place-sheet:open", this.onOpen)
   }
@@ -266,7 +269,50 @@ export default class extends Controller {
 
   togglePullUp() {
     this.expanded = !this.expanded
-    this.element.style.height = this.expanded ? "78vh" : "34vh"
+    this.element.style.height = this.expanded ? "85vh" : "40vh"
+  }
+
+  // Draggable handle: drag up/down to resize the sheet, tap to toggle.
+  setupDragHandle() {
+    if (!this.hasHandleTarget) return
+    const vh = () => window.innerHeight
+    let startY = 0
+    let startH = 0
+    let dragging = false
+    let moved = false
+
+    const down = (e) => {
+      dragging = true
+      moved = false
+      startY = e.clientY ?? e.touches?.[0]?.clientY ?? 0
+      startH = this.element.offsetHeight
+      this.element.style.transition = "none"
+      try { this.handleTarget.setPointerCapture(e.pointerId) } catch (_) {}
+    }
+    const move = (e) => {
+      if (!dragging) return
+      const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0
+      const dy = y - startY
+      if (Math.abs(dy) > 4) moved = true
+      const h = Math.max(vh() * 0.2, Math.min(vh() * 0.92, startH - dy))
+      this.element.style.height = `${h}px`
+    }
+    const up = () => {
+      if (!dragging) return
+      dragging = false
+      this.element.style.transition = ""
+      if (!moved) return this.togglePullUp()
+      const cur = (this.element.offsetHeight / vh()) * 100
+      const near = [34, 62, 90].reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a))
+      this.element.style.height = `${near}vh`
+      this.expanded = near > 45
+    }
+
+    this._dragMove = move
+    this._dragUp = up
+    this.handleTarget.addEventListener("pointerdown", down)
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
   }
 
   close() {

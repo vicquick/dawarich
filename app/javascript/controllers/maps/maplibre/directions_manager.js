@@ -96,7 +96,9 @@ export class DirectionsManager {
   // The start marker stays draggable so it can be corrected.
   async routeTo(lat, lon) {
     if (!this.map) return
-    this.enable()
+    // Don't enable manual map-click point-picking here — this is "directions to
+    // a place", so the map should stay fully pannable/zoomable.
+    this.active = true
     this.clear()
     this.end = { lat: Number(lat), lon: Number(lon) }
     this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
@@ -194,7 +196,11 @@ export class DirectionsManager {
   fitRoute(coords) {
     if (!coords || coords.length < 2) return
     const b = coords.reduce((acc, c) => acc.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]))
-    this.map.fitBounds(b, { padding: 60, duration: 600 })
+    // Reserve the area the place sheet covers so the route fits in the VISIBLE
+    // part of the map (above the sheet), not hidden behind it.
+    const sheet = document.querySelector('[data-controller~="place-sheet"]')
+    const bottom = sheet && getComputedStyle(sheet).transform !== "none" ? sheet.offsetHeight + 24 : 60
+    this.map.fitBounds(b, { padding: { top: 80, left: 40, right: 40, bottom }, duration: 600 })
   }
 
   // --- UI hooks (panel rendered by _directions_panel.html.erb) ---
