@@ -56,15 +56,14 @@
 
     <%# DIRECTIONS mode: the route panel lives inside the sheet (no separate
         floating popup). directions_manager fills these by id. %>
-    <div id="directions-panel" data-place-sheet-target="directions" class="hidden" style="margin-top:14px;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-        <button type="button" data-action="click->place-sheet#backToInfo" class="btn btn-ghost btn-sm gap-1">‹ Place</button>
-        <select id="directions-mode" class="select select-sm select-bordered"
-                onchange="window.dawarichDirections && window.dawarichDirections.setCosting(this.value)">
-          <option value="auto">🚗 Drive</option>
-          <option value="bicycle">🚲 Bike</option>
-          <option value="pedestrian">🚶 Walk</option>
-        </select>
+    <div id="directions-panel" data-place-sheet-target="directions" class="hidden" style="margin-top:12px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <button type="button" data-action="click->place-sheet#backToInfo" class="btn btn-ghost btn-sm gap-1">‹ Back</button>
+        <div class="join" role="group" aria-label="Travel mode">
+          <button type="button" data-action="click->place-sheet#setMode" data-mode="auto" class="btn btn-sm join-item dir-mode btn-active">🚗 Drive</button>
+          <button type="button" data-action="click->place-sheet#setMode" data-mode="bicycle" class="btn btn-sm join-item dir-mode">🚲 Bike</button>
+          <button type="button" data-action="click->place-sheet#setMode" data-mode="pedestrian" class="btn btn-sm join-item dir-mode">🚶 Walk</button>
+        </div>
       </div>
       <p id="directions-status" style="margin:10px 0 0; font-size:.8rem; opacity:.7;">Locating you…</p>
       <p id="directions-summary" style="margin:6px 0 0; font-size:1.05rem; font-weight:700; color:#2563eb;"></p>

@@ -281,9 +281,20 @@ export default class extends Controller {
     if (!this.place) return
     if (this.hasInfoTarget) this.infoTarget.style.display = "none"
     if (this.hasDirectionsTarget) this.directionsTarget.classList.remove("hidden")
-    this.element.style.height = "78vh"
+    // Keep it ~half height so the drawn route stays visible on the map above.
+    this.element.style.height = "48vh"
     this.expanded = true
+    // Reset mode to Drive.
+    this.element.querySelectorAll(".dir-mode").forEach((b) =>
+      b.classList.toggle("btn-active", b.dataset.mode === "auto"))
     try { window.dawarichDirections?.routeTo(this.place.lat, this.place.lon) } catch (e) { /* noop */ }
+  }
+
+  setMode(e) {
+    const mode = e.currentTarget.dataset.mode
+    try { window.dawarichDirections?.setCosting(mode) } catch (_) { /* noop */ }
+    this.element.querySelectorAll(".dir-mode").forEach((b) =>
+      b.classList.toggle("btn-active", b === e.currentTarget))
   }
 
   // Back from directions to the place info view.
