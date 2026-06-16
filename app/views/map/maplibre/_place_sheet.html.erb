@@ -82,6 +82,9 @@
       <p id="directions-status" style="margin:10px 0 0; font-size:.8rem; opacity:.7;">Locating you…</p>
       <p id="directions-summary" style="margin:6px 0 0; font-size:1.05rem; font-weight:700; color:#2563eb;"></p>
 
+      <%# Route alternatives — tap to pick (only shown when >1 route). %>
+      <div id="directions-routes" style="display:none; gap:8px; flex-wrap:wrap; margin-top:12px;"></div>
+
       <%# PREVIEW actions: Start nav + ride-hailing hand-off (opens Uber/Bolt). %>
       <div id="directions-preview-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px;">
         <button type="button" data-action="click->place-sheet#startNav" class="btn btn-primary btn-sm gap-1" style="font-weight:700;">▶ Start</button>

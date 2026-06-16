@@ -29,6 +29,9 @@ export class DirectionsManager {
     this.nav3d = false
     this.flatView = false        // 2D/3D toggle during nav
     this.destName = null
+    this.routes = []             // [Feature, ...] best first
+    this.selectedRouteIdx = 0
+    this._rerouting = false
     this.boundPanStart = () => {
       if (this.tracking && !this.manualStart) { this.userPanned = true; this.showRecenter(true) }
     }
@@ -85,6 +88,11 @@ export class DirectionsManager {
     this.lastRouteAt = 0
     this.routeCoords = []
     this.maneuvers = []
+    this.routes = []
+    this.selectedRouteIdx = 0
+    this._rerouting = false
+    const rc = document.getElementById("directions-routes")
+    if (rc) { rc.style.display = "none"; rc.innerHTML = "" }
     this.removeRoute()
     this.setStatus("Click the map to set a start point.")
     this.setSummary("")
@@ -190,20 +198,32 @@ export class DirectionsManager {
     set("directions-preview-header", !nav)
     set("directions-preview-actions", !nav)
     set("directions-nav-controls", nav)
+    if (nav) { const rc = document.getElementById("directions-routes"); if (rc) rc.style.display = "none" }
     if (!nav) set("directions-nav-banner", false)
   }
 
   // Build ride-hailing hand-off links (opens the provider app with the route
   // preset). Pure deep links — no API, no data leaves beyond the two coords.
-  renderRideLinks() {
+  // Only providers that actually operate at the pickup are shown (server checks
+  // the country); both stay hidden until confirmed available.
+  async renderRideLinks() {
+    const uber = document.getElementById("ride-uber")
+    const bolt = document.getElementById("ride-bolt")
+    if (uber) uber.style.display = "none"
+    if (bolt) bolt.style.display = "none"
     if (!this.start || !this.end) return
     const s = this.start, e = this.end
     const name = encodeURIComponent(this.destName || "Destination")
-    const uber = document.getElementById("ride-uber")
-    const bolt = document.getElementById("ride-bolt")
     if (uber) uber.href = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${s.lat}&pickup[longitude]=${s.lon}&dropoff[latitude]=${e.lat}&dropoff[longitude]=${e.lon}&dropoff[nickname]=${name}`
-    // Bolt app scheme (mobile, app installed). Best-effort — Bolt has no public web fallback.
+    // Bolt app scheme (mobile, app installed). Best-effort — no public web fallback.
     if (bolt) bolt.href = `bolt://action/rideHailing?pickup_lat=${s.lat}&pickup_lng=${s.lon}&destination_lat=${e.lat}&destination_lng=${e.lon}`
+    try {
+      const res = await fetch(`/api/v1/ride_providers?lat=${s.lat}&lon=${s.lon}&api_key=${encodeURIComponent(this.apiKey)}`)
+      if (!res.ok) return
+      const avail = (await res.json()).providers || []
+      if (uber && avail.includes("uber")) uber.style.display = ""
+      if (bolt && avail.includes("bolt")) bolt.style.display = ""
+    } catch (_) { /* leave hidden on error — only show where confirmed available */ }
   }
 
   // Enter navigation view: tilt to 3D, extrude buildings, watch for the user
@@ -344,7 +364,23 @@ export class DirectionsManager {
     // Smoothly update the banner + follow-cam every fix; recompute the actual
     // route only when throttled (below).
     this.updateGuidance(true)
-    this.scheduleRecompute()
+    // Off-route → reroute now instead of waiting for the throttle.
+    const dev = this.deviationFromRoute(here)
+    if (dev != null && dev > 45 && !this._rerouting) {
+      this._rerouting = true
+      this.setStatus("Rerouting…")
+      Promise.resolve(this.computeRoute(false)).finally(() => { this._rerouting = false })
+    } else {
+      this.scheduleRecompute()
+    }
+  }
+
+  // Metres from the user to the nearest point on the active route (approx, by
+  // nearest polyline vertex). null when there's no route yet.
+  deviationFromRoute(here) {
+    if (!this.routeCoords.length) return null
+    const idx = this.nearestVertexIndex([here.lon, here.lat])
+    return this.havLL(this.routeCoords[idx], [here.lon, here.lat])
   }
 
   // Recompute only when the user has actually moved (>25 m) and at most once
@@ -388,16 +424,14 @@ export class DirectionsManager {
         this.setStatus(`No route: ${err.error || res.status}`)
         return
       }
-      const feature = await res.json()
-      this.drawRoute(feature)
-      const p = feature.properties || {}
-      this.routeCoords = feature.geometry?.coordinates || []
-      this.maneuvers = p.maneuvers || []
-      const km = (p.distance_km ?? 0).toFixed(1)
-      const mins = Math.round((p.duration_s ?? 0) / 60)
-      const live = this.tracking && !this.manualStart ? `  <span style="color:#16a34a">● Live</span>` : ""
-      this.setSummary(`${km} km · ${mins} min${live}`, true)
-      this.setTurns(this.maneuvers)
+      const data = await res.json()
+      // New shape: {routes:[Feature,...]}; tolerate a bare Feature (back-compat).
+      this.routes = Array.isArray(data.routes) ? data.routes : (data.type === "Feature" ? [data] : [])
+      if (!this.routes.length) { this.setStatus("No route found"); return }
+      this.selectedRouteIdx = 0
+      this.applySelectedRoute()
+      this.drawRoutes()
+      this.renderRouteChoices()
       this.setStatus("")
       this.lastRouteFrom = this.start ? { ...this.start } : null
       this.lastRouteAt = (typeof performance !== "undefined" ? performance.now() : Date.now())
@@ -410,20 +444,79 @@ export class DirectionsManager {
     }
   }
 
-  drawRoute(feature) {
+  // Read coords/maneuvers/summary/turns from the currently selected route.
+  applySelectedRoute() {
+    const f = this.routes[this.selectedRouteIdx]
+    if (!f) return
+    const p = f.properties || {}
+    this.routeCoords = f.geometry?.coordinates || []
+    this.maneuvers = p.maneuvers || []
+    const km = (p.distance_km ?? 0).toFixed(1)
+    const mins = Math.round((p.duration_s ?? 0) / 60)
+    const live = this.tracking && !this.manualStart ? `  <span style="color:#16a34a">● Live</span>` : ""
+    this.setSummary(`${km} km · ${mins} min${live}`, true)
+    this.setTurns(this.maneuvers)
+  }
+
+  // Pick an alternative route (from the preview chooser) without refetching.
+  selectRoute(i) {
+    if (i < 0 || i >= this.routes.length) return
+    this.selectedRouteIdx = i
+    this.applySelectedRoute()
+    this.drawRoutes()
+    this.renderRouteChoices()
+    this.updateGuidance(false)
+    if (!this.tracking && this.routeCoords.length) this.fitRoute(this.routeCoords)
+  }
+
+  // Render the route chooser chips (only when there's more than one option).
+  renderRouteChoices() {
+    const el = document.getElementById("directions-routes")
+    if (!el) return
+    // Chooser is a preview-only affordance — not shown during active nav.
+    if (this.routes.length < 2 || this.tracking) { el.style.display = "none"; el.innerHTML = ""; return }
+    el.style.display = "flex"
+    el.innerHTML = ""
+    this.routes.forEach((f, i) => {
+      const p = f.properties || {}
+      const km = (p.distance_km ?? 0).toFixed(1)
+      const mins = Math.round((p.duration_s ?? 0) / 60)
+      const on = i === this.selectedRouteIdx
+      const btn = document.createElement("button")
+      btn.type = "button"
+      btn.textContent = `${i === 0 ? "Best" : "Alt " + i} · ${km} km · ${mins} min`
+      btn.style.cssText = `border:1px solid ${on ? "#1a73e8" : "rgba(128,128,128,.4)"};color:${on ? "#fff" : "inherit"};background:${on ? "#1a73e8" : "transparent"};border-radius:999px;padding:5px 11px;font-size:.78rem;font-weight:600;cursor:pointer`
+      btn.addEventListener("click", () => this.selectRoute(i))
+      el.appendChild(btn)
+    })
+  }
+
+  // Draw all routes: alternatives in grey underneath, selected in blue on top.
+  drawRoutes() {
     this.removeRoute()
-    this.map.addSource("directions-route", { type: "geojson", data: feature })
+    this.routes.forEach((f, i) => {
+      if (i === this.selectedRouteIdx) return
+      const id = `directions-alt-${i}`
+      this.map.addSource(id, { type: "geojson", data: f })
+      this.map.addLayer({
+        id, type: "line", source: id,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#9aa0a6", "line-width": 5, "line-opacity": 0.85 },
+      })
+      this.map.on("click", id, () => this.selectRoute(i))
+      this.map.on("mouseenter", id, () => { this.map.getCanvas().style.cursor = "pointer" })
+      this.map.on("mouseleave", id, () => { this.map.getCanvas().style.cursor = "" })
+    })
+    const sel = this.routes[this.selectedRouteIdx]
+    if (!sel) return
+    this.map.addSource("directions-route", { type: "geojson", data: sel })
     this.map.addLayer({
-      id: "directions-route-casing",
-      type: "line",
-      source: "directions-route",
+      id: "directions-route-casing", type: "line", source: "directions-route",
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": "#1d4ed8", "line-width": 8, "line-opacity": 0.4 },
     })
     this.map.addLayer({
-      id: "directions-route-line",
-      type: "line",
-      source: "directions-route",
+      id: "directions-route-line", type: "line", source: "directions-route",
       layout: { "line-cap": "round", "line-join": "round" },
       paint: { "line-color": "#3b82f6", "line-width": 4 },
     })
@@ -434,6 +527,14 @@ export class DirectionsManager {
       if (this.map?.getLayer(id)) this.map.removeLayer(id)
     })
     if (this.map?.getSource("directions-route")) this.map.removeSource("directions-route")
+    // Remove any alternate layers/sources from a previous draw.
+    const style = this.map?.getStyle?.()
+    if (style?.layers) {
+      style.layers.filter((l) => l.id.startsWith("directions-alt-")).forEach((l) => {
+        if (this.map.getLayer(l.id)) this.map.removeLayer(l.id)
+        if (this.map.getSource(l.id)) this.map.removeSource(l.id)
+      })
+    }
   }
 
   fitRoute(coords) {

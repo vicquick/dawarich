@@ -19,21 +19,73 @@ class Api::V1::RoutingController < ApiController
     body = {
       locations: locations,
       costing: costing,
+      alternates: 2, # ask Valhalla for up to 2 alternative routes
       directions_options: { units: 'kilometers' }
     }
 
     response = valhalla_post('/route', body)
     return render_error("Routing engine error: #{response.code}", :bad_gateway) unless response.success?
 
-    trip = Oj.load(response.body)['trip']
-    return render_error('No route found') if trip.nil? || trip['legs'].blank?
+    data = Oj.load(response.body)
+    trips = [data['trip']] + Array(data['alternates']).map { |a| a['trip'] }
+    trips = trips.compact.select { |t| t['legs'].present? }
+    return render_error('No route found') if trips.empty?
 
-    render json: build_geojson(trip), status: :ok
+    # routes[0] is the best; the rest are selectable alternatives.
+    render json: { routes: trips.map { |t| build_geojson(t) } }, status: :ok
   rescue Faraday::Error, Net::OpenTimeout, Net::ReadTimeout => e
     render_error("Routing engine unreachable: #{e.message}", :service_unavailable)
   end
 
+  # Which ride-hailing providers operate at a given point. Reverse-geocodes the
+  # pickup to a country (Photon) and checks per-provider country allowlists, so
+  # the app only offers Uber/Bolt where they actually exist. Cached 30 days.
+  def providers
+    lat = params[:lat].to_f
+    lon = params[:lon].to_f
+    return render(json: { providers: [] }) if lat.zero? && lon.zero?
+
+    cc = Rails.cache.fetch("ride_cc/#{lat.round(1)}/#{lon.round(1)}", expires_in: 30.days) do
+      reverse_country_code(lat, lon)
+    end
+    providers = []
+    providers << 'uber' if cc && UBER_COUNTRIES.include?(cc)
+    providers << 'bolt' if cc && BOLT_COUNTRIES.include?(cc)
+    render json: { country: cc, providers: providers }
+  rescue StandardError
+    render json: { providers: [] }
+  end
+
   private
+
+  # ISO-3166-1 alpha-2 country codes where each provider operates (coarse, kept
+  # deliberately conservative; expand as needed).
+  UBER_COUNTRIES = %w[
+    US CA MX GB IE FR DE NL BE PT ES IT CH AT PL CZ RO SE FI NO DK
+    AU NZ JP IN BR AR CL CO PE EC CR PA DO ZA EG NG KE TZ UG SA AE QA
+    TR UA GE TW HK
+  ].freeze
+  BOLT_COUNTRIES = %w[
+    EE LV LT FI SE PL DE FR PT ES IT NL BE AT CZ SK HU RO BG HR SI GR CY MT
+    GB IE UA GE AZ MD RS BA MK AL
+    NG GH KE TZ UG ZA ZM MZ
+    MX
+  ].freeze
+
+  def reverse_country_code(lat, lon)
+    uri = URI("#{photon_base}/reverse")
+    uri.query = URI.encode_www_form(lat: lat, lon: lon, limit: 1)
+    resp = Faraday.get(uri.to_s) { |r| r.options.timeout = 6 }
+    return nil unless resp.success?
+
+    Oj.load(resp.body).dig('features', 0, 'properties', 'countrycode')&.upcase
+  end
+
+  def photon_base
+    host = ENV['PHOTON_API_HOST'].presence || 'localhost:2322'
+    scheme = ENV['PHOTON_API_USE_HTTPS'] == 'true' ? 'https' : 'http'
+    host.include?('://') ? host : "#{scheme}://#{host}"
+  end
 
   def parse_locations
     raw = params[:locations]
