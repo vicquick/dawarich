@@ -77,8 +77,9 @@ class Api::V1::DiscoveryController < ApiController
     wd = wikidata_info(tags['wikidata'] || tags['brand:wikidata'])
     website = tags['website'] || tags['contact:website'] || wd&.dig(:website)
     brave = brave_info([tags['name'] || params[:name], tags['addr:city']].compact.join(' ').presence, website)
-    # Only trust a curated/own-site photo — never random nearby/portal thumbnails.
-    image = wd&.dig(:image) || brave&.dig(:image)
+    # Only Wikidata's curated photo — Brave/Commons images are static maps,
+    # portal logos and random nearby buildings (ugly). No photo > ugly photo.
+    image = wd&.dig(:image)
     hours = tags['opening_hours']
     render json: {
       opening_hours: hours,
