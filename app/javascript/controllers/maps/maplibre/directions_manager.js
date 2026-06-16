@@ -164,6 +164,10 @@ export class DirectionsManager {
     this.stopTracking()
     this.exitNav()
     this.showState("preview")
+    this.flatView = false
+    // Instant flatten (setPitch is reliable where fitBounds' pitch option is not),
+    // then frame the whole route flat.
+    if (this.map) { this.map.setPitch(0); this.map.setBearing(0) }
     if (this.routeCoords.length) this.fitRoute(this.routeCoords)
     this.updateGuidance(false)
   }
@@ -439,13 +443,9 @@ export class DirectionsManager {
     // part of the map (above the sheet), not hidden behind it.
     const sheet = document.querySelector('[data-controller~="place-sheet"]')
     const bottom = sheet && getComputedStyle(sheet).transform !== "none" ? sheet.offsetHeight + 24 : 60
-    // Overview is always flat north-up (used for preview + on exiting nav).
-    // fitBounds doesn't reliably apply pitch, so derive the camera and easeTo
-    // with pitch/bearing forced to 0.
-    const padding = { top: 80, left: 40, right: 40, bottom }
-    const cam = this.map.cameraForBounds(b, { padding })
-    if (cam) this.map.easeTo({ center: cam.center, zoom: cam.zoom, bearing: 0, pitch: 0, duration: 600 })
-    else this.map.fitBounds(b, { padding, bearing: 0, pitch: 0, duration: 600 })
+    // Callers flatten the camera (setPitch 0) first; fitBounds preserves pitch,
+    // so the overview comes out flat north-up.
+    this.map.fitBounds(b, { padding: { top: 80, left: 40, right: 40, bottom }, duration: 600 })
   }
 
   // --- UI hooks (panel rendered by _directions_panel.html.erb) ---
