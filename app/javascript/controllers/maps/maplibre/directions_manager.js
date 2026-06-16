@@ -12,7 +12,20 @@ export class DirectionsManager {
     this.costing = "auto"
     this.markers = []
     this.boundClick = this.onMapClick.bind(this)
+    // --- live navigation state ---
+    this.watchId = null          // navigator.geolocation.watchPosition handle
+    this.userMarker = null       // blue "you are here" puck (also the route origin)
+    this.manualStart = false     // user dragged the puck → stop GPS auto-follow
+    this.lastRouteFrom = null    // origin used for the last drawn route {lat,lon}
+    this.lastRouteAt = 0         // perf timestamp of the last route compute
+    this.recomputeTimer = null
+    this.tracking = false
+    this.boundPosition = this.onPosition.bind(this)
   }
+
+  // Recompute throttle: don't hammer Valhalla on every GPS tick.
+  static MOVE_THRESHOLD_M = 25      // ignore jitter below this
+  static RECOMPUTE_INTERVAL_MS = 4000
 
   get map() {
     return this.controller.map
@@ -48,10 +61,15 @@ export class DirectionsManager {
   }
 
   clear() {
+    this.stopTracking()
     this.start = null
     this.end = null
     this.markers.forEach((m) => m.remove())
     this.markers = []
+    this.userMarker = null
+    this.manualStart = false
+    this.lastRouteFrom = null
+    this.lastRouteAt = 0
     this.removeRoute()
     this.setStatus("Click the map to set a start point.")
     this.setSummary("")
@@ -60,7 +78,7 @@ export class DirectionsManager {
 
   setCosting(value) {
     this.costing = value
-    if (this.start && this.end) this.computeRoute()
+    if (this.start && this.end) this.computeRoute(true)
   }
 
   onMapClick(e) {
@@ -73,7 +91,7 @@ export class DirectionsManager {
     } else if (!this.end) {
       this.end = pt
       this.addMarker(e.lngLat, "#ef4444", "B")
-      this.computeRoute()
+      this.computeRoute(true)
     } else {
       // third click restarts
       this.clear()
@@ -104,8 +122,10 @@ export class DirectionsManager {
     this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
     this.setStatus("Locating you…")
     this.start = await this.currentLocation()
-    this.addStartMarker([this.start.lon, this.start.lat])
-    this.computeRoute()
+    this.addUserMarker([this.start.lon, this.start.lat])
+    this.computeRoute(true)
+    // Follow the user live: move the puck + recompute as they move.
+    this.startTracking()
   }
 
   // Resolve the user's position; resolve to map center on denial/timeout.
@@ -124,23 +144,105 @@ export class DirectionsManager {
     })
   }
 
-  // Draggable green start marker — lets the user re-pick the origin.
-  addStartMarker(lngLat) {
+  // Live "you are here" puck — Google-style blue dot. Doubles as the route
+  // origin and follows the device as it moves (see startTracking). Draggable so
+  // the user can override the origin; dragging stops the GPS auto-follow.
+  addUserMarker(lngLat) {
+    this.ensurePuckStyle()
     const el = document.createElement("div")
-    el.style.cssText = `background:#22c55e;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:bold 12px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4);cursor:grab`
-    el.textContent = "A"
+    el.className = "dw-loc-puck"
+    el.innerHTML = `<span class="dw-loc-pulse"></span><span class="dw-loc-dot"></span>`
+    el.style.cursor = "grab"
     const marker = new maplibregl.Marker({ element: el, draggable: true })
       .setLngLat(lngLat)
       .addTo(this.map)
+    marker.on("dragstart", () => { this.manualStart = true })
     marker.on("dragend", () => {
       const ll = marker.getLngLat()
       this.start = { lat: ll.lat, lon: ll.lng }
-      if (this.end) this.computeRoute()
+      if (this.end) this.computeRoute(true)
     })
     this.markers.push(marker)
+    this.userMarker = marker
   }
 
-  async computeRoute() {
+  // Inject the puck CSS once (pulsing halo + solid dot).
+  ensurePuckStyle() {
+    if (document.getElementById("dw-loc-puck-style")) return
+    const s = document.createElement("style")
+    s.id = "dw-loc-puck-style"
+    s.textContent = `
+      .dw-loc-puck{position:relative;width:22px;height:22px}
+      .dw-loc-dot{position:absolute;inset:4px;border-radius:50%;background:#1a73e8;
+        border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+      .dw-loc-pulse{position:absolute;inset:0;border-radius:50%;background:rgba(26,115,232,.30);
+        animation:dwLocPulse 1.8s ease-out infinite}
+      @keyframes dwLocPulse{0%{transform:scale(.6);opacity:.8}100%{transform:scale(2.2);opacity:0}}`
+    document.head.appendChild(s)
+  }
+
+  // Begin following the device location while directions are open.
+  startTracking() {
+    if (this.tracking || !navigator.geolocation) return
+    this.tracking = true
+    try {
+      this.watchId = navigator.geolocation.watchPosition(
+        this.boundPosition,
+        () => { /* permission/timeout — keep the static route */ },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+      )
+    } catch (_) {
+      this.tracking = false
+    }
+  }
+
+  stopTracking() {
+    if (this.watchId != null && navigator.geolocation) {
+      try { navigator.geolocation.clearWatch(this.watchId) } catch (_) {}
+    }
+    this.watchId = null
+    this.tracking = false
+    if (this.recomputeTimer) { clearTimeout(this.recomputeTimer); this.recomputeTimer = null }
+  }
+
+  // New GPS fix: move the puck and (throttled) recompute the route.
+  onPosition(pos) {
+    if (this.manualStart || !this.active) return
+    const here = { lat: pos.coords.latitude, lon: pos.coords.longitude }
+    this.start = here
+    if (this.userMarker) this.userMarker.setLngLat([here.lon, here.lat])
+    this.scheduleRecompute()
+  }
+
+  // Recompute only when the user has actually moved (>25 m) and at most once
+  // every few seconds — avoids spamming Valhalla on GPS jitter.
+  scheduleRecompute() {
+    if (!this.end || !this.start) return
+    if (this.lastRouteFrom) {
+      const moved = this.haversine(this.start, this.lastRouteFrom)
+      if (moved < DirectionsManager.MOVE_THRESHOLD_M) return
+    }
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now())
+    const wait = Math.max(0, DirectionsManager.RECOMPUTE_INTERVAL_MS - (now - this.lastRouteAt))
+    if (this.recomputeTimer) return // one pending recompute is enough
+    this.recomputeTimer = setTimeout(() => {
+      this.recomputeTimer = null
+      if (this.active && !this.manualStart) this.computeRoute(false)
+    }, wait)
+  }
+
+  // Metres between two {lat,lon} points.
+  haversine(a, b) {
+    const R = 6371000, toRad = (d) => (d * Math.PI) / 180
+    const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon)
+    const s = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2
+    return 2 * R * Math.asin(Math.sqrt(s))
+  }
+
+  // fit=true frames the whole route (initial open / mode change). Live
+  // recomputes pass fit=false so the camera doesn't jerk while you move.
+  async computeRoute(fit = false) {
     this.setStatus("Routing…")
     try {
       const res = await fetch(`/api/v1/directions?api_key=${encodeURIComponent(this.apiKey)}`, {
@@ -158,10 +260,13 @@ export class DirectionsManager {
       const p = feature.properties || {}
       const km = (p.distance_km ?? 0).toFixed(1)
       const mins = Math.round((p.duration_s ?? 0) / 60)
-      this.setSummary(`${km} km · ${mins} min`)
+      const live = this.tracking && !this.manualStart ? `  <span style="color:#16a34a">● Live</span>` : ""
+      this.setSummary(`${km} km · ${mins} min${live}`, true)
       this.setTurns(p.maneuvers || [])
       this.setStatus("")
-      this.fitRoute(feature.geometry.coordinates)
+      this.lastRouteFrom = this.start ? { ...this.start } : null
+      this.lastRouteAt = (typeof performance !== "undefined" ? performance.now() : Date.now())
+      if (fit) this.fitRoute(feature.geometry.coordinates)
     } catch (e) {
       this.setStatus(`Routing failed: ${e.message}`)
     }
@@ -206,7 +311,7 @@ export class DirectionsManager {
   // --- UI hooks (panel rendered by _directions_panel.html.erb) ---
   panel() { return document.getElementById("directions-panel") }
   setStatus(t) { const el = document.getElementById("directions-status"); if (el) el.textContent = t }
-  setSummary(t) { const el = document.getElementById("directions-summary"); if (el) el.textContent = t }
+  setSummary(t, html = false) { const el = document.getElementById("directions-summary"); if (el) el[html ? "innerHTML" : "textContent"] = t }
   setTurns(list) {
     const el = document.getElementById("directions-turns")
     if (!el) return
