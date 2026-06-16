@@ -75,10 +75,10 @@ class Api::V1::DiscoveryController < ApiController
     # Extra resources beyond OSM: Wikidata (notable places) → Wikimedia Commons
     # (nearby open photo) → Brave (ratings/description, external, opt-in key).
     wd = wikidata_info(tags['wikidata'] || tags['brand:wikidata'])
-    lat = params[:lat]&.to_f || tags['lat']&.to_f
-    lon = params[:lon]&.to_f || tags['lon']&.to_f
-    brave = brave_info([tags['name'] || params[:name], tags['addr:city']].compact.join(' ').presence, lat, lon)
-    image = wd&.dig(:image) || brave&.dig(:image) || commons_photo(lat, lon)
+    website = tags['website'] || tags['contact:website'] || wd&.dig(:website)
+    brave = brave_info([tags['name'] || params[:name], tags['addr:city']].compact.join(' ').presence, website)
+    # Only trust a curated/own-site photo — never random nearby/portal thumbnails.
+    image = wd&.dig(:image) || brave&.dig(:image)
     hours = tags['opening_hours']
     render json: {
       opening_hours: hours,
@@ -166,7 +166,7 @@ class Api::V1::DiscoveryController < ApiController
 
   # Brave Search (external, opt-in) — description + photo for a place. Needs
   # ENV['BRAVE_SEARCH_API_KEY']; ratings require Brave's paid Local plan.
-  def brave_info(name, _lat, _lon)
+  def brave_info(name, website = nil)
     key = ENV['BRAVE_SEARCH_API_KEY'].presence
     return nil if key.blank? || name.blank?
 
@@ -197,7 +197,12 @@ class Api::V1::DiscoveryController < ApiController
       end
 
       desc = info['long_desc'] || info['description'] || relevant&.dig('description')
-      thumb = info.dig('thumbnail', 'src') || relevant&.dig('thumbnail', 'src')
+      # Image: infobox (curated) or the relevant result's thumbnail ONLY when it
+      # is the place's OWN website (its logo/photo) — not random portal images.
+      thumb = info.dig('thumbnail', 'src')
+      if thumb.blank? && relevant && website.present? && same_host?(relevant['url'], website)
+        thumb = relevant.dig('thumbnail', 'src')
+      end
       {
         description: strip_html(desc),
         image: thumb,
@@ -206,6 +211,15 @@ class Api::V1::DiscoveryController < ApiController
     end
   rescue StandardError
     nil
+  end
+
+  # Do two URLs share the same registrable host (ignoring www.)?
+  def same_host?(a, b)
+    ha = URI.parse(a.to_s).host.to_s.sub(/\Awww\./, '')
+    hb = URI.parse(b.to_s).host.to_s.sub(/\Awww\./, '')
+    ha.present? && ha == hb
+  rescue StandardError
+    false
   end
 
   # Today's opening ranges from an opening_hours spec, e.g. "08:00–18:00" or
