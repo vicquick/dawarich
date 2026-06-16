@@ -110,7 +110,7 @@ class Api::V1::RoutingController < ApiController
         shift += 5
         break if b < 0x20
       end
-      lat += ((result & 1) ? ~(result >> 1) : (result >> 1))
+      lat += (result.odd? ? ~(result >> 1) : (result >> 1))
 
       shift = 0
       result = 0
@@ -121,7 +121,7 @@ class Api::V1::RoutingController < ApiController
         shift += 5
         break if b < 0x20
       end
-      lng += ((result & 1) ? ~(result >> 1) : (result >> 1))
+      lng += (result.odd? ? ~(result >> 1) : (result >> 1))
 
       coordinates << [lng / factor, lat / factor]
     end
