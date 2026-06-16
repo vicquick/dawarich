@@ -71,8 +71,13 @@ class Api::V1::DiscoveryController < ApiController
                 end
     tags = Rails.cache.fetch(cache_key, expires_in: 14.days) { fetch_place_tags(type, id) || {} }
 
-    # Wikidata fills gaps OSM lacks (description, image, sometimes website).
+    # Extra resources beyond OSM: Wikidata (notable places) → Wikimedia Commons
+    # (nearby open photo) → Brave (ratings/description, external, opt-in key).
     wd = wikidata_info(tags['wikidata'] || tags['brand:wikidata'])
+    lat = params[:lat]&.to_f || tags['lat']&.to_f
+    lon = params[:lon]&.to_f || tags['lon']&.to_f
+    brave = brave_info(tags['name'] || params[:name], lat, lon)
+    image = wd&.dig(:image) || brave&.dig(:image) || commons_photo(lat, lon)
     hours = tags['opening_hours']
     render json: {
       opening_hours: hours,
@@ -81,8 +86,9 @@ class Api::V1::DiscoveryController < ApiController
       week_hours: hours ? week_hours(hours) : nil,
       phone: tags['phone'] || tags['contact:phone'],
       website: tags['website'] || tags['contact:website'] || wd&.dig(:website),
-      description: wd&.dig(:description),
-      image: wd&.dig(:image),
+      description: wd&.dig(:description) || brave&.dig(:description),
+      image: image,
+      rating: brave&.dig(:rating),
       cuisine: tags['cuisine'],
       brand: tags['brand'],
       wheelchair: tags['wheelchair']
@@ -124,6 +130,55 @@ class Api::V1::DiscoveryController < ApiController
         desc = ent.dig('descriptions', 'en', 'value') || ent.dig('descriptions', 'de', 'value')
         { website: website, image: image_url, description: desc }
       end
+    end
+  rescue StandardError
+    nil
+  end
+
+  # Open photo near the coords from Wikimedia Commons (free, no key). Tight
+  # radius so it's likely the place itself; hit-or-miss for ordinary POIs.
+  def commons_photo(lat, lon)
+    return nil if lat.nil? || lon.nil?
+
+    Rails.cache.fetch("v1/commons/#{lat.round(4)}/#{lon.round(4)}", expires_in: 30.days) do
+      uri = URI("https://commons.wikimedia.org/w/api.php?action=query&list=geosearch" \
+                "&gscoord=#{lat}%7C#{lon}&gsradius=110&gslimit=1&gsnamespace=6&format=json")
+      resp = http_get(uri, host_header: nil)
+      next nil unless resp&.is_a?(Net::HTTPSuccess)
+
+      f = (Oj.load(resp.body).dig('query', 'geosearch') || []).first
+      next nil unless f && f['title']
+
+      title = f['title'].sub(/\AFile:/, '')
+      "https://commons.wikimedia.org/wiki/Special:FilePath/#{URI.encode_www_form_component(title)}?width=480"
+    end
+  rescue StandardError
+    nil
+  end
+
+  # Brave Search (external, opt-in) — description + photo for a place. Needs
+  # ENV['BRAVE_SEARCH_API_KEY']; ratings require Brave's paid Local plan.
+  def brave_info(name, _lat, _lon)
+    key = ENV['BRAVE_SEARCH_API_KEY'].presence
+    return nil if key.blank? || name.blank?
+
+    Rails.cache.fetch("v1/brave/#{Digest::MD5.hexdigest(name)}", expires_in: 14.days) do
+      uri = URI("https://api.search.brave.com/res/v1/web/search?q=#{URI.encode_www_form_component(name)}&count=1")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 5
+      http.read_timeout = 10
+      req = Net::HTTP::Get.new(uri)
+      req['X-Subscription-Token'] = key
+      req['Accept'] = 'application/json'
+      resp = http.request(req)
+      next nil unless resp.is_a?(Net::HTTPSuccess)
+
+      result = Oj.load(resp.body).dig('web', 'results', 0) || {}
+      {
+        description: result['description'],
+        image: result.dig('thumbnail', 'src') || result.dig('thumbnail', 'original')
+      }.compact.presence
     end
   rescue StandardError
     nil
