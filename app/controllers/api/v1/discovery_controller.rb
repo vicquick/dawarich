@@ -72,14 +72,9 @@ class Api::V1::DiscoveryController < ApiController
                 end
     tags = Rails.cache.fetch(cache_key, expires_in: 14.days) { fetch_place_tags(type, id) || {} }
 
-    # Extra resources beyond OSM: Wikidata (notable places) → Wikimedia Commons
-    # (nearby open photo) → Brave (ratings/description, external, opt-in key).
+    # Beyond OSM: Wikidata for notable places (curated description + photo).
+    # Brave dropped — its free tier gives no useful place data. Fully private.
     wd = wikidata_info(tags['wikidata'] || tags['brand:wikidata'])
-    website = tags['website'] || tags['contact:website'] || wd&.dig(:website)
-    brave = brave_info([tags['name'] || params[:name], tags['addr:city']].compact.join(' ').presence, website)
-    # Only Wikidata's curated photo — Brave/Commons images are static maps,
-    # portal logos and random nearby buildings (ugly). No photo > ugly photo.
-    image = wd&.dig(:image)
     hours = tags['opening_hours']
     render json: {
       opening_hours: hours,
@@ -88,9 +83,8 @@ class Api::V1::DiscoveryController < ApiController
       week_hours: hours ? week_hours(hours) : nil,
       phone: tags['phone'] || tags['contact:phone'],
       website: tags['website'] || tags['contact:website'] || wd&.dig(:website),
-      description: wd&.dig(:description) || brave&.dig(:description),
-      image: image,
-      rating: brave&.dig(:rating),
+      description: wd&.dig(:description),
+      image: wd&.dig(:image),
       cuisine: tags['cuisine'],
       brand: tags['brand'],
       wheelchair: tags['wheelchair']
