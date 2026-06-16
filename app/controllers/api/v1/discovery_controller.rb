@@ -185,10 +185,19 @@ class Api::V1::DiscoveryController < ApiController
       data = Oj.load(resp.body)
       info = data.dig('infobox', 'results', 0) || {}
       results = data.dig('web', 'results') || []
-      desc = info['long_desc'] || info['description'] ||
-             results.map { |r| r['description'] }.compact.first
-      thumb = info.dig('thumbnail', 'src') ||
-              results.map { |r| r.dig('thumbnail', 'src') }.compact.first
+
+      # Free tier returns generic web snippets — keep only results that actually
+      # match the place (a name word appears in the title/url) and aren't
+      # dictionary/encyclopaedia noise. Real ratings need Brave's paid Local plan.
+      tokens = name.to_s.downcase.scan(/\p{L}{3,}/) - %w[der die das und restaurant cafe bar gmbh str]
+      junk = /wiktionary|wikipedia|duden|dict\.|leo\.org|translate/
+      relevant = results.find do |r|
+        hay = "#{r['title']} #{r['url']}".downcase
+        hay !~ junk && tokens.any? { |t| hay.include?(t) }
+      end
+
+      desc = info['long_desc'] || info['description'] || relevant&.dig('description')
+      thumb = info.dig('thumbnail', 'src') || relevant&.dig('thumbnail', 'src')
       {
         description: strip_html(desc),
         image: thumb,
