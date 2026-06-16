@@ -74,8 +74,23 @@ class Api::V1::RoutingController < ApiController
   def build_geojson(trip)
     legs = trip['legs']
     coords = legs.flat_map { |leg| decode_polyline6(leg['shape']) }
-    maneuvers = legs.flat_map { |leg| leg.dig('maneuvers') || [] }.map do |m|
-      { instruction: m['instruction'], length_km: m['length'], time_s: m['time'], type: m['type'] }
+    # begin_shape_index lets the frontend locate each turn on the polyline (for
+    # the "next maneuver" highlight + nav camera). Indices are per-leg, so offset
+    # them by the running vertex count as legs are concatenated.
+    offset = 0
+    maneuvers = legs.flat_map do |leg|
+      leg_pts = decode_polyline6(leg['shape']).length
+      ms = (leg['maneuvers'] || []).map do |m|
+        {
+          instruction: m['instruction'],
+          length_km: m['length'],
+          time_s: m['time'],
+          type: m['type'],
+          begin_shape_index: (m['begin_shape_index'] || 0) + offset
+        }
+      end
+      offset += leg_pts
+      ms
     end
     summary = trip['summary'] || {}
 

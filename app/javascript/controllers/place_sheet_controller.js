@@ -337,6 +337,11 @@ export default class extends Controller {
     try { window.dawarichDirections?.routeTo(this.place.lat, this.place.lon) } catch (e) { /* noop */ }
   }
 
+  // Resume the live nav follow-camera after the user has panned away.
+  recenter() {
+    try { window.dawarichDirections?.recenter() } catch (_) { /* noop */ }
+  }
+
   setMode(e) {
     const mode = e.currentTarget.dataset.mode
     try { window.dawarichDirections?.setCosting(mode) } catch (_) { /* noop */ }

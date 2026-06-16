@@ -21,6 +21,15 @@ export class DirectionsManager {
     this.recomputeTimer = null
     this.tracking = false
     this.boundPosition = this.onPosition.bind(this)
+    // --- turn-by-turn guidance + 3D nav camera ---
+    this.routeCoords = []        // [[lon,lat], ...] full polyline
+    this.maneuvers = []          // [{instruction,type,begin_shape_index,...}]
+    this.maneuverMarker = null   // highlight at the next turn
+    this.userPanned = false      // user dragged the map → pause follow-cam
+    this.nav3d = false
+    this.boundPanStart = () => {
+      if (this.tracking && !this.manualStart) { this.userPanned = true; this.showRecenter(true) }
+    }
   }
 
   // Recompute throttle: don't hammer Valhalla on every GPS tick.
@@ -57,11 +66,13 @@ export class DirectionsManager {
     }
     // Second press of the toggle: fully clear route/markers and close the panel.
     this.clear()
+    this.resetCamera()
     this.panel()?.classList.add("hidden")
   }
 
   clear() {
     this.stopTracking()
+    this.exitNav()
     this.start = null
     this.end = null
     this.markers.forEach((m) => m.remove())
@@ -70,6 +81,8 @@ export class DirectionsManager {
     this.manualStart = false
     this.lastRouteFrom = null
     this.lastRouteAt = 0
+    this.routeCoords = []
+    this.maneuvers = []
     this.removeRoute()
     this.setStatus("Click the map to set a start point.")
     this.setSummary("")
@@ -123,9 +136,63 @@ export class DirectionsManager {
     this.setStatus("Locating you…")
     this.start = await this.currentLocation()
     this.addUserMarker([this.start.lon, this.start.lat])
-    this.computeRoute(true)
-    // Follow the user live: move the puck + recompute as they move.
+    this.enterNav()
+    // Follow the user live: move the puck + recompute as they move. Start before
+    // the first compute so it opens straight into the 3D nav view.
     this.startTracking()
+    this.computeRoute(true)
+  }
+
+  // Enter navigation view: tilt to 3D, extrude buildings, watch for the user
+  // panning away (so we can offer a re-center button instead of fighting them).
+  enterNav() {
+    this.userPanned = false
+    this.add3DBuildings()
+    this.map?.on("dragstart", this.boundPanStart)
+  }
+
+  exitNav() {
+    this.map?.off("dragstart", this.boundPanStart)
+    this.remove3DBuildings()
+    if (this.maneuverMarker) { this.maneuverMarker.remove(); this.maneuverMarker = null }
+    this.showRecenter(false)
+    this.navBanner()?.setAttribute("hidden", "")
+    this.userPanned = false
+  }
+
+  // Extrude the basemap's "buildings" layer for a 3D city feel under nav.
+  add3DBuildings() {
+    if (!this.map || this.nav3d) return
+    try {
+      if (!this.map.getSource("protomaps")) return
+      if (this.map.getLayer("directions-buildings-3d")) return
+      const before = this.map.getLayer("buildings") ? "buildings" : undefined
+      this.map.addLayer({
+        id: "directions-buildings-3d",
+        type: "fill-extrusion",
+        source: "protomaps",
+        "source-layer": "buildings",
+        minzoom: 14,
+        paint: {
+          "fill-extrusion-color": "#7c8597",
+          "fill-extrusion-height": ["coalesce", ["get", "height"], ["get", "render_height"], 6],
+          "fill-extrusion-base": ["coalesce", ["get", "min_height"], ["get", "render_min_height"], 0],
+          "fill-extrusion-opacity": 0.55,
+        },
+      }, before)
+      this.nav3d = true
+    } catch (e) { /* basemap lacks building heights — pitch alone still reads as 3D */ }
+  }
+
+  remove3DBuildings() {
+    try { if (this.map?.getLayer("directions-buildings-3d")) this.map.removeLayer("directions-buildings-3d") } catch (_) {}
+    this.nav3d = false
+  }
+
+  recenter() {
+    this.userPanned = false
+    this.showRecenter(false)
+    this.updateGuidance(true)
   }
 
   // Resolve the user's position; resolve to map center on denial/timeout.
@@ -211,6 +278,9 @@ export class DirectionsManager {
     const here = { lat: pos.coords.latitude, lon: pos.coords.longitude }
     this.start = here
     if (this.userMarker) this.userMarker.setLngLat([here.lon, here.lat])
+    // Smoothly update the banner + follow-cam every fix; recompute the actual
+    // route only when throttled (below).
+    this.updateGuidance(true)
     this.scheduleRecompute()
   }
 
@@ -258,15 +328,20 @@ export class DirectionsManager {
       const feature = await res.json()
       this.drawRoute(feature)
       const p = feature.properties || {}
+      this.routeCoords = feature.geometry?.coordinates || []
+      this.maneuvers = p.maneuvers || []
       const km = (p.distance_km ?? 0).toFixed(1)
       const mins = Math.round((p.duration_s ?? 0) / 60)
       const live = this.tracking && !this.manualStart ? `  <span style="color:#16a34a">● Live</span>` : ""
       this.setSummary(`${km} km · ${mins} min${live}`, true)
-      this.setTurns(p.maneuvers || [])
+      this.setTurns(this.maneuvers)
       this.setStatus("")
       this.lastRouteFrom = this.start ? { ...this.start } : null
       this.lastRouteAt = (typeof performance !== "undefined" ? performance.now() : Date.now())
-      if (fit) this.fitRoute(feature.geometry.coordinates)
+      // Camera: nav follow-cam when tracking live; whole-route fit otherwise.
+      if (fit && this.tracking) this.updateGuidance(true)
+      else if (fit) { this.fitRoute(this.routeCoords); this.updateGuidance(false) }
+      else this.updateGuidance(false)
     } catch (e) {
       this.setStatus(`Routing failed: ${e.message}`)
     }
@@ -316,12 +391,146 @@ export class DirectionsManager {
     const el = document.getElementById("directions-turns")
     if (!el) return
     el.innerHTML = ""
-    list.filter((m) => m.instruction).forEach((m) => {
+    list.forEach((m, i) => {
+      if (!m.instruction) return
       const li = document.createElement("li")
       li.className = "text-sm py-1 border-b border-base-300"
+      li.dataset.mi = i
       const dist = m.length_km ? ` (${m.length_km.toFixed(1)} km)` : ""
       li.textContent = m.instruction + dist
       el.appendChild(li)
     })
+  }
+
+  // --- live guidance: next manoeuvre banner, highlight, follow-camera ---
+  navBanner() { return document.getElementById("directions-nav-banner") }
+  showRecenter(on) {
+    const b = document.getElementById("directions-recenter")
+    if (b) b.hidden = !on
+  }
+
+  // Compute progress along the route from the current origin and refresh the
+  // next-manoeuvre banner + on-map highlight; optionally move the nav camera.
+  updateGuidance(moveCamera) {
+    if (!this.routeCoords.length || !this.maneuvers.length || !this.start) {
+      this.navBanner()?.setAttribute("hidden", "")
+      return
+    }
+    const here = [this.start.lon, this.start.lat]
+    const idx = this.nearestVertexIndex(here)
+    // Next manoeuvre = first one whose turn point is ahead of us on the line.
+    let next = this.maneuvers.find((m) => (m.begin_shape_index ?? 0) > idx)
+    if (!next) next = this.maneuvers[this.maneuvers.length - 1]
+    const turnIdx = Math.min(next.begin_shape_index ?? this.routeCoords.length - 1, this.routeCoords.length - 1)
+    const turnCoord = this.routeCoords[turnIdx]
+    const dist = this.alongDistance(idx, turnIdx)
+
+    // Banner
+    const banner = this.navBanner()
+    if (banner && this.tracking) {
+      banner.hidden = false
+      const arrow = document.getElementById("directions-nav-arrow")
+      const dEl = document.getElementById("directions-nav-dist")
+      const iEl = document.getElementById("directions-nav-instr")
+      if (arrow) arrow.textContent = this.arrowFor(next)
+      if (dEl) dEl.textContent = this.fmtDist(dist)
+      if (iEl) iEl.textContent = next.instruction || ""
+    }
+    // Bold the active step in the list
+    const list = document.getElementById("directions-turns")
+    if (list) {
+      const activeMi = String(this.maneuvers.indexOf(next))
+      list.querySelectorAll("li").forEach((li) => {
+        const on = li.dataset.mi === activeMi
+        li.style.fontWeight = on ? "700" : ""
+        li.style.color = on ? "#1a73e8" : ""
+      })
+    }
+    // On-map highlight at the next turn
+    this.highlightManeuver(turnCoord)
+
+    // Follow-camera (3D, facing travel) unless the user panned away.
+    if (moveCamera && this.tracking && !this.manualStart && !this.userPanned) {
+      const ahead = this.routeCoords[Math.min(idx + 1, this.routeCoords.length - 1)]
+      const bearing = this.bearingDeg(here, ahead)
+      this.navCamera(here, bearing)
+    }
+  }
+
+  highlightManeuver(coord) {
+    if (!coord) return
+    if (!this.maneuverMarker) {
+      const el = document.createElement("div")
+      el.style.cssText = "width:18px;height:18px;border-radius:50%;background:#fbbc04;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"
+      this.maneuverMarker = new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(this.map)
+    } else {
+      this.maneuverMarker.setLngLat(coord)
+    }
+  }
+
+  // Tilted camera centred on the user, facing the direction of travel, with the
+  // sheet area reserved so the puck sits in the visible map above it.
+  navCamera(center, bearing) {
+    if (!this.map) return
+    const sheet = document.querySelector('[data-controller~="place-sheet"]')
+    const bottom = sheet && getComputedStyle(sheet).transform !== "none" ? sheet.offsetHeight + 40 : 80
+    this.map.easeTo({
+      center,
+      bearing: Number.isFinite(bearing) ? bearing : this.map.getBearing(),
+      pitch: 58,
+      zoom: Math.max(this.map.getZoom(), 16.5),
+      padding: { top: 140, bottom, left: 0, right: 0 },
+      duration: 900,
+    })
+  }
+
+  resetCamera() {
+    try { this.map?.easeTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 500 }) } catch (_) {}
+  }
+
+  // Index of the route vertex nearest the given [lon,lat].
+  nearestVertexIndex(lonlat) {
+    let best = 0, bestD = Infinity
+    for (let i = 0; i < this.routeCoords.length; i++) {
+      const d = this.havLL(this.routeCoords[i], lonlat)
+      if (d < bestD) { bestD = d; best = i }
+    }
+    return best
+  }
+
+  // Distance in metres along the polyline between vertex indices i and j.
+  alongDistance(i, j) {
+    let d = 0
+    for (let k = i; k < j; k++) d += this.havLL(this.routeCoords[k], this.routeCoords[k + 1])
+    return d
+  }
+
+  // Initial bearing (degrees) from a→b, both [lon,lat].
+  bearingDeg(a, b) {
+    const toRad = (x) => (x * Math.PI) / 180, toDeg = (x) => (x * 180) / Math.PI
+    const φ1 = toRad(a[1]), φ2 = toRad(b[1]), Δλ = toRad(b[0] - a[0])
+    const y = Math.sin(Δλ) * Math.cos(φ2)
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+    return (toDeg(Math.atan2(y, x)) + 360) % 360
+  }
+
+  havLL(a, b) { return this.haversine({ lon: a[0], lat: a[1] }, { lon: b[0], lat: b[1] }) }
+
+  fmtDist(m) {
+    if (m < 1000) return `${Math.max(0, Math.round(m / 10) * 10)} m`
+    return `${(m / 1000).toFixed(1)} km`
+  }
+
+  // Arrow glyph for the manoeuvre (from instruction text — robust across types).
+  arrowFor(m) {
+    const t = (m?.instruction || "").toLowerCase()
+    if (/roundabout|rotary/.test(t)) return "⟳"
+    if (/destination|arrive|arrived/.test(t)) return "📍"
+    if (/sharp left/.test(t)) return "↰"
+    if (/sharp right/.test(t)) return "↱"
+    if (/left/.test(t)) return "←"
+    if (/right/.test(t)) return "→"
+    if (/u-turn|uturn|make a u/.test(t)) return "⤺"
+    return "↑"
   }
 }
