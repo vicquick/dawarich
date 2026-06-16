@@ -2,6 +2,7 @@
 
 require 'resolv'
 require 'digest'
+require 'cgi'
 
 # Google-Maps-style discovery (vicquick fork) — fully self-hosted where possible.
 # `nearby`     → category POIs around a point via self-hosted Photon (private).
@@ -76,7 +77,7 @@ class Api::V1::DiscoveryController < ApiController
     wd = wikidata_info(tags['wikidata'] || tags['brand:wikidata'])
     lat = params[:lat]&.to_f || tags['lat']&.to_f
     lon = params[:lon]&.to_f || tags['lon']&.to_f
-    brave = brave_info(tags['name'] || params[:name], lat, lon)
+    brave = brave_info([tags['name'] || params[:name], tags['addr:city']].compact.join(' ').presence, lat, lon)
     image = wd&.dig(:image) || brave&.dig(:image) || commons_photo(lat, lon)
     hours = tags['opening_hours']
     render json: {
@@ -135,6 +136,13 @@ class Api::V1::DiscoveryController < ApiController
     nil
   end
 
+  # Strip HTML tags + unescape entities from a snippet (Brave descriptions).
+  def strip_html(str)
+    return nil if str.blank?
+
+    CGI.unescapeHTML(str.gsub(/<[^>]+>/, '')).strip.presence
+  end
+
   # Open photo near the coords from Wikimedia Commons (free, no key). Tight
   # radius so it's likely the place itself; hit-or-miss for ordinary POIs.
   def commons_photo(lat, lon)
@@ -163,7 +171,7 @@ class Api::V1::DiscoveryController < ApiController
     return nil if key.blank? || name.blank?
 
     Rails.cache.fetch("v1/brave/#{Digest::MD5.hexdigest(name)}", expires_in: 14.days) do
-      uri = URI("https://api.search.brave.com/res/v1/web/search?q=#{URI.encode_www_form_component(name)}&count=1")
+      uri = URI("https://api.search.brave.com/res/v1/web/search?q=#{URI.encode_www_form_component(name)}&count=3")
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = true
       http.open_timeout = 5
@@ -174,10 +182,15 @@ class Api::V1::DiscoveryController < ApiController
       resp = http.request(req)
       next nil unless resp.is_a?(Net::HTTPSuccess)
 
-      result = Oj.load(resp.body).dig('web', 'results', 0) || {}
+      data = Oj.load(resp.body)
+      info = data.dig('infobox', 'results', 0) || {}
+      result = data.dig('web', 'results', 0) || {}
+      desc = info['long_desc'] || info['description'] || result['description']
+      thumb = info.dig('thumbnail', 'src') || result.dig('thumbnail', 'src')
       {
-        description: result['description'],
-        image: result.dig('thumbnail', 'src') || result.dig('thumbnail', 'original')
+        description: strip_html(desc),
+        image: thumb,
+        rating: info.dig('rating', 'ratingValue') || info['rating']
       }.compact.presence
     end
   rescue StandardError

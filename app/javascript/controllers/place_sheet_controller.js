@@ -236,8 +236,9 @@ export default class extends Controller {
         parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
       }
       let html = ""
-      // Wikidata photo (Wikimedia Commons) when available.
+      // Photo (Wikidata / Brave / Wikimedia Commons) when available.
       if (d.image) html += `<img src="${this.esc(d.image)}" alt="" loading="lazy" style="width:100%;max-height:160px;object-fit:cover;border-radius:12px;margin-bottom:10px" onerror="this.remove()">`
+      if (d.rating) html += `<div style="font-size:.85rem;margin-bottom:6px">⭐ <strong>${this.esc(String(d.rating))}</strong></div>`
       if (parts.length) html += `<div style="font-size:.85rem;margin-bottom:8px">${parts.join(" · ")}</div>`
       // Full week hours (Mon-first), hidden until the toggle is tapped.
       if (hasWeek) {
