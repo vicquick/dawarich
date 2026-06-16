@@ -184,9 +184,11 @@ class Api::V1::DiscoveryController < ApiController
 
       data = Oj.load(resp.body)
       info = data.dig('infobox', 'results', 0) || {}
-      result = data.dig('web', 'results', 0) || {}
-      desc = info['long_desc'] || info['description'] || result['description']
-      thumb = info.dig('thumbnail', 'src') || result.dig('thumbnail', 'src')
+      results = data.dig('web', 'results') || []
+      desc = info['long_desc'] || info['description'] ||
+             results.map { |r| r['description'] }.compact.first
+      thumb = info.dig('thumbnail', 'src') ||
+              results.map { |r| r.dig('thumbnail', 'src') }.compact.first
       {
         description: strip_html(desc),
         image: thumb,
