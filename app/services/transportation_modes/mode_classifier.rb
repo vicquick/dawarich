@@ -187,7 +187,16 @@ module TransportationModes
     end
 
     def likely_flying?
-      avg_speed >= speed_thresholds[:flying][:min] && max_speed >= classification_thresholds[:flying_threshold]
+      return false unless avg_speed >= speed_thresholds[:flying][:min] &&
+                          max_speed >= classification_thresholds[:flying_threshold]
+
+      # A real flight also covers a minimum distance. Without this gate, GPS
+      # jumps and high-speed rail get mislabelled as short "flights" (vicquick
+      # fork). Uses the user's min_flight_distance_km (default 100 km).
+      min_km = (@user_expert_thresholds['min_flight_distance_km'] || 100).to_f
+      return true if duration.to_i <= 0
+
+      (avg_speed * (duration.to_f / 3600.0)) >= min_km
     end
 
     def likely_train?
