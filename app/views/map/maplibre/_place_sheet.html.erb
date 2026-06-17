@@ -58,12 +58,15 @@
         floating popup). directions_manager fills these by id. %>
     <div id="directions-panel" data-place-sheet-target="directions" class="hidden" style="margin-top:12px;">
       <%# PREVIEW header: back to place + travel-mode chips (hidden during active nav). %>
-      <div id="directions-preview-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-        <button type="button" data-action="click->place-sheet#backToInfo" class="btn btn-ghost btn-sm gap-1">‹ Back</button>
-        <div class="join" role="group" aria-label="Travel mode">
-          <button type="button" data-action="click->place-sheet#setMode" data-mode="auto" class="btn btn-sm join-item dir-mode btn-active">🚗 Drive</button>
-          <button type="button" data-action="click->place-sheet#setMode" data-mode="bicycle" class="btn btn-sm join-item dir-mode">🚲 Bike</button>
-          <button type="button" data-action="click->place-sheet#setMode" data-mode="pedestrian" class="btn btn-sm join-item dir-mode">🚶 Walk</button>
+      <div id="directions-preview-header" style="display:flex; align-items:center; gap:8px;">
+        <button type="button" data-action="click->place-sheet#backToInfo" class="btn btn-ghost btn-sm gap-1" style="flex:0 0 auto;">‹</button>
+        <%# Modes, Google order: Walk (default) → Bike → Transit → Drive. Scrolls
+            sideways on narrow screens so all stay reachable. %>
+        <div style="display:flex; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; flex:1 1 auto; padding-bottom:2px;" role="group" aria-label="Travel mode">
+          <button type="button" data-action="click->place-sheet#setMode" data-mode="pedestrian" class="btn btn-sm dir-mode btn-active" style="flex:0 0 auto;">🚶 Walk</button>
+          <button type="button" data-action="click->place-sheet#setMode" data-mode="bicycle" class="btn btn-sm dir-mode" style="flex:0 0 auto;">🚲 Bike</button>
+          <button type="button" data-action="click->place-sheet#setMode" data-mode="transit" class="btn btn-sm dir-mode" style="flex:0 0 auto;">🚆 Transit</button>
+          <button type="button" data-action="click->place-sheet#setMode" data-mode="auto" class="btn btn-sm dir-mode" style="flex:0 0 auto;">🚗 Drive</button>
         </div>
       </div>
       <%# Live nav banner — the next manoeuvre (big arrow + distance + street). %>

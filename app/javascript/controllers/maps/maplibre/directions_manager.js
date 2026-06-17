@@ -9,7 +9,7 @@ export class DirectionsManager {
     this.active = false
     this.start = null
     this.end = null
-    this.costing = "auto"
+    this.costing = "pedestrian" // Walk by default
     this.markers = []
     this.boundClick = this.onMapClick.bind(this)
     // --- live navigation state ---
@@ -101,7 +101,36 @@ export class DirectionsManager {
 
   setCosting(value) {
     this.costing = value
+    if (value === "transit") { this.computeTransit(); return }
     if (this.start && this.end) this.computeRoute(true)
+  }
+
+  // Public-transport routing via OTP2. Until the transit service is online the
+  // endpoint returns 503 and we show a friendly placeholder.
+  async computeTransit() {
+    if (!this.start || !this.end) return
+    this.setStatus("Finding public transport…")
+    try {
+      const res = await fetch(`/api/v1/transit?api_key=${encodeURIComponent(this.apiKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: this.start, to: this.end }),
+      })
+      if (res.status === 503 || res.status === 404) {
+        this.setStatus("Public transport — coming soon")
+        return
+      }
+      if (!res.ok) { this.setStatus("No transit route"); return }
+      const data = await res.json()
+      this.renderTransit(data)
+    } catch (e) {
+      this.setStatus("Public transport unavailable")
+    }
+  }
+
+  // Placeholder until the transit itinerary UI lands with the OTP2 service.
+  renderTransit(_data) {
+    this.setStatus("Public transport — coming soon")
   }
 
   onMapClick(e) {
@@ -141,6 +170,7 @@ export class DirectionsManager {
     if (!this.map) return
     this.active = true
     this.clear()
+    this.costing = "pedestrian" // each new place opens in Walk
     this.destName = name || "Destination"
     this.end = { lat: Number(lat), lon: Number(lon) }
     this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")

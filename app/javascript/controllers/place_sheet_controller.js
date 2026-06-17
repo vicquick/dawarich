@@ -331,9 +331,9 @@ export default class extends Controller {
     // Keep it ~half height so the drawn route stays visible on the map above.
     this.element.style.height = "48vh"
     this.expanded = true
-    // Reset mode to Drive.
+    // Default mode = Walk.
     this.element.querySelectorAll(".dir-mode").forEach((b) =>
-      b.classList.toggle("btn-active", b.dataset.mode === "auto"))
+      b.classList.toggle("btn-active", b.dataset.mode === "pedestrian"))
     // Open the route PREVIEW (2D overview + ETA); user taps Start to navigate.
     try { window.dawarichDirections?.preview(this.place.lat, this.place.lon, this.place.name) } catch (e) { /* noop */ }
   }
