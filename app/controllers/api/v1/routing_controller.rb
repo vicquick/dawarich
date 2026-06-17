@@ -66,7 +66,8 @@ class Api::V1::RoutingController < ApiController
   OTP_PLAN_QUERY = <<~GQL
     query Plan($fromLat: Float!, $fromLon: Float!, $toLat: Float!, $toLon: Float!) {
       plan(from: {lat: $fromLat, lon: $fromLon}, to: {lat: $toLat, lon: $toLon},
-           transportModes: [{mode: WALK}, {mode: TRANSIT}], numItineraries: 4) {
+           transportModes: [{mode: WALK}, {mode: TRANSIT}], numItineraries: 4,
+           searchWindow: 25200) {
         itineraries {
           startTime endTime duration walkDistance numberOfTransfers
           legs {
