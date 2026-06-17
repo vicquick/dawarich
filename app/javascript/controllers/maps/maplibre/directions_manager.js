@@ -205,6 +205,10 @@ export class DirectionsManager {
     this.fitRoute(feats.flatMap((f) => f.geometry.coordinates))
   }
 
+  esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
+  }
+
   fmtClock(ms) {
     if (!ms) return "--:--"
     try { return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } catch (_) { return "--:--" }
