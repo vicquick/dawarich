@@ -102,35 +102,121 @@ export class DirectionsManager {
   setCosting(value) {
     this.costing = value
     if (value === "transit") { this.computeTransit(); return }
+    // Switching back to a road mode: restore the road preview UI.
+    if (!this.tracking) {
+      const pa = document.getElementById("directions-preview-actions")
+      if (pa) pa.style.display = "flex"
+    }
     if (this.start && this.end) this.computeRoute(true)
   }
 
-  // Public-transport routing via OTP2. Until the transit service is online the
-  // endpoint returns 503 and we show a friendly placeholder.
+  // Public-transport routing via OTP2 (all-Germany GTFS).
   async computeTransit() {
     if (!this.start || !this.end) return
     this.setStatus("Finding public transport…")
+    this.removeRoute()
+    // Transit has no turn-by-turn Start / ride hand-off / driving alternates.
+    ;["directions-preview-actions", "directions-routes"].forEach((id) => {
+      const e = document.getElementById(id); if (e) e.style.display = "none"
+    })
     try {
       const res = await fetch(`/api/v1/transit?api_key=${encodeURIComponent(this.apiKey)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ from: this.start, to: this.end }),
       })
-      if (res.status === 503 || res.status === 404) {
-        this.setStatus("Public transport — coming soon")
-        return
-      }
+      if (res.status === 503 || res.status === 404) { this.setStatus("Public transport — not available yet"); return }
       if (!res.ok) { this.setStatus("No transit route"); return }
-      const data = await res.json()
-      this.renderTransit(data)
+      this.renderTransit(await res.json())
     } catch (e) {
       this.setStatus("Public transport unavailable")
     }
   }
 
-  // Placeholder until the transit itinerary UI lands with the OTP2 service.
-  renderTransit(_data) {
-    this.setStatus("Public transport — coming soon")
+  renderTransit(data) {
+    this.transitItins = data.itineraries || []
+    if (!this.transitItins.length) { this.setStatus("No transit route found"); this.setTurns([]); return }
+    this.setStatus("")
+    this.setSummary(this.transitSummary(this.transitItins[0]))
+    this.selTransit = 0
+    this.renderItinList()
+    this.selectTransit(0)
+  }
+
+  transitSummary(it) {
+    const dur = Math.round((it.duration_s ?? 0) / 60)
+    const chg = it.transfers ? ` · ${it.transfers} chg` : ""
+    return `${this.fmtClock(it.start_time)}–${this.fmtClock(it.end_time)} · ${dur} min${chg}`
+  }
+
+  renderItinList() {
+    const el = document.getElementById("directions-turns")
+    if (!el) return
+    el.innerHTML = ""
+    this.transitItins.forEach((it, i) => {
+      const li = document.createElement("li")
+      li.style.cssText = `padding:10px 6px;border-bottom:1px solid rgba(128,128,128,.15);cursor:pointer;border-radius:8px;${i === this.selTransit ? "background:rgba(26,115,232,.10)" : ""}`
+      const dur = Math.round((it.duration_s ?? 0) / 60)
+      const chips = it.legs.map((l) =>
+        l.mode === "WALK"
+          ? `<span style="opacity:.6">🚶${l.duration_s ? Math.round(l.duration_s / 60) : ""}</span>`
+          : `<span style="background:${this.modeColor(l)};color:#fff;border-radius:5px;padding:1px 6px;font-size:.72rem;font-weight:700">${this.modeIcon(l.mode)} ${this.esc(l.line || "")}</span>`
+      ).join(' <span style="opacity:.35">›</span> ')
+      li.innerHTML = `<div style="font-weight:700;font-size:.9rem">${this.fmtClock(it.start_time)}–${this.fmtClock(it.end_time)} · ${dur} min${it.transfers ? " · " + it.transfers + " chg" : ""}</div>
+        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">${chips}</div>`
+      li.addEventListener("click", () => this.selectTransit(i))
+      el.appendChild(li)
+    })
+  }
+
+  selectTransit(i) {
+    if (!this.transitItins || !this.transitItins[i]) return
+    this.selTransit = i
+    this.setSummary(this.transitSummary(this.transitItins[i]))
+    this.renderItinList()
+    this.drawTransit(this.transitItins[i])
+  }
+
+  // Draw an itinerary: transit legs solid + coloured, walk legs dashed grey.
+  drawTransit(it) {
+    this.removeRoute()
+    const feats = (it.legs || []).filter((l) => l.geometry && l.geometry.length > 1).map((l) => ({
+      type: "Feature",
+      properties: { walk: l.mode === "WALK", color: l.mode === "WALK" ? "#9aa0a6" : this.modeColor(l) },
+      geometry: { type: "LineString", coordinates: l.geometry },
+    }))
+    if (!feats.length) return
+    if (this.map.setPitch) { this.map.setPitch(0); this.map.setBearing(0) }
+    this.map.addSource("directions-route", { type: "geojson", data: { type: "FeatureCollection", features: feats } })
+    // transit legs (solid, coloured) — reuse the -line id so removeRoute cleans it
+    this.map.addLayer({
+      id: "directions-route-line", type: "line", source: "directions-route",
+      filter: ["!", ["get", "walk"]],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": 5 },
+    })
+    // walk legs (dashed grey) — reuse the -casing id
+    this.map.addLayer({
+      id: "directions-route-casing", type: "line", source: "directions-route",
+      filter: ["get", "walk"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#9aa0a6", "line-width": 4, "line-dasharray": [1, 1.6] },
+    })
+    this.fitRoute(feats.flatMap((f) => f.geometry.coordinates))
+  }
+
+  fmtClock(ms) {
+    if (!ms) return "--:--"
+    try { return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } catch (_) { return "--:--" }
+  }
+
+  modeColor(l) {
+    if (l.color) return l.color
+    return { RAIL: "#8e24aa", SUBWAY: "#3949ab", TRAM: "#00897b", BUS: "#fb8c00", FERRY: "#039be5", COACH: "#6d4c41", FUNICULAR: "#00897b", CABLE_CAR: "#00897b" }[l.mode] || "#1a73e8"
+  }
+
+  modeIcon(mode) {
+    return { RAIL: "🚆", SUBWAY: "Ⓤ", TRAM: "🚊", BUS: "🚌", FERRY: "⛴", COACH: "🚌", FUNICULAR: "🚞", CABLE_CAR: "🚠" }[mode] || "🚆"
   }
 
   onMapClick(e) {

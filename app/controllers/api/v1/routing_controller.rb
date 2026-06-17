@@ -37,6 +37,50 @@ class Api::V1::RoutingController < ApiController
     render_error("Routing engine unreachable: #{e.message}", :service_unavailable)
   end
 
+  # Public-transport routing via self-hosted OTP2 (all-Germany GTFS). Returns
+  # itineraries (legs of walk + transit) the MapLibre frontend can list + draw.
+  def transit
+    from = parse_point(params[:from])
+    to   = parse_point(params[:to])
+    return render_error('Need from and to {lat,lon}') unless from && to
+
+    otp = ENV['OTP_URL'].presence
+    return render(json: { error: 'transit_unavailable' }, status: :service_unavailable) unless otp
+
+    resp = Faraday.post("#{otp}/otp/routers/default/index/graphql") do |r|
+      r.headers['Content-Type'] = 'application/json'
+      r.body = { query: OTP_PLAN_QUERY, variables: {
+        fromLat: from[:lat], fromLon: from[:lon], toLat: to[:lat], toLon: to[:lon]
+      } }.to_json
+      r.options.timeout = 25
+      r.options.open_timeout = 5
+    end
+    return render_error("Transit engine error: #{resp.status}", :bad_gateway) unless resp.success?
+
+    its = Oj.load(resp.body).dig('data', 'plan', 'itineraries') || []
+    render json: { itineraries: its.map { |it| build_itinerary(it) } }, status: :ok
+  rescue Faraday::Error, Net::OpenTimeout, Net::ReadTimeout
+    render json: { error: 'transit_unavailable' }, status: :service_unavailable
+  end
+
+  OTP_PLAN_QUERY = <<~GQL
+    query Plan($fromLat: Float!, $fromLon: Float!, $toLat: Float!, $toLon: Float!) {
+      plan(from: {lat: $fromLat, lon: $fromLon}, to: {lat: $toLat, lon: $toLon},
+           transportModes: [{mode: WALK}, {mode: TRANSIT}], numItineraries: 4) {
+        itineraries {
+          startTime endTime duration walkDistance numberOfTransfers
+          legs {
+            mode startTime endTime distance duration
+            from { name lat lon } to { name lat lon }
+            route { shortName longName mode color }
+            trip { tripHeadsign }
+            legGeometry { points }
+          }
+        }
+      }
+    }
+  GQL
+
   # Which ride-hailing providers operate at a given point. Reverse-geocodes the
   # pickup to a country (Photon) and checks per-provider country allowlists, so
   # the app only offers Uber/Bolt where they actually exist. Cached 30 days.
@@ -85,6 +129,74 @@ class Api::V1::RoutingController < ApiController
     host = ENV['PHOTON_API_HOST'].presence || 'localhost:2322'
     scheme = ENV['PHOTON_API_USE_HTTPS'] == 'true' ? 'https' : 'http'
     host.include?('://') ? host : "#{scheme}://#{host}"
+  end
+
+  def parse_point(raw)
+    return nil if raw.blank?
+    raw = JSON.parse(raw) if raw.is_a?(String)
+    lat = raw['lat'] || raw[:lat]
+    lon = raw['lon'] || raw[:lon]
+    return nil if lat.nil? || lon.nil?
+
+    { lat: lat.to_f, lon: lon.to_f }
+  end
+
+  # Compact one OTP itinerary: total times + each leg (mode, line, headsign,
+  # stops, decoded geometry for drawing).
+  def build_itinerary(it)
+    legs = Array(it['legs']).map do |l|
+      route = l['route'] || {}
+      {
+        mode: l['mode'],
+        start_time: l['startTime'],
+        end_time: l['endTime'],
+        duration_s: l['duration'],
+        distance_m: l['distance'],
+        from: l.dig('from', 'name'),
+        to: l.dig('to', 'name'),
+        line: route['shortName'] || route['longName'],
+        headsign: l.dig('trip', 'tripHeadsign'),
+        color: route['color'] ? "##{route['color']}" : nil,
+        geometry: decode_polyline5(l.dig('legGeometry', 'points'))
+      }
+    end
+    {
+      start_time: it['startTime'],
+      end_time: it['endTime'],
+      duration_s: it['duration'],
+      walk_distance_m: it['walkDistance'],
+      transfers: it['numberOfTransfers'],
+      legs: legs
+    }
+  end
+
+  # OTP encodes leg geometry as a standard polyline, precision 1e5.
+  def decode_polyline5(str)
+    return [] if str.blank?
+
+    index = 0
+    lat = 0
+    lng = 0
+    coords = []
+    factor = 1e5
+    while index < str.length
+      shift = 0; result = 0
+      loop do
+        b = str[index].ord - 63; index += 1
+        result |= (b & 0x1f) << shift; shift += 5
+        break if b < 0x20
+      end
+      lat += (result.odd? ? ~(result >> 1) : (result >> 1))
+      shift = 0; result = 0
+      loop do
+        b = str[index].ord - 63; index += 1
+        result |= (b & 0x1f) << shift; shift += 5
+        break if b < 0x20
+      end
+      lng += (result.odd? ? ~(result >> 1) : (result >> 1))
+      coords << [lng / factor, lat / factor]
+    end
+    coords
   end
 
   def parse_locations
