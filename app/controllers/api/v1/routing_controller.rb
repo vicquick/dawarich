@@ -44,6 +44,10 @@ class Api::V1::RoutingController < ApiController
     to   = parse_point(params[:to])
     return render_error('Need from and to {lat,lon}') unless from && to
 
+    # Prefer MOTIS (lighter engine + correct regional feeds); fall back to OTP2.
+    motis = ENV['MOTIS_URL'].presence
+    return transit_motis(motis, from, to) if motis
+
     otp = ENV['OTP_URL'].presence
     return render(json: { error: 'transit_unavailable' }, status: :service_unavailable) unless otp
 
@@ -59,6 +63,24 @@ class Api::V1::RoutingController < ApiController
 
     its = Oj.load(resp.body).dig('data', 'plan', 'itineraries') || []
     render json: { itineraries: its.map { |it| build_itinerary(it) } }, status: :ok
+  rescue Faraday::Error, Net::OpenTimeout, Net::ReadTimeout
+    render json: { error: 'transit_unavailable' }, status: :service_unavailable
+  end
+
+  # MOTIS (motis-project) GET /api/v1/plan — fromPlace/toPlace as "lat,lon", ISO time.
+  def transit_motis(base, from, to)
+    resp = Faraday.get("#{base}/api/v1/plan") do |r|
+      r.params['fromPlace'] = "#{from[:lat]},#{from[:lon]}"
+      r.params['toPlace']   = "#{to[:lat]},#{to[:lon]}"
+      r.params['time']      = Time.now.utc.iso8601
+      r.params['arriveBy']  = 'false'
+      r.options.timeout = 25
+      r.options.open_timeout = 5
+    end
+    return render_error("Transit engine error: #{resp.status}", :bad_gateway) unless resp.success?
+
+    its = Oj.load(resp.body)['itineraries'] || []
+    render json: { itineraries: its.map { |it| build_motis_itinerary(it) } }, status: :ok
   rescue Faraday::Error, Net::OpenTimeout, Net::ReadTimeout
     render json: { error: 'transit_unavailable' }, status: :service_unavailable
   end
@@ -171,15 +193,16 @@ class Api::V1::RoutingController < ApiController
     }
   end
 
-  # OTP encodes leg geometry as a standard polyline, precision 1e5.
-  def decode_polyline5(str)
+  # Decode a Google-style polyline. OTP uses precision 5; MOTIS uses 7 (it
+  # reports `precision` in legGeometry).
+  def decode_polyline5(str, precision = 5)
     return [] if str.blank?
 
     index = 0
     lat = 0
     lng = 0
     coords = []
-    factor = 1e5
+    factor = 10.0**precision
     while index < str.length
       shift = 0; result = 0
       loop do
@@ -198,6 +221,62 @@ class Api::V1::RoutingController < ApiController
       coords << [lng / factor, lat / factor]
     end
     coords
+  end
+
+  # Map a MOTIS itinerary to the same shape the frontend consumes.
+  def build_motis_itinerary(it)
+    legs = Array(it['legs']).map do |l|
+      geo = l['legGeometry'] || {}
+      {
+        mode: motis_mode(l['mode']),
+        start_time: iso_ms(l['startTime']),
+        end_time: iso_ms(l['endTime']),
+        duration_s: l['duration'],
+        distance_m: l['distance'],
+        from: l.dig('from', 'name'),
+        to: l.dig('to', 'name'),
+        line: clean_line(l['routeShortName'].presence || l['routeLongName']),
+        headsign: l['headsign'],
+        color: l['routeColor'].present? ? "##{l['routeColor']}" : nil,
+        real_time: l['realTime'],
+        geometry: decode_polyline5(geo['points'], (geo['precision'] || 5).to_i)
+      }
+    end
+    {
+      start_time: iso_ms(it['startTime']),
+      end_time: iso_ms(it['endTime']),
+      duration_s: it['duration'],
+      walk_distance_m: nil,
+      transfers: it['transfers'],
+      legs: legs
+    }
+  end
+
+  def iso_ms(str)
+    return nil if str.blank?
+
+    (Time.parse(str).to_f * 1000).to_i
+  rescue StandardError
+    nil
+  end
+
+  # Normalise MOTIS modes to the small set the frontend colours/icons know.
+  def motis_mode(mode)
+    case mode.to_s
+    when 'WALK' then 'WALK'
+    when 'METRO', 'SUBWAY' then 'SUBWAY'
+    when 'TRAM' then 'TRAM'
+    when 'BUS', 'COACH' then 'BUS'
+    when 'FERRY' then 'FERRY'
+    else 'RAIL' # REGIONAL_RAIL, HIGHSPEED_RAIL, LONG_DISTANCE, RAIL, ...
+    end
+  end
+
+  # MOTIS routeShortName comes as e.g. "RE3 (81620)" — drop the trip number.
+  def clean_line(str)
+    return nil if str.blank?
+
+    str.sub(/\s*\(\d+\)\s*\z/, '').strip
   end
 
   def parse_locations
