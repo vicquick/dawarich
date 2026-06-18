@@ -46,7 +46,7 @@ class Api::V1::RoutingController < ApiController
 
     # Prefer MOTIS (lighter engine + correct regional feeds); fall back to OTP2.
     motis = ENV['MOTIS_URL'].presence
-    return transit_motis(motis, from, to) if motis
+    return transit_motis(pin_ipv4(motis), from, to) if motis
 
     otp = ENV['OTP_URL'].presence
     return render(json: { error: 'transit_unavailable' }, status: :service_unavailable) unless otp
@@ -250,6 +250,17 @@ class Api::V1::RoutingController < ApiController
       transfers: it['transfers'],
       legs: legs
     }
+  end
+
+  # Docker publishes both A + AAAA; Ruby's resolver may prefer the IPv6 address
+  # which the service (IPv4-only) refuses. Pin the host to its IPv4.
+  def pin_ipv4(url)
+    uri = URI(url)
+    ipv4 = Resolv.getaddresses(uri.host).find { |a| a.match?(/\A\d{1,3}(\.\d{1,3}){3}\z/) }
+    uri.host = ipv4 if ipv4
+    uri.to_s
+  rescue StandardError
+    url
   end
 
   def iso_ms(str)
