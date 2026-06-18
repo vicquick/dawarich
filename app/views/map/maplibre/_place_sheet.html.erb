@@ -57,6 +57,29 @@
     <%# DIRECTIONS mode: the route panel lives inside the sheet (no separate
         floating popup). directions_manager fills these by id. %>
     <div id="directions-panel" data-place-sheet-target="directions" class="hidden" style="margin-top:12px;">
+      <%# Trip planner — editable Start/End (Google-Maps style). Tap a field to change it. %>
+      <div id="directions-trip" style="display:none;">
+        <div class="trip-rows">
+          <span class="trip-spine" aria-hidden="true"></span>
+          <button type="button" data-action="click->place-sheet#editEndpoint" data-end="start" class="trip-field">
+            <span class="trip-dot trip-dot--start"></span>
+            <span data-place-sheet-target="startLabel" class="trip-text">Your location</span>
+          </button>
+          <button type="button" data-action="click->place-sheet#editEndpoint" data-end="end" class="trip-field">
+            <span class="trip-dot trip-dot--end"></span>
+            <span data-place-sheet-target="endLabel" class="trip-text">Destination</span>
+          </button>
+          <button type="button" data-action="click->place-sheet#swapEnds" class="trip-swap" aria-label="Swap start and destination">⇅</button>
+        </div>
+        <%# inline endpoint picker — searches saved places + Photon %>
+        <div data-place-sheet-target="endpointPicker" hidden class="trip-picker">
+          <input type="text" data-place-sheet-target="endpointInput"
+                 data-action="input->place-sheet#endpointSearch keydown->place-sheet#endpointKeydown"
+                 placeholder="Search a place" class="trip-input" autocomplete="off" aria-label="Search a place">
+          <ul data-place-sheet-target="endpointResults" class="trip-results"></ul>
+        </div>
+      </div>
+
       <%# PREVIEW header: back to place + travel-mode chips (hidden during active nav). %>
       <div id="directions-preview-header" style="display:flex; align-items:center; gap:8px;">
         <button type="button" data-action="click->place-sheet#backToInfo" class="btn btn-ghost btn-sm gap-1" style="flex:0 0 auto;">‹</button>
@@ -105,3 +128,42 @@
     </div>
   </div>
 </div>
+
+<style>
+  /* --- Trip planner (editable start/end) --- */
+  #directions-trip { display:none; margin-bottom:12px; }
+  .trip-rows { position:relative; display:flex; flex-direction:column; gap:8px; }
+  .trip-spine { position:absolute; left:9px; top:18px; bottom:30px; width:2px;
+    background:repeating-linear-gradient(rgba(128,128,128,.45) 0 3px, transparent 3px 6px); }
+  .trip-field { display:flex; align-items:center; gap:11px; width:100%; text-align:left;
+    border:0; background:color-mix(in oklch, oklch(var(--bc)) 7%, transparent); color:inherit;
+    border-radius:12px; padding:11px 12px; font:inherit; font-size:.95rem; cursor:pointer; }
+  .trip-field:hover { background:color-mix(in oklch, oklch(var(--bc)) 12%, transparent); }
+  .trip-dot { flex:0 0 auto; width:11px; height:11px; border-radius:50%; z-index:1;
+    box-shadow:0 0 0 3px oklch(var(--b1)); }
+  .trip-dot--start { background:#1a73e8; }
+  .trip-dot--end { background:#ea4335; border-radius:3px; }
+  .trip-text { flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .trip-swap { position:absolute; right:6px; top:50%; transform:translateY(-50%);
+    width:34px; height:34px; border:0; border-radius:50%; cursor:pointer; font-size:1rem;
+    background:oklch(var(--b1)); color:inherit; box-shadow:0 1px 5px rgba(0,0,0,.18); }
+  .trip-picker { margin-top:8px; }
+  .trip-input { width:100%; border:1px solid color-mix(in oklch, oklch(var(--bc)) 18%, transparent);
+    background:oklch(var(--b1)); color:inherit; border-radius:11px; padding:10px 12px; font:inherit; outline:none; }
+  .trip-input:focus { border-color:color-mix(in oklch, oklch(var(--bc)) 34%, transparent);
+    box-shadow:none !important; --tw-ring-shadow:0 0 #0000 !important; }
+  .trip-results { list-style:none; margin:6px 0 0; padding:0; max-height:34vh; overflow:auto; }
+  .trip-results li button { display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+    border:0; background:transparent; color:inherit; border-radius:9px; padding:9px 8px; cursor:pointer; font:inherit; }
+  .trip-results li button:hover { background:color-mix(in oklch, oklch(var(--bc)) 10%, transparent); }
+  .trip-res-dot { flex:0 0 auto; width:26px; height:26px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:.9rem;
+    background:color-mix(in oklch, oklch(var(--bc)) 12%, transparent); }
+  .trip-res-sub { font-size:.76rem; opacity:.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* --- Routing mode: hide history-browsing chrome, slim the top --- */
+  body.routing-active .map-date-float,
+  body.routing-active [data-controller~="map-controls"],
+  body.routing-active #map-button-cluster,
+  body.routing-active .map-button-cluster { display:none !important; }
+</style>

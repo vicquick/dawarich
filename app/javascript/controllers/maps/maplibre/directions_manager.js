@@ -83,6 +83,7 @@ export class DirectionsManager {
     this.markers.forEach((m) => m.remove())
     this.markers = []
     this.userMarker = null
+    this.endMarker = null
     this.manualStart = false
     this.lastRouteFrom = null
     this.lastRouteAt = 0
@@ -249,6 +250,48 @@ export class DirectionsManager {
     el.textContent = label
     const marker = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(this.map)
     this.markers.push(marker)
+    return marker
+  }
+
+  // --- editable endpoints (Google-Maps trip planner) ---
+  setEnd(lat, lon, name) {
+    if (!this.map) return
+    this.end = { lat: Number(lat), lon: Number(lon) }
+    this.destName = name || this.destName
+    if (this.endMarker) this.endMarker.setLngLat([this.end.lon, this.end.lat])
+    else this.endMarker = this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.computeRoute(true)
+    this.renderRideLinks()
+  }
+
+  setStart(lat, lon, name) {
+    if (!this.map) return
+    this.start = { lat: Number(lat), lon: Number(lon) }
+    this.startName = name
+    this.manualStart = true // a chosen start shouldn't be overwritten by GPS
+    if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
+    else this.addUserMarker([this.start.lon, this.start.lat])
+    this.computeRoute(true)
+  }
+
+  async useMyLocation() {
+    if (!this.map) return
+    this.manualStart = false
+    this.startName = null
+    this.start = await this.currentLocation()
+    if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
+    this.computeRoute(true)
+  }
+
+  swapEndpoints() {
+    if (!this.start || !this.end) return
+    const s = this.start; this.start = this.end; this.end = s
+    const sn = this.startName; this.startName = this.destName; this.destName = sn
+    this.manualStart = true
+    if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
+    if (this.endMarker) this.endMarker.setLngLat([this.end.lon, this.end.lat])
+    this.computeRoute(true)
+    this.renderRideLinks()
   }
 
   // Programmatic "directions to here" — destination = given coords, start =
@@ -262,8 +305,9 @@ export class DirectionsManager {
     this.clear()
     this.costing = "pedestrian" // each new place opens in Walk
     this.destName = name || "Destination"
+    this.startName = null
     this.end = { lat: Number(lat), lon: Number(lon) }
-    this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.endMarker = this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
     this.setStatus("Locating you…")
     this.start = await this.currentLocation()
     this.addUserMarker([this.start.lon, this.start.lat])
@@ -318,6 +362,7 @@ export class DirectionsManager {
     set("directions-preview-header", !nav)
     set("directions-preview-actions", !nav)
     set("directions-nav-controls", nav)
+    const trip = document.getElementById("directions-trip"); if (trip) trip.style.display = nav ? "none" : "block"
     if (nav) { const rc = document.getElementById("directions-routes"); if (rc) rc.style.display = "none" }
     if (!nav) set("directions-nav-banner", false)
   }

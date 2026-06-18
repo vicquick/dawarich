@@ -5,7 +5,8 @@ import { Controller } from "@hotwired/stimulus"
 // place + actions (directions, save as starred, share). Pull the handle to expand.
 // Self-contained: failures here never break the core map.
 export default class extends Controller {
-  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "categoryBtn", "tagPicker", "handle"]
+  static targets = ["title", "address", "meta", "enrichment", "info", "directions", "categoryBtn", "tagPicker", "handle",
+    "startLabel", "endLabel", "endpointPicker", "endpointInput", "endpointResults"]
   static values = { apiKey: String, starredTagId: { type: Number, default: 5 }, tags: { type: Array, default: [] } }
 
   connect() {
@@ -334,8 +335,99 @@ export default class extends Controller {
     // Default mode = Walk.
     this.element.querySelectorAll(".dir-mode").forEach((b) =>
       b.classList.toggle("btn-active", b.dataset.mode === "pedestrian"))
+    // Trip planner: show editable Start/End, hide history chrome.
+    const trip = document.getElementById("directions-trip")
+    if (trip) trip.style.display = "block"
+    if (this.hasStartLabelTarget) this.startLabelTarget.textContent = "Your location"
+    if (this.hasEndLabelTarget) this.endLabelTarget.textContent = this.place.name
+    if (this.hasEndpointPickerTarget) this.endpointPickerTarget.hidden = true
+    document.body.classList.add("routing-active")
     // Open the route PREVIEW (2D overview + ETA); user taps Start to navigate.
     try { window.dawarichDirections?.preview(this.place.lat, this.place.lon, this.place.name) } catch (e) { /* noop */ }
+  }
+
+  // --- Editable Start/End trip planner ---
+  editEndpoint(e) {
+    this._editing = e.currentTarget.dataset.end // "start" | "end"
+    if (!this.hasEndpointPickerTarget) return
+    this.endpointPickerTarget.hidden = false
+    this.endpointInputTarget.value = ""
+    this.endpointResultsTarget.innerHTML = this._editing === "start"
+      ? `<li><button type="button" data-loc="me">📍 <span style="margin-left:6px">Your location (GPS)</span></button></li>`
+      : ""
+    this.endpointResultsTarget.querySelector('[data-loc="me"]')
+      ?.addEventListener("click", () => { window.dawarichDirections?.useMyLocation(); this.startLabelTarget.textContent = "Your location"; this.closeEndpointPicker() })
+    requestAnimationFrame(() => this.endpointInputTarget.focus())
+  }
+
+  closeEndpointPicker() {
+    if (this.hasEndpointPickerTarget) this.endpointPickerTarget.hidden = true
+  }
+
+  swapEnds() {
+    try { window.dawarichDirections?.swapEndpoints() } catch (_) { /* noop */ }
+    if (this.hasStartLabelTarget && this.hasEndLabelTarget) {
+      const a = this.startLabelTarget.textContent
+      this.startLabelTarget.textContent = this.endLabelTarget.textContent
+      this.endLabelTarget.textContent = a
+    }
+  }
+
+  endpointSearch() {
+    clearTimeout(this._epDebounce)
+    const q = this.endpointInputTarget.value.trim()
+    if (q.length < 2) return
+    this._epDebounce = setTimeout(async () => {
+      const [saved, geo] = await Promise.all([this._epSaved(q), this._epGeo(q)])
+      const list = [...saved, ...geo].slice(0, 8)
+      this._epList = list
+      this.endpointResultsTarget.innerHTML = list.map((s, i) => `
+        <li><button type="button" data-idx="${i}">
+          <span class="trip-res-dot">${s.saved ? (s.icon || "⭐") : "📍"}</span>
+          <span style="min-width:0;flex:1 1 auto">
+            <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.esc(s.name)}</span>
+            ${s.address ? `<span class="trip-res-sub">${this.esc(s.address)}</span>` : ""}
+          </span></button></li>`).join("")
+      this.endpointResultsTarget.querySelectorAll("button[data-idx]").forEach((el) =>
+        el.addEventListener("click", () => this.pickEndpoint(this._epList[Number(el.dataset.idx)])))
+    }, 200)
+  }
+
+  endpointKeydown(e) {
+    if (e.key === "Escape") this.closeEndpointPicker()
+    if (e.key === "Enter" && this._epList?.length) { e.preventDefault(); this.pickEndpoint(this._epList[0]) }
+  }
+
+  pickEndpoint(loc) {
+    if (!loc) return
+    const label = this._editing === "start" ? this.startLabelTarget : this.endLabelTarget
+    if (label) label.textContent = loc.name
+    try {
+      if (this._editing === "start") window.dawarichDirections?.setStart(loc.lat, loc.lon, loc.name)
+      else window.dawarichDirections?.setEnd(loc.lat, loc.lon, loc.name)
+    } catch (_) { /* noop */ }
+    this.closeEndpointPicker()
+  }
+
+  async _epSaved(q) {
+    try {
+      const r = await fetch(`/api/v1/places?q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(this.apiKeyValue)}`)
+      if (!r.ok) return []
+      return (await r.json()).filter((p) => p.latitude != null).map((p) => ({
+        name: p.name, address: p.tags?.[0]?.name || p.note || "Saved", lat: p.latitude, lon: p.longitude,
+        icon: p.icon || p.tags?.[0]?.icon, saved: true,
+      }))
+    } catch (_) { return [] }
+  }
+
+  async _epGeo(q) {
+    try {
+      const r = await fetch(`/api/v1/locations/suggestions?q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(this.apiKeyValue)}`)
+      if (!r.ok) return []
+      return (await r.json()).suggestions?.map((s) => ({
+        name: s.name, address: s.address || "", lat: s.coordinates?.[0], lon: s.coordinates?.[1],
+      })).filter((s) => s.lat != null) || []
+    } catch (_) { return [] }
   }
 
   // Preview → live 3D navigation.
@@ -372,6 +464,10 @@ export default class extends Controller {
     if (this.hasInfoTarget) this.infoTarget.style.display = ""
     this.element.style.height = "34vh"
     this.expanded = false
+    const trip = document.getElementById("directions-trip")
+    if (trip) trip.style.display = "none"
+    this.closeEndpointPicker()
+    document.body.classList.remove("routing-active")
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
   }
 
