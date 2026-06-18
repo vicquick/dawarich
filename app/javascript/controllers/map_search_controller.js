@@ -58,11 +58,37 @@ export default class extends Controller {
   }
 
   async search(q) {
+    // Your own saved places (Home/Work/Starred…) first, then the geocoder.
+    const [saved, geo] = await Promise.all([this.searchSaved(q), this.searchGeocoder(q)])
+    const list = [...saved, ...geo]
+    if (!list.length) return this.renderEmpty("No matches")
+    this.renderList(list)
+  }
+
+  async searchSaved(q) {
+    try {
+      const res = await fetch(`/api/v1/places?q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(this.apiKeyValue)}`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return (Array.isArray(data) ? data : [])
+        .filter((p) => p.latitude != null && p.longitude != null)
+        .map((p) => ({
+          name: p.name,
+          address: p.tags?.[0]?.name || p.note || "Saved place",
+          type: p.tags?.[0]?.name || "saved",
+          lat: p.latitude, lon: p.longitude,
+          savedPlaceId: p.id, tags: p.tags || [], color: p.color,
+          icon: p.icon || p.tags?.[0]?.icon, saved: true,
+        }))
+    } catch (e) { return [] }
+  }
+
+  async searchGeocoder(q) {
     try {
       const res = await fetch(`/api/v1/locations/suggestions?q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(this.apiKeyValue)}`)
-      if (!res.ok) return this.renderEmpty("Search unavailable")
+      if (!res.ok) return []
       const data = await res.json()
-      const list = (data.suggestions || []).map((s) => ({
+      return (data.suggestions || []).map((s) => ({
         name: s.name,
         address: s.address || s.display_name || "",
         type: s.type || "",
@@ -71,11 +97,7 @@ export default class extends Controller {
         osm_type: s.osm_type,
         osm_id: s.osm_id,
       })).filter((s) => s.lat != null && s.lon != null)
-      if (!list.length) return this.renderEmpty("No matches")
-      this.renderList(list)
-    } catch (e) {
-      this.renderEmpty("Search failed")
-    }
+    } catch (e) { return [] }
   }
 
   // --- category (nearby) search ---
@@ -131,7 +153,7 @@ export default class extends Controller {
         (s, i) => `
         <li>
           <button type="button" class="map-search__row" data-idx="${i}">
-            <span class="map-search__row-dot">${this.glyph(s.type)}</span>
+            ${this.rowDot(s)}
             <span class="map-search__row-text">
               <span class="map-search__row-name">${this.esc(s.name)}</span>
               <span class="map-search__row-sub">${this.openBadge(s.open_now)}${s.address ? this.esc(s.address) : ""}</span>
@@ -166,6 +188,7 @@ export default class extends Controller {
         detail: {
           name: s.name, address: s.address, lat: s.lat, lon: s.lon,
           type: s.type, osm_type: s.osm_type, osm_id: s.osm_id,
+          savedPlaceId: s.savedPlaceId || null, tags: s.tags || [],
         },
       }),
     )
@@ -195,6 +218,14 @@ export default class extends Controller {
     const rows = this.resultsTarget.querySelectorAll(".map-search__row")
     rows.forEach((el, i) => el.setAttribute("aria-selected", i === this._active ? "true" : "false"))
     rows[this._active]?.scrollIntoView({ block: "nearest" })
+  }
+
+  // Saved places get a coloured dot + their tag icon; geocoder hits get a glyph.
+  rowDot(s) {
+    if (s.saved) {
+      return `<span class="map-search__row-dot" style="background:${this.esc(s.color || "#6366f1")};color:#fff">${this.esc(s.icon || "⭐")}</span>`
+    }
+    return `<span class="map-search__row-dot">${this.glyph(s.type)}</span>`
   }
 
   fmtDist(m) { return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km` }

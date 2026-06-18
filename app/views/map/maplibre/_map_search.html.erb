@@ -69,6 +69,17 @@
     flex: 1 1 auto; min-width: 0;
     border: 0; background: transparent; color: inherit;
     font-size: 1rem; outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Kill the @tailwindcss/forms blue focus ring (a box-shadow, not an outline). */
+  .map-search__input:focus,
+  .map-search__input:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-color: transparent !important;
   }
   .map-search__clear {
     flex: 0 0 auto; width: 2rem; height: 2rem;

@@ -6,6 +6,16 @@ module Api
       before_action :set_place, only: %i[show update destroy]
 
       def index
+        # vicquick fork: name search for the map search bar — match the user's
+        # own SAVED (tagged) places like Home/Work/Starred, not the thousands of
+        # untagged auto-visit places.
+        if params[:q].present?
+          term = ActiveRecord::Base.sanitize_sql_like(params[:q].to_s.strip)
+          places = current_api_user.places.includes(:tags, :visits).tagged
+                                   .where('places.name ILIKE ?', "%#{term}%").limit(8)
+          return render json: places.map { |place| serialize_place(place) }
+        end
+
         @places = current_api_user.places.includes(:tags, :visits)
 
         if params[:tag_ids].present?
