@@ -268,9 +268,19 @@ export default class extends Controller {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
   }
 
+  // Tallest the sheet may grow — leaves the navbar clear so the drag handle
+  // stays reachable (otherwise a fully-raised sheet tucks under the navbar and
+  // can't be pulled back down on mobile).
+  maxSheetPx() {
+    const nav = document.querySelector(".navbar") || document.querySelector("header") || document.querySelector("nav")
+    const navBottom = nav ? nav.getBoundingClientRect().bottom : 0
+    const reserve = Math.max(navBottom + 12, 64)
+    return window.innerHeight - reserve
+  }
+
   togglePullUp() {
     this.expanded = !this.expanded
-    this.element.style.height = this.expanded ? "85vh" : "40vh"
+    this.element.style.height = this.expanded ? `${this.maxSheetPx()}px` : "40vh"
   }
 
   // Draggable handle: drag up/down to resize the sheet, tap to toggle.
@@ -295,7 +305,7 @@ export default class extends Controller {
       const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0
       const dy = y - startY
       if (Math.abs(dy) > 4) moved = true
-      const h = Math.max(vh() * 0.2, Math.min(vh() * 0.92, startH - dy))
+      const h = Math.max(vh() * 0.2, Math.min(this.maxSheetPx(), startH - dy))
       this.element.style.height = `${h}px`
     }
     const up = () => {
@@ -303,10 +313,12 @@ export default class extends Controller {
       dragging = false
       this.element.style.transition = ""
       if (!moved) return this.togglePullUp()
-      const cur = (this.element.offsetHeight / vh()) * 100
-      const near = [34, 62, 90].reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a))
-      this.element.style.height = `${near}vh`
-      this.expanded = near > 45
+      // Snap to the nearest stop in px (top stop = max, clear of the navbar).
+      const stops = [vh() * 0.34, vh() * 0.62, this.maxSheetPx()]
+      const curPx = this.element.offsetHeight
+      const near = stops.reduce((a, b) => (Math.abs(b - curPx) < Math.abs(a - curPx) ? b : a))
+      this.element.style.height = `${near}px`
+      this.expanded = near > vh() * 0.45
     }
 
     this._dragMove = move
