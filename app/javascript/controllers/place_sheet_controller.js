@@ -330,10 +330,10 @@ export default class extends Controller {
 
   close() {
     this.element.style.transform = "translateY(100%)"
-    this.hideBackdrop()
     this.clearHighlight()
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
     this.backToInfo()
+    this.hideBackdrop() // closing: no dim (backToInfo would have re-shown it)
   }
 
   // Switch the sheet into directions mode (route panel lives inside the sheet).
@@ -341,7 +341,10 @@ export default class extends Controller {
     if (!this.place) return
     if (this.hasInfoTarget) this.infoTarget.style.display = "none"
     if (this.hasDirectionsTarget) this.directionsTarget.classList.remove("hidden")
-    // Keep it ~half height so the drawn route stays visible on the map above.
+    // Google-Maps feel: no dim over the map while routing — the map is the hero
+    // and stays fully interactive (the backdrop was eating all map gestures).
+    this.hideBackdrop()
+    // ~half height so the route + an interactive map both show.
     this.element.style.height = "48vh"
     this.expanded = true
     // Default mode = Walk.
@@ -480,6 +483,7 @@ export default class extends Controller {
     if (trip) trip.style.display = "none"
     this.closeEndpointPicker()
     document.body.classList.remove("routing-active")
+    this.showBackdrop() // back to the place-info view → restore the dim
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
   }
 

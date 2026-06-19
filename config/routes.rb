@@ -254,6 +254,7 @@ Rails.application.routes.draw do
       get   'directions', to: 'routing#directions'
       get   'ride_providers', to: 'routing#providers'
       post  'transit', to: 'routing#transit'
+      get   'traffic/incidents', to: 'routing#traffic_incidents'
       # Discovery: nearby POIs (Photon) + place info (OSM tags) — vicquick fork
       get   'nearby',     to: 'discovery#nearby'
       get   'place_info', to: 'discovery#place_info'

@@ -123,7 +123,103 @@ class Api::V1::RoutingController < ApiController
     render json: { providers: [] }
   end
 
+  # Live road incidents (closures/roadworks/restrictions) from NAPSPAN, as
+  # GeoJSON for a map viewport. Free tier = events (no live speeds). The API key
+  # stays server-side. Cached 5 min (incidents change slowly + respects quota).
+  def traffic_incidents
+    key = ENV['NAPSPAN_API_KEY'].presence
+    return render(json: EMPTY_FC) unless key
+
+    bbox = parse_bbox(params) # {min_lng,min_lat,max_lng,max_lat}
+    return render_error('bbox required (min_longitude,…)') unless bbox
+
+    cx = (bbox[:min_lng] + bbox[:max_lng]) / 2.0
+    cy = (bbox[:min_lat] + bbox[:max_lat]) / 2.0
+    radius = [(haversine(cy, bbox[:min_lng], cy, bbox[:max_lng]) / 2000.0).ceil + 5, 150].min
+    states = GERMAN_STATES.select { |_, b| boxes_intersect?(bbox, b) }.keys.first(4)
+    return render(json: EMPTY_FC) if states.empty?
+
+    feats = Rails.cache.fetch("napspan/#{states.join(',')}/#{cx.round(1)}/#{cy.round(1)}/#{radius}", expires_in: 5.minutes) do
+      states.flat_map { |st| napspan_events(key, st, cx, cy, radius) }
+    end
+    render json: { type: 'FeatureCollection', features: feats }
+  rescue StandardError
+    render json: EMPTY_FC
+  end
+
   private
+
+  EMPTY_FC = { type: 'FeatureCollection', features: [] }.freeze
+
+  # Rough [min_lng, min_lat, max_lng, max_lat] per German Bundesland → NAPSPAN code.
+  GERMAN_STATES = {
+    'DEU-SH' => [7.8, 53.3, 11.4, 55.1], 'DEU-HH' => [9.6, 53.3, 10.4, 53.8],
+    'DEU-HB' => [8.4, 53.0, 9.0, 53.65], 'DEU-NI' => [6.6, 51.2, 11.7, 53.95],
+    'DEU-MV' => [10.5, 53.0, 14.5, 54.8], 'DEU-NW' => [5.8, 50.3, 9.5, 52.6],
+    'DEU-BB' => [11.2, 51.3, 14.9, 53.6], 'DEU-BE' => [13.0, 52.3, 13.8, 52.7],
+    'DEU-ST' => [10.5, 50.9, 13.3, 53.1], 'DEU-SN' => [11.8, 50.1, 15.1, 51.7],
+    'DEU-TH' => [9.8, 50.2, 12.7, 51.7], 'DEU-HE' => [7.7, 49.3, 10.3, 51.7],
+    'DEU-RP' => [6.1, 48.9, 8.6, 51.0], 'DEU-SL' => [6.3, 49.1, 7.5, 49.7],
+    'DEU-BW' => [7.5, 47.5, 10.6, 49.8], 'DEU-BY' => [8.9, 47.2, 14.0, 50.6]
+  }.freeze
+
+  def boxes_intersect?(a, b)
+    a[:min_lng] <= b[2] && a[:max_lng] >= b[0] && a[:min_lat] <= b[3] && a[:max_lat] >= b[1]
+  end
+
+  def napspan_events(key, jurisdiction, cx, cy, radius)
+    resp = Faraday.get('https://api.napspan.com/api/v1/events') do |r|
+      r.headers['X-API-Key'] = key
+      r.params['jurisdiction'] = jurisdiction
+      r.params['lat'] = cy
+      r.params['lng'] = cx
+      r.params['radius_km'] = radius
+      r.params['status'] = 'active'
+      r.params['limit'] = 200
+      r.options.timeout = 12
+    end
+    return [] unless resp.success?
+
+    Array(Oj.load(resp.body)['data']).filter_map do |e|
+      coords = e.dig('location', 'coordinates') || [e['longitude'], e['latitude']]
+      next unless coords && coords[0] && coords[1]
+
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [coords[0].to_f, coords[1].to_f] },
+        properties: {
+          id: e['id'], type: e['type'], sub_type: e['sub_type'], severity: e['severity'],
+          title: e['title'], road: Array(e['affected_roads']).join(', '), description: e['description']
+        }
+      }
+    end
+  rescue StandardError
+    []
+  end
+
+  def parse_bbox(params)
+    if params[:bbox].present?
+      a = params[:bbox].to_s.split(',').map(&:to_f)
+      return nil unless a.size == 4
+
+      return { min_lng: a[0], min_lat: a[1], max_lng: a[2], max_lat: a[3] }
+    end
+    return nil if params[:min_longitude].blank?
+
+    { min_lng: params[:min_longitude].to_f, min_lat: params[:min_latitude].to_f,
+      max_lng: params[:max_longitude].to_f, max_lat: params[:max_latitude].to_f }
+  rescue StandardError
+    nil
+  end
+
+  def haversine(lat1, lon1, lat2, lon2)
+    r = 6_371_000.0
+    to_rad = ->(d) { d * Math::PI / 180 }
+    dlat = to_rad.call(lat2 - lat1)
+    dlon = to_rad.call(lon2 - lon1)
+    a = (Math.sin(dlat / 2)**2) + (Math.cos(to_rad.call(lat1)) * Math.cos(to_rad.call(lat2)) * (Math.sin(dlon / 2)**2))
+    2 * r * Math.asin(Math.sqrt(a))
+  end
 
   # ISO-3166-1 alpha-2 country codes where each provider operates (coarse, kept
   # deliberately conservative; expand as needed).
