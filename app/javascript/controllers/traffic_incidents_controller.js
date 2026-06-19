@@ -34,7 +34,9 @@ export default class extends Controller {
     this._moveHandler = null
     try {
       this._popup?.remove()
-      if (this.map?.getLayer("napspan-incidents")) this.map.removeLayer("napspan-incidents")
+      for (const id of ["napspan-points", "napspan-lines", "napspan-lines-casing"]) {
+        if (this.map?.getLayer(id)) this.map.removeLayer(id)
+      }
       if (this.map?.getSource("napspan-incidents")) this.map.removeSource("napspan-incidents")
     } catch (e) { /* noop */ }
   }
@@ -54,23 +56,44 @@ export default class extends Controller {
     if (!this.map) return
     const src = this.map.getSource("napspan-incidents")
     if (src) { src.setData(fc); this.flash(fc); return }
+
+    const sevColor = ["match", ["get", "severity"],
+      "severe", "#c62828", "major", "#ea4335", "moderate", "#f59e0b", "minor", "#fbbf24", "#9aa0a6"]
+
     this.map.addSource("napspan-incidents", { type: "geojson", data: fc })
+
+    // Closures (LineStrings) — a soft white casing under a severity-coloured road line.
     this.map.addLayer({
-      id: "napspan-incidents",
-      type: "circle",
-      source: "napspan-incidents",
+      id: "napspan-lines-casing", type: "line", source: "napspan-incidents",
+      filter: ["==", ["geometry-type"], "LineString"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#ffffff", "line-opacity": 0.7,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4, 15, 9] },
+    })
+    this.map.addLayer({
+      id: "napspan-lines", type: "line", source: "napspan-incidents",
+      filter: ["==", ["geometry-type"], "LineString"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": sevColor,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2, 15, 5.5],
+        "line-dasharray": [2, 1.4] },
+    })
+    // Point incidents — severity dot.
+    this.map.addLayer({
+      id: "napspan-points", type: "circle", source: "napspan-incidents",
+      filter: ["==", ["geometry-type"], "Point"],
       paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 7, 4, 14, 7.5],
-        "circle-color": ["match", ["get", "severity"],
-          "severe", "#c62828", "major", "#ea4335", "moderate", "#f59e0b", "minor", "#fbbf24", "#9aa0a6"],
-        "circle-stroke-color": "oklch(var(--b1))",
-        "circle-stroke-width": 1.6,
-        "circle-opacity": 0.92,
+        "circle-color": sevColor,
+        "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.6, "circle-opacity": 0.92,
       },
     })
-    this.map.on("click", "napspan-incidents", (e) => this.popup(e))
-    this.map.on("mouseenter", "napspan-incidents", () => { this.map.getCanvas().style.cursor = "pointer" })
-    this.map.on("mouseleave", "napspan-incidents", () => { this.map.getCanvas().style.cursor = "" })
+
+    for (const id of ["napspan-points", "napspan-lines"]) {
+      this.map.on("click", id, (e) => this.popup(e))
+      this.map.on("mouseenter", id, () => { this.map.getCanvas().style.cursor = "pointer" })
+      this.map.on("mouseleave", id, () => { this.map.getCanvas().style.cursor = "" })
+    }
     this.flash(fc)
   }
 

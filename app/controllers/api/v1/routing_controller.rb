@@ -181,20 +181,51 @@ class Api::V1::RoutingController < ApiController
     return [] unless resp.success?
 
     Array(Oj.load(resp.body)['data']).filter_map do |e|
-      coords = e.dig('location', 'coordinates') || [e['longitude'], e['latitude']]
-      next unless coords && coords[0] && coords[1]
+      geom = napspan_geometry(e)
+      next unless geom
 
       {
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: [coords[0].to_f, coords[1].to_f] },
+        geometry: geom,
         properties: {
-          id: e['id'], type: e['type'], sub_type: e['sub_type'], severity: e['severity'],
-          title: e['title'], road: Array(e['affected_roads']).join(', '), description: e['description']
+          id: e['id'], type: e['type'], sub_type: e['sub_type'] || e['type'], severity: e['severity'],
+          title: e['title'], road: Array(e['affected_roads']).reject { |r| r.blank? || r == 'null - null' }.join(', '),
+          description: e['description']
         }
       }
     end
   rescue StandardError
     []
+  end
+
+  # NAPSPAN events carry a GeoJSON Point or LineString in `location`; fall back to
+  # the flat lat/lng. Keep the native geometry so the map can draw closures as
+  # lines and incidents as points.
+  def napspan_geometry(e)
+    loc = e['location']
+    type = loc.is_a?(Hash) ? loc['type'] : nil
+    coords = loc.is_a?(Hash) ? loc['coordinates'] : nil
+
+    case type
+    when 'LineString'
+      pts = Array(coords).filter_map { |c| float_pair(c) }
+      return { type: 'LineString', coordinates: pts } if pts.size >= 2
+
+      pt = pts.first || float_pair([e['longitude'], e['latitude']])
+      pt && { type: 'Point', coordinates: pt }
+    when 'Point'
+      pt = float_pair(coords) || float_pair([e['longitude'], e['latitude']])
+      pt && { type: 'Point', coordinates: pt }
+    else
+      pt = float_pair([e['longitude'], e['latitude']])
+      pt && { type: 'Point', coordinates: pt }
+    end
+  end
+
+  def float_pair(c)
+    return nil unless c.is_a?(Array) && c[0] && c[1] && !c[0].is_a?(Array)
+
+    [c[0].to_f, c[1].to_f]
   end
 
   def parse_bbox(params)
