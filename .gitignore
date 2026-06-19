@@ -91,3 +91,4 @@ node_modules/
 .worktrees/
 .superpowers/
 .security-audit/
+tmp_*.py
