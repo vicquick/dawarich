@@ -22,6 +22,7 @@
   </div>
 
   <div data-map-search-target="panel" class="map-search__panel" hidden>
+    <div data-map-search-target="quick" class="map-search__quick" hidden></div>
     <div data-map-search-target="chips" class="map-search__chips">
       <button type="button" class="map-search__chip map-search__chip--toggle" data-action="click->map-search#toggleOpenNow" aria-pressed="false">🟢 Open now</button>
       <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="restaurant">🍴 Restaurants</button>
@@ -95,7 +96,43 @@
     border-radius: 1rem;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
     overflow: hidden;
+    animation: mapSearchIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
   }
+  @keyframes mapSearchIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .map-search__panel { animation: none; } }
+
+  /* Empty-state: Home/Work shortcuts + recent searches */
+  .map-search__quick { padding: 0.3rem; border-bottom: 1px solid rgba(128, 128, 128, 0.14); }
+  .map-search__quick-row {
+    display: flex; align-items: center; gap: 0.7rem;
+    width: 100%; padding: 0.6rem 0.7rem;
+    border: 0; border-radius: 0.7rem;
+    background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit;
+  }
+  .map-search__quick-row:hover { background: rgba(128, 128, 128, 0.12); }
+  .map-search__row-dot--ghost { background: rgba(128, 128, 128, 0.10); opacity: 0.75; }
+  .map-search__recent-del {
+    flex: 0 0 auto; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0.4; font-size: 0.8rem;
+  }
+  .map-search__recent-del:hover { opacity: 0.85; background: rgba(128, 128, 128, 0.16); }
+
+  /* Loading row + spinner */
+  .map-search__loading {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.85rem 0.9rem; opacity: 0.7; font-size: 0.9rem;
+  }
+  .map-search__spinner {
+    width: 1rem; height: 1rem; border-radius: 50%;
+    border: 2px solid rgba(128, 128, 128, 0.3); border-top-color: oklch(var(--bc));
+    animation: mapSearchSpin 0.7s linear infinite;
+  }
+  @keyframes mapSearchSpin { to { transform: rotate(360deg); } }
+  .map-search__row-name b { font-weight: 700; }
   .map-search__chips {
     display: flex; gap: 0.45rem;
     padding: 0.6rem;
