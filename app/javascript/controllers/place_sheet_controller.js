@@ -23,8 +23,24 @@ export default class extends Controller {
 
   showBackdrop() {
     if (!this.backdrop) return
-    this.backdrop.style.opacity = "1"
-    this.backdrop.style.pointerEvents = "auto"
+    // vicquick fork: never dim or lock the map — Google keeps a live, undimmed
+    // map behind the place card and stays fully interactive. The backdrop is
+    // kept inert; dismissal is the X button or a downward drag. (A dimming,
+    // gesture-eating scrim was the last overlay state that still walled the map.)
+    this.backdrop.style.opacity = "0"
+    this.backdrop.style.pointerEvents = "none"
+  }
+
+  // Register / release the sheet's footprint with the shared camera-padding
+  // coordinator so marker focus & recenter stay in the visible map area.
+  // In directions mode we release it and let directions_manager own the
+  // camera (it already pads per-call for the route + sheet).
+  syncPad() {
+    try { window.dawarichMapPadding?.set("place-sheet", "bottom", this.element.offsetHeight) } catch (_) { /* noop */ }
+  }
+
+  clearPad() {
+    try { window.dawarichMapPadding?.clear("place-sheet") } catch (_) { /* noop */ }
   }
 
   hideBackdrop() {
@@ -89,6 +105,7 @@ export default class extends Controller {
     this.expanded = false
     this.showBackdrop()
     this.highlightOnMap()
+    this.syncPad()
     this.enrich()
   }
 
@@ -281,6 +298,7 @@ export default class extends Controller {
   togglePullUp() {
     this.expanded = !this.expanded
     this.element.style.height = this.expanded ? `${this.maxSheetPx()}px` : "40vh"
+    this.syncPad()
   }
 
   // Draggable handle: drag up/down to resize the sheet, tap to toggle.
@@ -319,6 +337,7 @@ export default class extends Controller {
       const near = stops.reduce((a, b) => (Math.abs(b - curPx) < Math.abs(a - curPx) ? b : a))
       this.element.style.height = `${near}px`
       this.expanded = near > vh() * 0.45
+      this.syncPad()
     }
 
     this._dragMove = move
@@ -330,6 +349,7 @@ export default class extends Controller {
 
   close() {
     this.element.style.transform = "translateY(100%)"
+    this.clearPad()
     this.clearHighlight()
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
     this.backToInfo()
@@ -347,6 +367,9 @@ export default class extends Controller {
     // ~half height so the route + an interactive map both show.
     this.element.style.height = "48vh"
     this.expanded = true
+    // Hand the camera to directions_manager — it already pads per-call for the
+    // route + sheet; releasing here avoids two coordinators fighting.
+    this.clearPad()
     // Default mode = Walk.
     this.element.querySelectorAll(".dir-mode").forEach((b) =>
       b.classList.toggle("btn-active", b.dataset.mode === "pedestrian"))
@@ -483,7 +506,8 @@ export default class extends Controller {
     if (trip) trip.style.display = "none"
     this.closeEndpointPicker()
     document.body.classList.remove("routing-active")
-    this.showBackdrop() // back to the place-info view → restore the dim
+    this.showBackdrop() // back to the place-info view (backdrop is inert now)
+    this.syncPad() // re-take the camera padding in info mode
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
   }
 

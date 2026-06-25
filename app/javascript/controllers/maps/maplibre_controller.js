@@ -18,6 +18,7 @@ import { FilterManager } from "./maplibre/filter_manager"
 import { LayerManager } from "./maplibre/layer_manager"
 import { MapDataManager } from "./maplibre/map_data_manager"
 import { MapInitializer } from "./maplibre/map_initializer"
+import { installMapPadding } from "./maplibre/map_overlay_padding"
 import { PlacesManager } from "./maplibre/places_manager"
 import { POIsManager } from "./maplibre/pois_manager"
 import { RoutesManager } from "./maplibre/routes_manager"
@@ -445,6 +446,11 @@ export default class extends Controller {
 
     // vicquick fork: expose the map for the discovery/place-sheet controllers
     window.dawarichMap = this.map
+
+    // vicquick fork: keep the camera sheet-aware — floating overlays register
+    // their footprint so marker focus / recenter / fitBounds stay in the
+    // visible map area instead of hiding behind a sheet or panel.
+    installMapPadding(this.map)
 
     // vicquick fork: basemap follows the UI theme (white UI → white OSM, dark UI → dark)
     this._currentBasemap = this.themeBasemap()

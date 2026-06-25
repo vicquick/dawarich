@@ -13,11 +13,15 @@
      data-turbo-permanent
      class="map-control-panel<%= ' open timeline-expanded' if timeline_panel_open %>"
      data-maps--maplibre-target="settingsPanel"
-     data-controller="map-panel">
+     data-controller="map-panel bottom-sheet">
   <%# The in-panel tab strip is gone — the floating button cluster on the
       map's left edge (`_button_cluster.html.erb`) doubles as the tab strip
       both when the panel is closed and when it's open (it slides to sit at
       the panel's right edge while open). Single source of truth. %>
+
+  <%# Grabber — only visible on phones, where the panel is a draggable bottom
+      sheet (CSS hides it on desktop). Drag to resize; tap to peek/expand. %>
+  <div class="panel-drag-handle" data-bottom-sheet-target="handle" aria-hidden="true"></div>
 
   <!-- Panel Content -->
   <div class="panel-content">
