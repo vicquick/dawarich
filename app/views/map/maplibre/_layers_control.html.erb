@@ -132,4 +132,18 @@
 
   /* While routing, the map is the hero — tuck the layers control away too. */
   body.routing-active .layers-control { display: none; }
+
+  /* Mobile: button sits TOP-right (where the old incident toggle was); the
+     panel drops DOWN from it instead of rising. */
+  @media (max-width: 768px) {
+    .layers-control {
+      top: max(4.75rem, calc(env(safe-area-inset-top) + 4rem));
+      bottom: auto; right: 0.75rem;
+    }
+    .layers-panel {
+      top: 3.5rem; bottom: auto;
+      transform-origin: top right; transform: translateY(-8px) scale(.96);
+    }
+    .layers-panel--open { transform: translateY(0) scale(1); }
+  }
 </style>
