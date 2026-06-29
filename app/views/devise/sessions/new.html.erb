@@ -44,7 +44,8 @@
               <div class="form-control">
                 <label class="label cursor-pointer">
                   <span class="label-text">Remember me</span>
-                  <%= f.check_box :remember_me, class: 'checkbox checkbox-sm' %>
+                  <%# vicquick fork: default-on so devices stay logged in (3 months, sliding) %>
+                  <%= f.check_box :remember_me, { class: 'checkbox checkbox-sm', checked: true } %>
                 </label>
               </div>
             <% end %>
