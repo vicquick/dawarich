@@ -237,6 +237,14 @@ Rails.application.routes.draw do
       get :calendar, on: :collection
     end
     resource :residency, only: [:show], controller: 'residency'
+
+    # vicquick fork: CORS-adding tile proxy for basemaps whose servers don't
+    # send Access-Control-Allow-Origin (memomaps ÖPNV, German state DOP WMS) —
+    # MapLibre loads raster tiles with crossOrigin=anonymous, so they'd fail
+    # without this. Same-origin → carries the session cookie (login-gated).
+    get '/tiles/:provider/:z/:x/:y', to: 'tile_proxy#xyz',
+        constraints: { z: /\d+/, x: /\d+/, y: /\d+/, format: /png|jpe?g/ }
+    get '/wms/:provider', to: 'tile_proxy#wms'
   end
 
   # Backward compatibility redirects

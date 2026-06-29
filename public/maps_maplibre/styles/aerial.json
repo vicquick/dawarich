@@ -13,11 +13,11 @@
     },
     "ni-dop20": {
       "type": "raster",
-      "tiles": ["https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=WMS_NI_DOP20&CRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/jpeg&STYLES=&TRANSPARENT=false"],
+      "tiles": ["/map/wms/ni_dop?bbox={bbox-epsg-3857}&width=256&height=256"],
       "tileSize": 256,
       "maxzoom": 20,
       "bounds": [6.35, 51.2, 11.7, 54.0],
-      "attribution": "© <a href=\"https://www.lgln.niedersachsen.de\">LGLN</a> (DOP20 Niedersachsen, open data)"
+      "attribution": "© <a href=\"https://www.lgln.niedersachsen.de\">LGLN</a> (DOP20 RGB, Niedersachsen open data)"
     }
   },
   "layers": [

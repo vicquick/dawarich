@@ -2,30 +2,18 @@
   "version": 8,
   "name": "Public Transport (ÖPNVKarte)",
   "glyphs": "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+  "sprite": "https://protomaps.github.io/basemaps-assets/sprites/v4/light",
   "sources": {
     "opnvkarte": {
       "type": "raster",
-      "tiles": [
-        "https://tileserver.memomaps.de/tilegen/{z}/{x}/{y}.png"
-      ],
+      "tiles": ["/map/tiles/opnv/{z}/{x}/{y}.png"],
       "tileSize": 256,
       "maxzoom": 18,
       "attribution": "© <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors, Tiles: <a href=\"https://memomaps.de/\">ÖPNVKarte / MeMoMaps</a> (CC-BY-SA)"
     }
   },
   "layers": [
-    {
-      "id": "background",
-      "type": "background",
-      "paint": {
-        "background-color": "#e8e8e8"
-      }
-    },
-    {
-      "id": "opnvkarte",
-      "type": "raster",
-      "source": "opnvkarte"
-    }
-  ],
-  "sprite": "https://protomaps.github.io/basemaps-assets/sprites/v4/light"
+    { "id": "background", "type": "background", "paint": { "background-color": "#e8e8e8" } },
+    { "id": "opnvkarte", "type": "raster", "source": "opnvkarte" }
+  ]
 }
