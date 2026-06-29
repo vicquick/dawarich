@@ -387,7 +387,9 @@ export default class extends Controller {
       new Date(this.endDateValue),
     )
 
-    this.loadMapData().then(() => {
+    // vicquick fork: don't fit the camera to the initial date's data — keep the
+    // restored/home view set above. Date navigation still fits normally.
+    this.loadMapData({ fitBounds: false }).then(() => {
       if (this.settings?.familyEnabled) {
         this.loadFamilyMembers()
       }
@@ -452,22 +454,28 @@ export default class extends Controller {
     // visible map area instead of hiding behind a sheet or panel.
     installMapPadding(this.map)
 
-    // vicquick fork: basemap follows the UI theme (white UI → white OSM, dark UI → dark)
+    // vicquick fork: basemap DEFAULTS to the UI theme (light/dark) on every load —
+    // we no longer auto-restore a raster base (it flashed, and the user wants
+    // dark/light by default). The Layers control still lets you switch live.
     this._currentBasemap = this.themeBasemap()
     this.observeThemeForBasemap()
-
-    // vicquick fork: Layers control hook + restore the user's saved basemap.
     window.dawarichSelectBasemap = (name) => this.settingsController?.selectBasemap(name)
+
+    // vicquick fork: open where you LAST were (remembered across sessions), else
+    // the Lüneburg home extent — NOT the oldest tracked point. Persist on move.
+    // The initial data load runs with fitBounds:false (see below) so it never
+    // yanks the camera to an old date's data.
+    const HOME = { center: [10.4147, 53.2520], zoom: 12 }
     try {
-      const saved = localStorage.getItem("dawarichBasemap")
-      const themeBases = ["white", "light", "dark", "black", "grayscale"]
-      // Only restore an explicitly-chosen NON-theme basemap; theme bases keep
-      // following the UI theme via the observer above.
-      if (saved && !themeBases.includes(saved)) {
-        this._userBasemap = saved
-        this.map.once("idle", () => this.settingsController?.selectBasemap(saved))
-      }
-    } catch (_) { /* private mode */ }
+      const v = JSON.parse(localStorage.getItem("dawarichMapView") || "null")
+      this.map.jumpTo(v && Array.isArray(v.center) ? { center: v.center, zoom: v.zoom ?? HOME.zoom } : HOME)
+    } catch (_) { this.map.jumpTo(HOME) }
+    this.map.on("moveend", () => {
+      try {
+        const c = this.map.getCenter()
+        localStorage.setItem("dawarichMapView", JSON.stringify({ center: [c.lng, c.lat], zoom: this.map.getZoom() }))
+      } catch (_) { /* private mode */ }
+    })
 
     // vicquick fork: device geolocation control (locate me / start point for routing)
     try {

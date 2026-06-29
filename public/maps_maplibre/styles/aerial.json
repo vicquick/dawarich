@@ -10,19 +10,10 @@
       "tileSize": 256,
       "maxzoom": 19,
       "attribution": "Imagery © <a href=\"https://www.esri.com\">Esri</a>, Maxar, Earthstar Geographics"
-    },
-    "ni-dop20": {
-      "type": "raster",
-      "tiles": ["/map/wms/ni_dop?bbox={bbox-epsg-3857}&width=256&height=256"],
-      "tileSize": 256,
-      "maxzoom": 20,
-      "bounds": [6.35, 51.2, 11.7, 54.0],
-      "attribution": "© <a href=\"https://www.lgln.niedersachsen.de\">LGLN</a> (DOP20 RGB, Niedersachsen open data)"
     }
   },
   "layers": [
     { "id": "background", "type": "background", "paint": { "background-color": "#1c1c1c" } },
-    { "id": "esri-imagery", "type": "raster", "source": "esri-imagery" },
-    { "id": "ni-dop20", "type": "raster", "source": "ni-dop20" }
+    { "id": "esri-imagery", "type": "raster", "source": "esri-imagery" }
   ]
 }

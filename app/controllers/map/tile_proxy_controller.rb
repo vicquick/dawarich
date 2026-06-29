@@ -19,11 +19,13 @@ module Map
     }.freeze
 
     # WMS providers → the single RGB orthophoto layer to render.
+    # PNG + TRANSPARENT so areas OUTSIDE the state's coverage come back
+    # transparent (not opaque white) and the global Esri layer shows through.
     WMS = {
       'ni_dop' => { base: 'https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms',
-                    layers: 'ni_dop20', format: 'image/jpeg' },
+                    layers: 'ni_dop20', format: 'image/png' },
       'sh_dop' => { base: 'https://dienste.gdi-sh.de/WMS_SH_DOP20col_OpenGBD',
-                    layers: 'sh_dop20_rgb', format: 'image/jpeg' }
+                    layers: 'sh_dop20_rgb', format: 'image/png' }
     }.freeze
 
     def xyz
@@ -41,7 +43,7 @@ module Map
       qs = {
         SERVICE: 'WMS', VERSION: '1.3.0', REQUEST: 'GetMap',
         LAYERS: cfg[:layers], STYLES: '', CRS: 'EPSG:3857',
-        BBOX: bbox, WIDTH: w, HEIGHT: h, FORMAT: cfg[:format], TRANSPARENT: 'false'
+        BBOX: bbox, WIDTH: w, HEIGHT: h, FORMAT: cfg[:format], TRANSPARENT: 'true'
       }.map { |k, v| "#{k}=#{CGI.escape(v.to_s)}" }.join('&')
       proxy("#{cfg[:base]}?#{qs}")
     end

@@ -59,7 +59,9 @@ module Map
       return date_param_range.begin.to_i if date_param_range
       return import_window_start if import_window_start
 
-      (current_user.points.minimum(:timestamp) || Time.zone.today.beginning_of_day.to_i)
+      # vicquick fork: default the map to TODAY, not the user's very first point
+      # (that opened the map on a 2013 date and fit the camera to ancient data).
+      Time.zone.today.beginning_of_day.to_i
     end
 
     def end_at
