@@ -1107,9 +1107,11 @@ export class SettingsController {
     }
     this.layerManager.clearLayerReferences()
     this.map.setStyle(style)
-    this.map.once("style.load", () => {
+    // "idle" fires reliably after EACH setStyle settles (unlike "style.load",
+    // which can no-op on a 2nd+ swap and drop the data overlays). Re-add data
+    // + the incidents overlay once the new basemap has rendered.
+    this.map.once("idle", () => {
       this.controller.loadMapData()
-      // re-add the incidents overlay if it was on (setStyle wiped its layers)
       setTimeout(() => { try { window.dawarichTraffic?.refresh?.() } catch (_) {} }, 600)
     })
     this.controller._userBasemap = name
