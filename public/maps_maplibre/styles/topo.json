@@ -1,0 +1,31 @@
+{
+  "version": 8,
+  "name": "Topographic (TopPlusOpen)",
+  "glyphs": "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+  "sources": {
+    "topplus": {
+      "type": "raster",
+      "tiles": [
+        "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web/default/WEBMERCATOR/{z}/{y}/{x}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 18,
+      "attribution": "© <a href=\"https://www.bkg.bund.de\">BKG</a> (TopPlusOpen, GeoBasis-DE)"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#f0efe9"
+      }
+    },
+    {
+      "id": "topplus",
+      "type": "raster",
+      "source": "topplus"
+    }
+  ],
+  "sprite": "https://protomaps.github.io/basemaps-assets/sprites/v4/light"
+}

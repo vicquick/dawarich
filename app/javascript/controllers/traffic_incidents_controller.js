@@ -12,6 +12,13 @@ export default class extends Controller {
     this.on = false
     this._moveHandler = null
     this._t = null
+    // vicquick fork: drive this overlay from the Layers control. refresh()
+    // re-adds the incident layers after a basemap setStyle wipes them.
+    window.dawarichTraffic = {
+      toggle: () => this.toggle(),
+      isOn: () => this.on,
+      refresh: () => { if (this.on) this.fetchAndRender() },
+    }
   }
 
   get map() { return window.dawarichMap }

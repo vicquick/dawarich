@@ -1,0 +1,135 @@
+<%# Google-Maps-style Layers control (vicquick fork). Replaces the standalone
+    incident toggle: pick a base map + toggle overlays, active ones highlighted.
+    Thumbnails are live tiles of the home region. %>
+<div data-controller="layers-control" class="layers-control">
+  <%# The panel (opens above the button) %>
+  <div data-layers-control-target="panel" class="layers-panel">
+    <div class="layers-panel__section-title">Map type</div>
+    <div class="layers-chips">
+      <% [
+        ["white",   "Light",     "https://a.basemaps.cartocdn.com/light_all/11/1083/665.png"],
+        ["dark",    "Dark",      "https://a.basemaps.cartocdn.com/dark_all/11/1083/665.png"],
+        ["transit", "Transit",   "https://tileserver.memomaps.de/tilegen/11/1083/665.png"],
+        ["topo",    "Terrain",   "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web/default/WEBMERCATOR/11/665/1083.png"],
+        ["aerial",  "Satellite", "https://sg.geodatenzentrum.de/wms_dop?SERVICE=WMS&amp;VERSION=1.3.0&amp;REQUEST=GetMap&amp;LAYERS=rgb&amp;CRS=EPSG:3857&amp;BBOX=1154503,7005300,1174071,7024868&amp;WIDTH=128&amp;HEIGHT=128&amp;FORMAT=image/jpeg&amp;STYLES="]
+      ].each do |val, label, thumb| %>
+        <button type="button" class="layers-chip" data-basemap="<%= val %>"
+                data-layers-control-target="chip"
+                data-action="click->layers-control#pickBase"
+                aria-label="<%= label %> map">
+          <span class="layers-chip__thumb" style="background-image:url('<%= thumb %>')">
+            <span class="layers-chip__check" aria-hidden="true">✓</span>
+          </span>
+          <span class="layers-chip__label"><%= label %></span>
+        </button>
+      <% end %>
+    </div>
+
+    <div class="layers-panel__divider"></div>
+
+    <div class="layers-panel__section-title">Overlays</div>
+    <button type="button" class="layers-overlay"
+            data-layers-control-target="trafficToggle"
+            data-action="click->layers-control#toggleTraffic"
+            aria-pressed="false" aria-label="Toggle live road incidents">
+      <span class="layers-overlay__icon">⚠</span>
+      <span class="layers-overlay__label">Traffic incidents</span>
+      <span class="layers-overlay__switch" aria-hidden="true"></span>
+    </button>
+  </div>
+
+  <%# The trigger button (bottom-right) %>
+  <button type="button" data-layers-control-target="button"
+          data-action="click->layers-control#toggleOpen"
+          class="layers-button" aria-expanded="false" aria-label="Map layers" title="Layers">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+      <polyline points="2 17 12 22 22 17"></polyline>
+      <polyline points="2 12 12 17 22 12"></polyline>
+    </svg>
+  </button>
+</div>
+
+<style>
+  .layers-control { position: absolute; right: 0.75rem; bottom: 7.5rem; z-index: 556; }
+  /* Trigger button — rounded square, like Google's layer chip. */
+  .layers-button {
+    width: 2.8rem; height: 2.8rem; border-radius: 0.85rem;
+    background: oklch(var(--b1)); color: oklch(var(--bc));
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 12%, transparent);
+    box-shadow: 0 2px 12px rgba(0,0,0,.26);
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    transition: transform .12s ease, background .18s ease;
+  }
+  .layers-button:hover { background: color-mix(in oklch, oklch(var(--b1)) 92%, oklch(var(--bc))); }
+  .layers-button:active { transform: scale(.95); }
+
+  /* Panel — opens above the button, anchored bottom-right. */
+  .layers-panel {
+    position: absolute; right: 0; bottom: 3.6rem;
+    width: min(92vw, 22rem); padding: 0.85rem 0.95rem 0.95rem;
+    background: oklch(var(--b1)); color: oklch(var(--bc));
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 10%, transparent);
+    border-radius: 1.1rem; box-shadow: 0 10px 34px rgba(0,0,0,.30);
+    transform-origin: bottom right; transform: translateY(8px) scale(.96);
+    opacity: 0; pointer-events: none;
+    transition: opacity .16s ease, transform .16s cubic-bezier(.2,.7,.2,1);
+  }
+  .layers-panel--open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+
+  .layers-panel__section-title {
+    font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    opacity: .55; margin: 0 0 .5rem 2px;
+  }
+  .layers-panel__divider {
+    height: 1px; margin: .8rem 0 .75rem;
+    background: color-mix(in oklch, oklch(var(--bc)) 10%, transparent);
+  }
+
+  .layers-chips { display: flex; gap: .55rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .layers-chips::-webkit-scrollbar { display: none; }
+  .layers-chip {
+    flex: 0 0 auto; width: 4.1rem; background: none; border: none; padding: 0;
+    cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: .3rem;
+  }
+  .layers-chip__thumb {
+    position: relative; width: 4.1rem; height: 4.1rem; border-radius: .7rem;
+    background-size: cover; background-position: center; background-color: oklch(var(--b2));
+    box-shadow: inset 0 0 0 2px transparent, 0 1px 4px rgba(0,0,0,.18);
+    transition: box-shadow .14s ease, transform .12s ease;
+  }
+  .layers-chip:hover .layers-chip__thumb { transform: translateY(-1px); }
+  .layers-chip__check {
+    position: absolute; top: -.35rem; right: -.35rem; width: 1.15rem; height: 1.15rem;
+    border-radius: 50%; background: #1a73e8; color: #fff; font-size: .72rem; font-weight: 800;
+    display: none; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  }
+  .layers-chip__label { font-size: .72rem; font-weight: 600; opacity: .8; }
+  .layers-chip--active .layers-chip__thumb { box-shadow: inset 0 0 0 2.5px #1a73e8, 0 2px 8px rgba(26,115,232,.35); }
+  .layers-chip--active .layers-chip__check { display: flex; }
+  .layers-chip--active .layers-chip__label { opacity: 1; color: #1a73e8; }
+
+  .layers-overlay {
+    width: 100%; display: flex; align-items: center; gap: .6rem; cursor: pointer;
+    background: none; border: none; padding: .4rem .2rem; color: inherit; text-align: left;
+  }
+  .layers-overlay__icon { font-size: 1.05rem; width: 1.6rem; text-align: center; }
+  .layers-overlay__label { flex: 1 1 auto; font-size: .9rem; font-weight: 500; }
+  .layers-overlay__switch {
+    flex: 0 0 auto; width: 2.4rem; height: 1.4rem; border-radius: 999px; position: relative;
+    background: color-mix(in oklch, oklch(var(--bc)) 22%, transparent); transition: background .18s ease;
+  }
+  .layers-overlay__switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 1rem; height: 1rem;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .18s ease;
+  }
+  .layers-overlay--on .layers-overlay__switch { background: #ea4335; }
+  .layers-overlay--on .layers-overlay__switch::after { transform: translateX(1rem); }
+
+  /* Hide the old standalone incident toggle — folded into this control now. */
+  .traffic-toggle { display: none !important; }
+
+  /* While routing, the map is the hero — tuck the layers control away too. */
+  body.routing-active .layers-control { display: none; }
+</style>

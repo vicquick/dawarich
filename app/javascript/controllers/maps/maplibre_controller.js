@@ -456,6 +456,19 @@ export default class extends Controller {
     this._currentBasemap = this.themeBasemap()
     this.observeThemeForBasemap()
 
+    // vicquick fork: Layers control hook + restore the user's saved basemap.
+    window.dawarichSelectBasemap = (name) => this.settingsController?.selectBasemap(name)
+    try {
+      const saved = localStorage.getItem("dawarichBasemap")
+      const themeBases = ["white", "light", "dark", "black", "grayscale"]
+      // Only restore an explicitly-chosen NON-theme basemap; theme bases keep
+      // following the UI theme via the observer above.
+      if (saved && !themeBases.includes(saved)) {
+        this._userBasemap = saved
+        this.map.once("idle", () => this.settingsController?.selectBasemap(saved))
+      }
+    } catch (_) { /* private mode */ }
+
     // vicquick fork: device geolocation control (locate me / start point for routing)
     try {
       this.geolocateControl = new maplibregl.GeolocateControl({
@@ -478,6 +491,11 @@ export default class extends Controller {
   observeThemeForBasemap() {
     try {
       this._themeObserver = new MutationObserver(() => {
+        // vicquick fork: if the user manually picked a non-theme basemap
+        // (Transit/Topo/Aerial) from the Layers control, don't yank it back
+        // to a light/dark vector style when the UI theme toggles.
+        const RASTER = ["transit", "topo", "aerial"]
+        if (RASTER.includes(this._userBasemap)) return
         const want = this.themeBasemap()
         if (want === this._currentBasemap) return
         this._currentBasemap = want

@@ -1087,6 +1087,35 @@ export class SettingsController {
     })
   }
 
+  // vicquick fork: user-chosen basemap from the Layers control. Vector bases
+  // (light/dark) go through getMapStyle (POI filtering); raster bases
+  // (transit/topo/aerial) are plain style files served from /public. Either
+  // way we re-add all data on style.load, so routes/places/incidents survive.
+  static RASTER_BASEMAPS = ["transit", "topo", "aerial"]
+
+  async selectBasemap(name) {
+    let style
+    if (SettingsController.RASTER_BASEMAPS.includes(name)) {
+      const resp = await fetch(`/maps_maplibre/styles/${name}.json`)
+      if (!resp.ok) throw new Error(`basemap ${name} ${resp.status}`)
+      style = await resp.json()
+    } else {
+      style = await getMapStyle(name, {
+        hiddenTileCategories: this.settings.hiddenTileCategories || [],
+        disabledPoiGroups: this.settings.disabledPoiGroups || [],
+      })
+    }
+    this.layerManager.clearLayerReferences()
+    this.map.setStyle(style)
+    this.map.once("style.load", () => {
+      this.controller.loadMapData()
+      // re-add the incidents overlay if it was on (setStyle wiped its layers)
+      setTimeout(() => { try { window.dawarichTraffic?.refresh?.() } catch (_) {} }, 600)
+    })
+    this.controller._userBasemap = name
+    try { localStorage.setItem("dawarichBasemap", name) } catch (_) { /* private mode */ }
+  }
+
   /**
    * Reset settings to defaults
    */

@@ -45,8 +45,15 @@
   <!-- Map-edge button cluster (top-right corner) -->
   <%= render 'button_cluster' %>
 
-  <!-- Live road-incidents toggle (NAPSPAN) -->
+  <!-- Live road-incidents controller (NAPSPAN). The floating button is hidden
+       via CSS — the toggle now lives inside the Layers control as an overlay —
+       but the partial stays so the Stimulus controller (window.dawarichTraffic)
+       remains mounted. -->
   <%= render 'map/maplibre/traffic_toggle' %>
+
+  <!-- Google-style Layers control: base maps (Light/Dark/Transit/Terrain/
+       Satellite) + overlays. Replaces the standalone incident toggle. -->
+  <%= render 'map/maplibre/layers_control' %>
 
   <!-- Timeline map-corner overlays (shown only when Timeline tab is active; CSS handles visibility) -->
   <div class="timeline-map-overlay timeline-map-overlay--scope" data-timeline-feed-target="scopeBadge">
