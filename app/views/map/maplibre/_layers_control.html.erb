@@ -11,7 +11,7 @@
         ["dark",    "Dark",      "https://a.basemaps.cartocdn.com/dark_all/11/1083/665.png"],
         ["transit", "Transit",   "https://tileserver.memomaps.de/tilegen/11/1083/665.png"],
         ["topo",    "Terrain",   "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web/default/WEBMERCATOR/11/665/1083.png"],
-        ["aerial",  "Satellite", "https://sg.geodatenzentrum.de/wms_dop?SERVICE=WMS&amp;VERSION=1.3.0&amp;REQUEST=GetMap&amp;LAYERS=rgb&amp;CRS=EPSG:3857&amp;BBOX=1154503,7005300,1174071,7024868&amp;WIDTH=128&amp;HEIGHT=128&amp;FORMAT=image/jpeg&amp;STYLES="]
+        ["aerial",  "Satellite", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/11/665/1083"]
       ].each do |val, label, thumb| %>
         <button type="button" class="layers-chip" data-basemap="<%= val %>"
                 data-layers-control-target="chip"
