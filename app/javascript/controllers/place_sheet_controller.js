@@ -410,10 +410,14 @@ export default class extends Controller {
   editEndpoint(e) {
     this._editing = e.currentTarget.dataset.end // "start" | "end"
     if (!this.hasEndpointPickerTarget) return
+    // The sheet's transform makes position:fixed resolve relative to the sheet,
+    // not the viewport. Drop it so the picker overlay is truly fullscreen (the
+    // sheet is hidden behind the overlay while it's open).
+    this.element.style.transform = "none"
     this.endpointPickerTarget.hidden = false
     this.endpointInputTarget.value = ""
     this.endpointResultsTarget.innerHTML = this._editing === "start"
-      ? `<li><button type="button" data-loc="me">📍 <span style="margin-left:6px">Your location (GPS)</span></button></li>`
+      ? `<li><button type="button" data-loc="me"><span class="ep-res-dot">📍</span><span class="ep-res-txt"><span class="ep-res-name">Your location (GPS)</span></span></button></li>`
       : ""
     this.endpointResultsTarget.querySelector('[data-loc="me"]')
       ?.addEventListener("click", () => { window.dawarichDirections?.useMyLocation(); this.startLabelTarget.textContent = "Your location"; this.closeEndpointPicker() })
@@ -422,6 +426,7 @@ export default class extends Controller {
 
   closeEndpointPicker() {
     if (this.hasEndpointPickerTarget) this.endpointPickerTarget.hidden = true
+    this.element.style.transform = "translateY(0)" // restore the sheet
   }
 
   swapEnds() {
@@ -443,10 +448,10 @@ export default class extends Controller {
       this._epList = list
       this.endpointResultsTarget.innerHTML = list.map((s, i) => `
         <li><button type="button" data-idx="${i}">
-          <span class="trip-res-dot">${s.saved ? (s.icon || "⭐") : "📍"}</span>
-          <span style="min-width:0;flex:1 1 auto">
-            <span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${this.esc(s.name)}</span>
-            ${s.address ? `<span class="trip-res-sub">${this.esc(s.address)}</span>` : ""}
+          <span class="ep-res-dot">${s.saved ? (s.icon || "⭐") : "📍"}</span>
+          <span class="ep-res-txt">
+            <span class="ep-res-name">${this.esc(s.name)}</span>
+            ${s.address ? `<span class="ep-res-sub">${this.esc(s.address)}</span>` : ""}
           </span></button></li>`).join("")
       this.endpointResultsTarget.querySelectorAll("button[data-idx]").forEach((el) =>
         el.addEventListener("click", () => this.pickEndpoint(this._epList[Number(el.dataset.idx)])))

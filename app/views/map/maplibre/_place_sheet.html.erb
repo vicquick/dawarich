@@ -71,12 +71,16 @@
           </button>
           <button type="button" data-action="click->place-sheet#swapEnds" class="trip-swap" aria-label="Swap start and destination">⇅</button>
         </div>
-        <%# inline endpoint picker — searches saved places + Photon %>
-        <div data-place-sheet-target="endpointPicker" hidden class="trip-picker">
-          <input type="text" data-place-sheet-target="endpointInput"
-                 data-action="input->place-sheet#endpointSearch keydown->place-sheet#endpointKeydown"
-                 placeholder="Search a place" class="trip-input" autocomplete="off" aria-label="Search a place">
-          <ul data-place-sheet-target="endpointResults" class="trip-results"></ul>
+        <%# Fullscreen endpoint picker (Google-style) — map hidden behind, input on
+            top, full scrollable results above the keyboard. %>
+        <div data-place-sheet-target="endpointPicker" hidden class="ep-overlay">
+          <div class="ep-bar">
+            <button type="button" data-action="click->place-sheet#closeEndpointPicker" class="ep-back" aria-label="Back">‹</button>
+            <input type="text" data-place-sheet-target="endpointInput"
+                   data-action="input->place-sheet#endpointSearch keydown->place-sheet#endpointKeydown"
+                   placeholder="Search a place or address" class="ep-input" autocomplete="off" aria-label="Search a place">
+          </div>
+          <ul data-place-sheet-target="endpointResults" class="ep-results"></ul>
         </div>
       </div>
 
@@ -160,6 +164,54 @@
     display:flex; align-items:center; justify-content:center; font-size:.9rem;
     background:color-mix(in oklch, oklch(var(--bc)) 12%, transparent); }
   .trip-res-sub { font-size:.76rem; opacity:.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* --- Fullscreen endpoint picker (Google-style stop search) --- */
+  .ep-overlay {
+    position: fixed; inset: 0; z-index: 700;
+    background: oklch(var(--b1)); color: oklch(var(--bc));
+    display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+  }
+  .ep-overlay[hidden] { display: none; }
+  .ep-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; flex: 0 0 auto;
+    border-bottom: 1px solid color-mix(in oklch, oklch(var(--bc)) 12%, transparent);
+  }
+  .ep-back {
+    flex: 0 0 auto; width: 40px; height: 40px; border: 0; border-radius: 50%;
+    background: transparent; color: inherit; font-size: 1.6rem; line-height: 1; cursor: pointer;
+  }
+  .ep-back:hover { background: color-mix(in oklch, oklch(var(--bc)) 12%, transparent); }
+  .ep-input {
+    flex: 1 1 auto; min-width: 0;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 18%, transparent);
+    background: oklch(var(--b1)); color: inherit;
+    border-radius: 12px; padding: 11px 14px; font: inherit; font-size: 1rem; outline: none;
+  }
+  .ep-input:focus {
+    border-color: color-mix(in oklch, oklch(var(--bc)) 34%, transparent);
+    box-shadow: none !important; --tw-ring-shadow: 0 0 #0000 !important;
+  }
+  .ep-results { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1 1 auto; -webkit-overflow-scrolling: touch; }
+  .ep-results li button {
+    display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left;
+    border: 0; background: transparent; color: inherit; border-radius: 12px;
+    padding: 12px 10px; cursor: pointer; font: inherit;
+  }
+  .ep-results li button:hover, .ep-results li button:active { background: color-mix(in oklch, oklch(var(--bc)) 8%, transparent); }
+  .ep-res-dot {
+    flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center;
+    background: color-mix(in oklch, oklch(var(--bc)) 12%, transparent); font-size: 1rem;
+  }
+  .ep-res-txt { min-width: 0; flex: 1 1 auto; }
+  .ep-res-name { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Address wraps to ≤2 lines instead of a sideways-clipped single line. */
+  .ep-res-sub {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; font-size: .82rem; opacity: .6; margin-top: 1px;
+  }
 
   /* --- Directions: clearer Google-like travel-mode selector --- */
   .dir-mode {
