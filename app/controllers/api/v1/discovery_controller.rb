@@ -21,41 +21,147 @@ class Api::V1::DiscoveryController < ApiController
     'pharmacy'   => 'amenity:pharmacy',
   }.freeze
 
-  # Overpass tag filters per category (richer than Photon — carries opening_hours).
+  # Canonical category → Overpass tag filter (richer than Photon — carries
+  # opening_hours). Broad Google-Maps-like coverage; keyword search resolves
+  # free text to one of these keys via ALIASES / CUISINES below.
   OVERPASS_FILTERS = {
-    'restaurant'  => '[amenity=restaurant]',
-    'cafe'        => '[amenity=cafe]',
-    'bar'         => '[amenity~"^(bar|pub)$"]',
-    'fuel'        => '[amenity=fuel]',
-    'atm'         => '[amenity~"^(atm|bank)$"]',
-    'shopping'    => '[shop]',
-    'supermarket' => '[shop=supermarket]',
-    'hotel'       => '[tourism=hotel]',
-    'pharmacy'    => '[amenity=pharmacy]'
+    'restaurant'   => '[amenity=restaurant]',
+    'cafe'         => '[amenity=cafe]',
+    'bar'          => '[amenity~"^(bar|pub|biergarten)$"]',
+    'fast_food'    => '[amenity=fast_food]',
+    'fuel'         => '[amenity=fuel]',
+    'charging'     => '[amenity=charging_station]',
+    'atm'          => '[amenity=atm]',
+    'bank'         => '[amenity=bank]',
+    'pharmacy'     => '[amenity=pharmacy]',
+    'hospital'     => '[amenity~"^(hospital|clinic)$"]',
+    'doctor'       => '[amenity~"^(doctors|clinic)$"]',
+    'dentist'      => '[amenity=dentist]',
+    'veterinary'   => '[amenity=veterinary]',
+    'supermarket'  => '[shop=supermarket]',
+    'shopping'     => '[shop~"^(mall|department_store|supermarket|convenience|clothes)$"]',
+    'bakery'       => '[shop=bakery]',
+    'butcher'      => '[shop=butcher]',
+    'kiosk'        => '[shop~"^(kiosk|convenience)$"]',
+    'hotel'        => '[tourism~"^(hotel|hostel|guest_house|motel|apartment)$"]',
+    'parking'      => '[amenity=parking]',
+    'park'         => '[leisure~"^(park|garden)$"]',
+    'playground'   => '[leisure=playground]',
+    'gym'          => '[leisure~"^(fitness_centre|sports_centre)$"]',
+    'swimming'     => '[leisure=swimming_pool]',
+    'cinema'       => '[amenity=cinema]',
+    'theatre'      => '[amenity=theatre]',
+    'nightclub'    => '[amenity=nightclub]',
+    'attraction'   => '[tourism~"^(attraction|artwork|viewpoint|gallery|theme_park|zoo)$"]',
+    'museum'       => '[tourism=museum]',
+    'hairdresser'  => '[shop~"^(hairdresser|beauty)$"]',
+    'post'         => '[amenity=post_office]',
+    'library'      => '[amenity=library]',
+    'police'       => '[amenity=police]',
+    'toilets'      => '[amenity=toilets]',
+    'kindergarten' => '[amenity=kindergarten]',
+    'school'       => '[amenity=school]',
+    'university'   => '[amenity~"^(university|college)$"]',
+    'church'       => '[amenity=place_of_worship]',
+    'bus_stop'     => '[highway=bus_stop]',
+    'station'      => '[railway~"^(station|halt)$"]',
+    'bicycle'      => '[shop=bicycle]',
+    'car_repair'   => '[shop=car_repair]'
   }.freeze
+
+  # Free-text term → canonical category (EN + DE). Google-style keyword search.
+  ALIASES = {
+    'coffee' => 'cafe', 'coffee shop' => 'cafe', 'café' => 'cafe', 'kaffee' => 'cafe',
+    'food' => 'restaurant', 'eat' => 'restaurant', 'dinner' => 'restaurant', 'lunch' => 'restaurant',
+    'essen' => 'restaurant', 'gas' => 'fuel', 'gas station' => 'fuel', 'petrol' => 'fuel',
+    'tankstelle' => 'fuel', 'ev' => 'charging', 'ev charging' => 'charging', 'charger' => 'charging',
+    'charging station' => 'charging', 'ladesäule' => 'charging', 'laden' => 'charging',
+    'cash' => 'atm', 'cashpoint' => 'atm', 'geldautomat' => 'atm', 'money' => 'atm',
+    'chemist' => 'pharmacy', 'drugstore' => 'pharmacy', 'apotheke' => 'pharmacy',
+    'groceries' => 'supermarket', 'grocery' => 'supermarket', 'supermarkt' => 'supermarket',
+    'shop' => 'shopping', 'store' => 'shopping', 'mall' => 'shopping', 'einkaufen' => 'shopping',
+    'hostel' => 'hotel', 'accommodation' => 'hotel', 'stay' => 'hotel', 'übernachtung' => 'hotel',
+    'garden' => 'park', 'green' => 'park', 'grünfläche' => 'park',
+    'spielplatz' => 'playground', 'fitness' => 'gym', 'sport' => 'gym', 'fitnessstudio' => 'gym',
+    'pool' => 'swimming', 'schwimmbad' => 'swimming', 'movie' => 'cinema', 'movies' => 'cinema',
+    'kino' => 'cinema', 'club' => 'nightclub', 'pub' => 'bar', 'beer' => 'bar', 'drinks' => 'bar',
+    'kneipe' => 'bar', 'bäckerei' => 'bakery', 'bread' => 'bakery', 'metzger' => 'butcher',
+    'er' => 'hospital', 'emergency' => 'hospital', 'krankenhaus' => 'hospital', 'klinik' => 'hospital',
+    'gp' => 'doctor', 'arzt' => 'doctor', 'zahnarzt' => 'dentist', 'tierarzt' => 'veterinary', 'vet' => 'veterinary',
+    'parking lot' => 'parking', 'car park' => 'parking', 'parkplatz' => 'parking', 'parken' => 'parking',
+    'toilet' => 'toilets', 'wc' => 'toilets', 'restroom' => 'toilets', 'bathroom' => 'toilets',
+    'salon' => 'hairdresser', 'barber' => 'hairdresser', 'friseur' => 'hairdresser',
+    'post office' => 'post', 'postamt' => 'post', 'bibliothek' => 'library',
+    'sights' => 'attraction', 'tourist' => 'attraction', 'sehenswürdigkeit' => 'attraction',
+    'museen' => 'museum', 'polizei' => 'police', 'schule' => 'school', 'uni' => 'university',
+    'church' => 'church', 'kirche' => 'church', 'mosque' => 'church', 'takeaway' => 'fast_food',
+    'imbiss' => 'fast_food', 'bike' => 'bicycle', 'fahrrad' => 'bicycle', 'train' => 'station',
+    'bahnhof' => 'station', 'theater' => 'theatre'
+  }.freeze
+
+  # Cuisine keywords → restaurant/fast_food with a cuisine sub-filter.
+  CUISINES = %w[pizza sushi burger burgers kebab indian italian chinese thai japanese
+                mexican greek turkish korean vietnamese ramen steak seafood tapas
+                vegan vegetarian falafel doner döner asian french spanish].freeze
 
   def nearby
     lat = params[:lat]&.to_f
     lon = params[:lon]&.to_f
     return render_error('lat/lon required') if lat.nil? || lon.nil?
 
-    category = params[:category].to_s
+    category = params[:category].to_s.strip
+    q = params[:q].to_s.strip
     limit = (params[:limit] || 15).to_i.clamp(1, 50)
     radius = (params[:radius] || 1500).to_i.clamp(100, 5000)
     open_only = params[:open_now].to_s == 'true'
 
+    # Resolve category key and/or free-text query into an Overpass filter.
+    filter, label = resolve_filter(category, q)
+    return render_error('Nothing to search for') if filter.nil?
+
     # Cache the raw POI list (Redis, ~111m bucket); open-now is recomputed fresh
     # below so it's never stale. Prefer Overpass, fall back to Photon.
-    key = "v1/nearby/#{category}/#{lat.round(3)}/#{lon.round(3)}/#{radius}"
+    key = "v2/nearby/#{label}/#{lat.round(3)}/#{lon.round(3)}/#{radius}"
     results = Rails.cache.fetch(key, expires_in: 6.hours) do
-      overpass_nearby(lat, lon, category, radius) || photon_nearby(lat, lon, category, limit)
+      overpass_nearby(lat, lon, filter, label, radius) ||
+        photon_nearby(lat, lon, category.presence || q, limit)
     end
     return render_error('Search engine error', :bad_gateway) if results.nil?
 
     results = results.map { |r| r.merge(open_now: r[:opening_hours] ? open_now?(r[:opening_hours]) : nil) }
     results = results.select { |r| r[:open_now] } if open_only
     results = results.sort_by { |r| r[:distance_m] }.first(limit)
-    render json: { results: results }
+    render json: { results: results, category: label }
+  end
+
+  # Resolve a category key and/or free-text query into an Overpass filter and a
+  # short cache label. Order: explicit known category → alias/singular → cuisine
+  # → fuzzy name substring. Returns [filter, label] or [nil, nil].
+  def resolve_filter(category, q)
+    cat = category.downcase
+    return [OVERPASS_FILTERS[cat], cat] if OVERPASS_FILTERS.key?(cat)
+
+    term = q.downcase.strip
+    sing = term.sub(/s\z/, '')
+    canon = ALIASES[term] || (OVERPASS_FILTERS.key?(term) ? term : nil) ||
+            ALIASES[sing] || (OVERPASS_FILTERS.key?(sing) ? sing : nil)
+    return [OVERPASS_FILTERS[canon], canon] if canon
+
+    if (c = CUISINES.find { |x| term.split.include?(x) || term == x })
+      base = c.match?(/burger|kebab|doner|döner|falafel/) ? 'restaurant|fast_food' : 'restaurant'
+      return ["[amenity~\"^(#{base})$\"][cuisine~\"#{c.sub(/s\z/, '')}\",i]", "cuisine:#{c}"]
+    end
+
+    # Free-text fuzzy name search near the point (last resort — bounded radius).
+    return [name_filter(q), "name:#{term}"] if q.length >= 3
+
+    [nil, nil]
+  end
+
+  # Overpass name-substring filter (case-insensitive), regex-escaped.
+  def name_filter(q)
+    esc = q.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+    "[name~\"#{esc}\",i]"
   end
 
   def place_info
@@ -269,9 +375,8 @@ class Api::V1::DiscoveryController < ApiController
 
   # --- Overpass (self-hosted Germany DB) ---
 
-  def overpass_nearby(lat, lon, category, radius)
-    filter = OVERPASS_FILTERS[category]
-    return nil unless filter
+  def overpass_nearby(lat, lon, filter, label, radius)
+    return nil if filter.blank?
 
     ql = "[out:json][timeout:25];nwr(around:#{radius},#{lat},#{lon})#{filter};out center tags 80;"
     resp = overpass_post(ql)
@@ -290,7 +395,7 @@ class Api::V1::DiscoveryController < ApiController
       hours = tags['opening_hours']
       {
         name: name,
-        category: tags['amenity'] || tags['shop'] || tags['tourism'] || category,
+        category: tags['amenity'] || tags['shop'] || tags['tourism'] || tags['leisure'] || label,
         address: [tags['addr:street'], tags['addr:housenumber'], tags['addr:postcode'], tags['addr:city']].compact.join(' '),
         lat: plat, lon: plon,
         osm_type: e['type'], osm_id: e['id'],

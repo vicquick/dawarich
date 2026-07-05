@@ -7,8 +7,39 @@ import { Controller } from "@hotwired/stimulus"
 const RECENTS_KEY = "mapSearchRecents"
 const RESULT_SRC = "search-results"
 
+// Client-side keyword dictionary so typing "pizza" / "gym" / "hospital" fires a
+// nearby POI search (like Google) instead of only a geocoder lookup. Mirrors the
+// server's DiscoveryController resolver; kept compact — the server is the
+// source of truth and handles anything this misses.
+const CAT_KEYS = new Set([
+  "restaurant", "cafe", "bar", "fast_food", "fuel", "charging", "atm", "bank",
+  "pharmacy", "hospital", "supermarket", "shopping", "bakery", "hotel", "parking",
+  "park", "playground", "gym", "cinema", "attraction", "museum", "hairdresser",
+  "toilets", "library", "school", "station",
+])
+const ALIASES = {
+  coffee: "cafe", cafes: "cafe", cafés: "cafe", food: "restaurant", eat: "restaurant",
+  restaurants: "restaurant", gas: "fuel", petrol: "fuel", tankstelle: "fuel",
+  ev: "charging", charger: "charging", cash: "atm", atms: "atm", cashpoint: "atm",
+  chemist: "pharmacy", drugstore: "pharmacy", apotheke: "pharmacy", groceries: "supermarket",
+  grocery: "supermarket", supermarkt: "supermarket", shop: "shopping", shops: "shopping",
+  store: "shopping", mall: "shopping", hotels: "hotel", hostel: "hotel", parks: "park",
+  garden: "park", gyms: "gym", fitness: "gym", pub: "bar", pubs: "bar", beer: "bar",
+  bars: "bar", drinks: "bar", bakeries: "bakery", bread: "bakery", er: "hospital",
+  emergency: "hospital", krankenhaus: "hospital", parking: "parking", parkplatz: "parking",
+  toilet: "toilets", wc: "toilets", restroom: "toilets", barber: "hairdresser",
+  salon: "hairdresser", friseur: "hairdresser", movie: "cinema", movies: "cinema",
+  kino: "cinema", cinemas: "cinema", museums: "museum", sights: "attraction",
+  hospitals: "hospital", takeaway: "fast_food", imbiss: "fast_food", hotels_de: "hotel",
+}
+const CUISINES = new Set([
+  "pizza", "sushi", "burger", "burgers", "kebab", "indian", "italian", "chinese",
+  "thai", "japanese", "mexican", "greek", "turkish", "korean", "vietnamese", "ramen",
+  "steak", "seafood", "tapas", "vegan", "vegetarian", "falafel", "doner", "döner", "asian",
+])
+
 export default class extends Controller {
-  static targets = ["input", "results", "clear", "panel", "chips", "quick"]
+  static targets = ["input", "results", "clear", "panel", "chips", "quick", "searchArea"]
   static values = { apiKey: String }
 
   connect() {
@@ -16,15 +47,28 @@ export default class extends Controller {
     this._items = []
     this._active = -1
     this._shortcuts = []
+    this._lastPoi = null // {mode:'category'|'keyword', value, lat, lon} for "search this area"
     this._onDocClick = (e) => { if (!this.element.contains(e.target)) this.close() }
+    this._onMove = () => this.maybeShowArea()
     document.addEventListener("click", this._onDocClick)
     this.loadShortcuts()
+    requestAnimationFrame(() => this.bindMap())
   }
 
   disconnect() {
     document.removeEventListener("click", this._onDocClick)
+    try { this.map?.off("moveend", this._onMove) } catch (e) { /* noop */ }
     clearTimeout(this._debounce)
     this.clearPins()
+  }
+
+  // Attach the map's moveend once it exists (map may init after this controller).
+  bindMap() {
+    if (this._bound) return
+    const m = this.map
+    if (!m) { setTimeout(() => this.bindMap(), 300); return }
+    m.on("moveend", this._onMove)
+    this._bound = true
   }
 
   get map() { return window.dawarichMap }
@@ -71,11 +115,50 @@ export default class extends Controller {
 
   async search(q) {
     if (this.inputTarget.value.trim() !== q) return // stale
-    const [saved, geo] = await Promise.all([this.searchSaved(q), this.searchGeocoder(q)])
+    // If the query reads like a category/keyword ("pizza", "gym", "hospital"),
+    // also fetch nearby POIs and show them first — Google-style keyword search.
+    const cat = this.looksCategorical(q)
+    if (!cat) { this._lastPoi = null; this.hideArea() }
+    const tasks = [this.searchSaved(q), this.searchGeocoder(q)]
+    if (cat) tasks.push(this.fetchKeyword(cat, q))
+    const [saved, geo, poi = []] = await Promise.all(tasks)
     if (this.inputTarget.value.trim() !== q) return // raced a newer query
-    const list = [...saved, ...geo]
+    const list = [...saved, ...poi, ...geo]
     if (!list.length) { this.clearPins(); return this.renderEmpty("No matches") }
     this.renderList(list, q)
+  }
+
+  // Does this free text map to a POI category/cuisine? Returns {category} or
+  // {q:true} (use free-text) or null (treat as a place-name geocode only).
+  looksCategorical(q) {
+    const t = q.toLowerCase().trim()
+    const sing = t.replace(/s$/, "")
+    if (CAT_KEYS.has(t)) return { category: t }
+    if (CAT_KEYS.has(sing)) return { category: sing }
+    if (ALIASES[t]) return { category: ALIASES[t] }
+    if (ALIASES[sing]) return { category: ALIASES[sing] }
+    if (t.split(/\s+/).some((w) => CUISINES.has(w)) || CUISINES.has(t)) return { q: true }
+    return null
+  }
+
+  // Fetch nearby POIs for a keyword/category (no rendering — returns rows).
+  async fetchKeyword(cat, q) {
+    if (!this.map) return []
+    const c = this.map.getCenter()
+    this._lastPoi = { mode: cat.category ? "category" : "keyword", value: cat.category || q, lat: c.lat, lon: c.lng }
+    this.hideArea()
+    try {
+      const openParam = this._openNow ? "&open_now=true" : ""
+      const p = cat.category ? `category=${encodeURIComponent(cat.category)}` : `q=${encodeURIComponent(q)}`
+      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&${p}&limit=12${openParam}`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data.results || []).map((r) => ({
+        name: r.name, address: r.address || "", type: r.category || cat.category || "",
+        lat: r.lat, lon: r.lon, osm_type: r.osm_type, osm_id: r.osm_id,
+        distance_m: r.distance_m, open_now: r.open_now,
+      })).filter((r) => r.lat != null && r.lon != null)
+    } catch (e) { return [] }
   }
 
   async searchSaved(q) {
@@ -125,6 +208,8 @@ export default class extends Controller {
     if (this._lastCategory === cat && btn.getAttribute("aria-pressed") === "true") {
       btn.setAttribute("aria-pressed", "false")
       this._lastCategory = null
+      this._lastPoi = null
+      this.hideArea()
       this.clearPins()
       this.showDiscovery()
       return
@@ -138,6 +223,8 @@ export default class extends Controller {
     this._lastCategory = cat
     if (!this.map) return
     const c = this.map.getCenter()
+    this._lastPoi = { mode: "category", value: cat, lat: c.lat, lon: c.lng }
+    this.hideArea()
     this.renderLoading()
     try {
       const openParam = this._openNow ? "&open_now=true" : ""
@@ -160,6 +247,38 @@ export default class extends Controller {
     } catch (err) {
       this.renderEmpty("Nearby search failed")
     }
+  }
+
+  // --- "Search this area" (re-run last POI search at the new map center) ---
+  searchThisArea() {
+    if (!this._lastPoi) return
+    this.hideArea()
+    this.panelTarget.hidden = false
+    if (this._lastPoi.mode === "category") {
+      this.runCategory(this._lastPoi.value)
+    } else {
+      this.inputTarget.value = this._lastPoi.value
+      this.search(this._lastPoi.value)
+    }
+  }
+
+  maybeShowArea() {
+    if (!this._lastPoi || !this.map) { this.hideArea(); return }
+    const c = this.map.getCenter()
+    const moved = this.haversine(c.lat, c.lng, this._lastPoi.lat, this._lastPoi.lon)
+    const b = this.map.getBounds()
+    const half = this.haversine(b.getNorth(), b.getWest(), b.getSouth(), b.getEast()) / 2
+    if (moved > half * 0.45) this.showArea(); else this.hideArea()
+  }
+
+  showArea() { if (this.hasSearchAreaTarget) this.searchAreaTarget.hidden = false }
+  hideArea() { if (this.hasSearchAreaTarget) this.searchAreaTarget.hidden = true }
+
+  haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000, rad = Math.PI / 180
+    const dlat = (lat2 - lat1) * rad, dlon = (lon2 - lon1) * rad
+    const a = Math.sin(dlat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dlon / 2) ** 2
+    return 2 * R * Math.asin(Math.sqrt(a))
   }
 
   // --- rendering ---
@@ -264,6 +383,8 @@ export default class extends Controller {
   clear() {
     this.inputTarget.value = ""
     this.clearTarget.hidden = true
+    this._lastPoi = null
+    this.hideArea()
     this.clearPins()
     this.showDiscovery()
     this.inputTarget.focus()
@@ -400,6 +521,7 @@ export default class extends Controller {
     this._openNow = !this._openNow
     btn.setAttribute("aria-pressed", this._openNow ? "true" : "false")
     if (this._lastCategory) this.runCategory(this._lastCategory)
+    else if (this._lastPoi?.mode === "keyword") this.search(this._lastPoi.value)
   }
 
   glyph(type) {

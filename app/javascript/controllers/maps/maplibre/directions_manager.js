@@ -32,6 +32,8 @@ export class DirectionsManager {
     this.routes = []             // [Feature, ...] best first
     this.selectedRouteIdx = 0
     this._rerouting = false
+    this.voiceOn = (() => { try { return localStorage.getItem("dawarichNavVoice") !== "off" } catch (e) { return true } })()
+    this._spoken = {}            // dedupe spoken cues, keyed by maneuver+phase
     this.boundPanStart = () => {
       if (this.tracking && !this.manualStart) { this.userPanned = true; this.showRecenter(true) }
     }
@@ -323,16 +325,20 @@ export class DirectionsManager {
   startNav() {
     if (!this.end || !this.start) return
     this.flatView = false
+    this._spoken = {}
     const t = document.getElementById("directions-2d-toggle")
     if (t) t.textContent = "⊞ 2D"
+    this.ensureVoiceButton()
     this.enterNav()
     this.startTracking()
     this.showState("nav")
+    if (this.voiceOn) this.speak("Starting navigation", true)
     this.computeRoute(true) // tracking on → 3D follow-cam + guidance
   }
 
   // End navigation → back to the 2D route preview (keeps the route on screen).
   stopNav() {
+    try { window.speechSynthesis?.cancel() } catch (e) { /* noop */ }
     this.stopTracking()
     this.exitNav()
     this.showState("preview")
@@ -756,6 +762,9 @@ export class DirectionsManager {
     const turnCoord = this.routeCoords[turnIdx]
     const dist = this.alongDistance(idx, turnIdx)
 
+    // Spoken guidance (once per maneuver, at ~far then imminent distance).
+    if (this.tracking && this.voiceOn) this.voiceCue(this.maneuvers.indexOf(next), next, dist)
+
     // Banner
     const banner = this.navBanner()
     if (banner && this.tracking) {
@@ -797,6 +806,63 @@ export class DirectionsManager {
     } else {
       this.maneuverMarker.setLngLat(coord)
     }
+  }
+
+  // --- voice guidance (Web Speech, on-device, no network) ---
+  // Announce each maneuver once at ~far range ("In 200 meters, turn left") and
+  // once when imminent ("Turn left"). Deduped per maneuver via this._spoken.
+  voiceCue(mi, man, dist) {
+    if (mi < 0 || !man?.instruction) return
+    if (dist <= 55 && !this._spoken[`${mi}:now`]) {
+      this._spoken[`${mi}:now`] = 1
+      this.speak(man.instruction)
+    } else if (dist > 55 && dist <= 380 && !this._spoken[`${mi}:far`]) {
+      this._spoken[`${mi}:far`] = 1
+      const step = dist >= 150 ? 50 : 10
+      this.speak(`In ${Math.round(dist / step) * step} meters, ${man.instruction}`)
+    }
+  }
+
+  speak(text, force = false) {
+    if (!text || (!force && !this.voiceOn)) return
+    try {
+      const s = window.speechSynthesis
+      if (!s) return
+      const u = new SpeechSynthesisUtterance(text)
+      u.rate = 1.05
+      u.lang = "en-US"
+      s.speak(u)
+    } catch (e) { /* noop */ }
+  }
+
+  toggleVoice() {
+    this.voiceOn = !this.voiceOn
+    try { localStorage.setItem("dawarichNavVoice", this.voiceOn ? "on" : "off") } catch (e) { /* noop */ }
+    if (!this.voiceOn) { try { window.speechSynthesis?.cancel() } catch (e) { /* noop */ } }
+    this.updateVoiceButton()
+    if (this.voiceOn) this.speak("Voice on", true)
+  }
+
+  // Inject a 🔊/🔇 toggle at the front of the nav controls row (once).
+  ensureVoiceButton() {
+    if (document.getElementById("directions-voice-btn")) { this.updateVoiceButton(); return }
+    const controls = document.getElementById("directions-nav-controls")
+    if (!controls) return
+    const b = document.createElement("button")
+    b.id = "directions-voice-btn"
+    b.type = "button"
+    b.className = "btn btn-outline btn-sm"
+    b.addEventListener("click", () => this.toggleVoice())
+    controls.insertBefore(b, controls.firstChild)
+    this.updateVoiceButton()
+  }
+
+  updateVoiceButton() {
+    const b = document.getElementById("directions-voice-btn")
+    if (!b) return
+    b.textContent = this.voiceOn ? "🔊" : "🔇"
+    b.setAttribute("aria-label", this.voiceOn ? "Mute voice guidance" : "Unmute voice guidance")
+    b.setAttribute("aria-pressed", this.voiceOn ? "true" : "false")
   }
 
   // Tilted camera centred on the user, facing the direction of travel, with the

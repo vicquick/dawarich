@@ -27,13 +27,26 @@
       <button type="button" class="map-search__chip map-search__chip--toggle" data-action="click->map-search#toggleOpenNow" aria-pressed="false">🟢 Open now</button>
       <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="restaurant">🍴 Restaurants</button>
       <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="cafe">☕ Cafés</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="bar">🍺 Bars</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="fast_food">🍔 Fast food</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="supermarket">🛒 Groceries</button>
       <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="fuel">⛽ Fuel</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="charging">🔌 EV</button>
       <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="atm">🏧 ATMs</button>
-      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="shopping">🛒 Shops</button>
       <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="pharmacy">💊 Pharmacy</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="hotel">🛏️ Hotels</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="parking">🅿️ Parking</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="park">🌳 Parks</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="hospital">🏥 Health</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="attraction">📸 Sights</button>
     </div>
     <ul data-map-search-target="results" class="map-search__results" hidden></ul>
   </div>
+
+  <button type="button" data-map-search-target="searchArea" class="map-search__area" hidden
+          data-action="click->map-search#searchThisArea">
+    <span class="map-search__area-icon">⟳</span> Search this area
+  </button>
 </div>
 
 <style>
@@ -174,6 +187,28 @@
   .map-search__row-sub { display: block; font-size: 0.78rem; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .map-search__row-dist { flex: 0 0 auto; font-size: 0.75rem; opacity: 0.55; white-space: nowrap; }
   .map-search__empty { padding: 0.8rem; opacity: 0.6; font-size: 0.9rem; }
+
+  /* "Search this area" pill — floats over the map, centered under the bar, and
+     stays visible after the dropdown closes so you can pan then re-query. */
+  .map-search__area {
+    position: absolute;
+    top: 3.6rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(-4px);
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    background: oklch(var(--b1)); color: oklch(var(--bc));
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 14%, transparent);
+    border-radius: 1.4rem;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, 0.28);
+    font-size: 0.85rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 555;
+  }
+  .map-search__area:not([hidden]) { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  .map-search__area:hover { background: color-mix(in oklch, oklch(var(--b1)) 92%, oklch(var(--bc))); }
+  .map-search__area-icon { font-size: 1rem; }
 
   /* Date control floats as a compact pill just under the search bar, instead of
      a full-width strip pushing the map down. */
