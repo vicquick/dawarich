@@ -161,6 +161,24 @@
     background:color-mix(in oklch, oklch(var(--bc)) 12%, transparent); }
   .trip-res-sub { font-size:.76rem; opacity:.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
+  /* --- Directions: clearer Google-like travel-mode selector --- */
+  .dir-mode {
+    border-radius: 999px !important;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 18%, transparent) !important;
+    background: transparent !important; color: inherit !important;
+    font-weight: 600; opacity: 0.82;
+    transition: background .15s ease, color .15s ease, opacity .15s ease, border-color .15s ease;
+  }
+  .dir-mode:hover { opacity: 1; background: color-mix(in oklch, oklch(var(--bc)) 8%, transparent) !important; }
+  .dir-mode.btn-active {
+    background: #1a73e8 !important; border-color: #1a73e8 !important; color: #fff !important; opacity: 1;
+  }
+  /* Prominent ETA summary + pill Start CTA */
+  #directions-summary { font-size: 1.25rem !important; }
+  #directions-preview-actions .btn-primary {
+    height: 2.5rem; padding-inline: 1.3rem; border-radius: 999px; font-size: .95rem;
+  }
+
   /* --- Routing mode: hide history-browsing chrome, slim the top --- */
   body.routing-active .map-date-float,
   body.routing-active [data-controller~="map-controls"],

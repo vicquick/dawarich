@@ -104,6 +104,38 @@ class Api::V1::DiscoveryController < ApiController
                 mexican greek turkish korean vietnamese ramen steak seafood tapas
                 vegan vegetarian falafel doner döner asian french spanish].freeze
 
+  # Product / content intent → OSM shop selectors (union). Deterministic fast
+  # path for "what can I buy" searches; the LLM resolver handles the long tail.
+  PRODUCT_TAGS = {
+    'bed linen' => ['[shop=bed]', '[shop=household_linen]', '[shop=furniture]', '[shop=department_store]'],
+    'bedding'   => ['[shop=bed]', '[shop=household_linen]', '[shop=department_store]'],
+    'linen'     => ['[shop=household_linen]', '[shop=department_store]'],
+    'sheets'    => ['[shop=household_linen]', '[shop=bed]', '[shop=department_store]'],
+    'towels'    => ['[shop=household_linen]', '[shop=department_store]'],
+    'furniture' => ['[shop=furniture]', '[shop=interior_decoration]'],
+    'curtains'  => ['[shop=curtain]', '[shop=interior_decoration]', '[shop=department_store]'],
+    'books'     => ['[shop=books]'],
+    'gift'      => ['[shop=gift]', '[shop=department_store]'],
+    'flowers'   => ['[shop=florist]'],
+    'shoes'     => ['[shop=shoes]'],
+    'clothes'   => ['[shop=clothes]', '[shop=department_store]'],
+    'electronics' => ['[shop=electronics]'],
+    'phone'     => ['[shop=mobile_phone]', '[shop=electronics]'],
+    'toys'      => ['[shop=toys]'],
+    'jewellery' => ['[shop=jewelry]'],
+    'glasses'   => ['[shop=optician]'],
+    'stationery' => ['[shop=stationery]'],
+    'hardware'  => ['[shop=hardware]', '[shop=doityourself]'],
+    'diy'       => ['[shop=doityourself]', '[shop=hardware]'],
+    'wine'      => ['[shop=wine]', '[shop=alcohol]'],
+    'cosmetics' => ['[shop=cosmetics]', '[shop=chemist]'],
+    'sports'    => ['[shop=sports]'],
+    'pet'       => ['[shop=pet]'],
+    'garden'    => ['[shop=garden_centre]'],
+    'music'     => ['[shop=musical_instrument]'],
+    'computer'  => ['[shop=computer]', '[shop=electronics]']
+  }.freeze
+
   def nearby
     lat = params[:lat]&.to_f
     lon = params[:lon]&.to_f
@@ -137,23 +169,37 @@ class Api::V1::DiscoveryController < ApiController
   # Resolve a category key and/or free-text query into an Overpass filter and a
   # short cache label. Order: explicit known category → alias/singular → cuisine
   # → fuzzy name substring. Returns [filter, label] or [nil, nil].
+  # Returns [Array<selector>, label] — an array so several OSM tags can be
+  # unioned in one Overpass query (a product like "bed linen" maps to several
+  # shop types). Order: known category → alias/singular → cuisine → product
+  # dictionary → local-LLM intent → fuzzy name.
   def resolve_filter(category, q)
     cat = category.downcase
-    return [OVERPASS_FILTERS[cat], cat] if OVERPASS_FILTERS.key?(cat)
+    return [[OVERPASS_FILTERS[cat]], cat] if OVERPASS_FILTERS.key?(cat)
 
     term = q.downcase.strip
     sing = term.sub(/s\z/, '')
     canon = ALIASES[term] || (OVERPASS_FILTERS.key?(term) ? term : nil) ||
             ALIASES[sing] || (OVERPASS_FILTERS.key?(sing) ? sing : nil)
-    return [OVERPASS_FILTERS[canon], canon] if canon
+    return [[OVERPASS_FILTERS[canon]], canon] if canon
 
     if (c = CUISINES.find { |x| term.split.include?(x) || term == x })
       base = c.match?(/burger|kebab|doner|döner|falafel/) ? 'restaurant|fast_food' : 'restaurant'
-      return ["[amenity~\"^(#{base})$\"][cuisine~\"#{c.sub(/s\z/, '')}\",i]", "cuisine:#{c}"]
+      return [["[amenity~\"^(#{base})$\"][cuisine~\"#{c.sub(/s\z/, '')}\",i]"], "cuisine:#{c}"]
     end
 
-    # Free-text fuzzy name search near the point (last resort — bounded radius).
-    return [name_filter(q), "name:#{term}"] if q.length >= 3
+    if (prod = PRODUCT_TAGS[term] || PRODUCT_TAGS[sing])
+      return [prod, "product:#{term}"]
+    end
+
+    # Semantic fallback: the local LLM maps free text → real OSM selectors,
+    # e.g. "bed linen" → shop=household_linen / shop=bed / department_store.
+    if term.length >= 3 && (sel = llm_selectors(term)).present?
+      return [sel, "ai:#{term}"]
+    end
+
+    # Last resort: fuzzy name substring (matches place names carrying the term).
+    return [[name_filter(q)], "name:#{term}"] if q.length >= 3
 
     [nil, nil]
   end
@@ -162,6 +208,57 @@ class Api::V1::DiscoveryController < ApiController
   def name_filter(q)
     esc = q.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
     "[name~\"#{esc}\",i]"
+  end
+
+  # Local-LLM intent resolver: free text → up to 6 OSM selectors. Uses the
+  # always-loaded CPU model over the VPN (no GPU contention), cached 30 days,
+  # and degrades gracefully to nil on any error so search never blocks.
+  def llm_selectors(term)
+    # Off by default: the CPU model is ~30s (too slow to block search) and a
+    # small model emits imprecise OSM values. Enable with LLM_INTENT=on once a
+    # fast/accurate resolver (embedding-catalog match) is wired. The product
+    # dictionary already covers the common "what can I buy" searches instantly.
+    return nil unless ENV['LLM_INTENT'].to_s == 'on'
+
+    Rails.cache.fetch("v1/ai_tags/#{Digest::MD5.hexdigest(term)}", expires_in: 30.days) do
+      base = ENV['LLM_BASE_URL'].presence || 'http://10.10.10.12:8080/v1'
+      model = ENV['LLM_MODEL'].presence || 'qwen3-8b-cpu'
+      sys = 'You translate a map search into OpenStreetMap tags. Reply ONLY with a ' \
+            'compact JSON array of 1 to 6 OSM selectors that best find what the user ' \
+            'wants NEARBY, each as "key=value" with real OSM keys (shop, amenity, ' \
+            'craft, leisure, tourism, office, healthcare). No prose, no markdown.'
+      body = {
+        model: model, temperature: 0, max_tokens: 120,
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: "#{term} /no_think" }]
+      }
+      uri = URI("#{base}/chat/completions")
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = uri.scheme == 'https'
+      http.open_timeout = 4
+      http.read_timeout = 20
+      req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
+      req.body = Oj.dump(body)
+      resp = http.request(req)
+      next nil unless resp.is_a?(Net::HTTPSuccess)
+
+      content = Oj.load(resp.body).dig('choices', 0, 'message', 'content').to_s
+      sanitize_selectors(content)
+    end
+  rescue StandardError
+    nil
+  end
+
+  # Extract valid [key=value] selectors from an LLM reply (defends against
+  # prompt-injection into the Overpass query — allowlisted keys, strict chars).
+  def sanitize_selectors(text)
+    s = text.to_s
+    # Accept both "shop=bed" and {"key":"shop","value":"bed"} shapes.
+    pairs = s.scan(/"key"\s*:\s*"([a-z_]+)"\s*,\s*"value"\s*:\s*"([a-z0-9_:]+)"/i)
+    pairs = s.scan(/([a-z_]+)\s*=\s*([a-z0-9_:]+)/i) if pairs.empty?
+    allowed = %w[shop amenity craft leisure tourism office healthcare cuisine sport]
+    sel = pairs.map { |k, v| "[#{k.downcase}=#{v.downcase}]" }.uniq
+    sel.select! { |x| allowed.any? { |k| x.start_with?("[#{k}=") } }
+    sel.first(6).presence
   end
 
   def place_info
@@ -375,10 +472,12 @@ class Api::V1::DiscoveryController < ApiController
 
   # --- Overpass (self-hosted Germany DB) ---
 
-  def overpass_nearby(lat, lon, filter, label, radius)
-    return nil if filter.blank?
+  def overpass_nearby(lat, lon, selectors, label, radius)
+    sel = Array(selectors).compact
+    return nil if sel.empty?
 
-    ql = "[out:json][timeout:25];nwr(around:#{radius},#{lat},#{lon})#{filter};out center tags 80;"
+    union = sel.map { |s| "nwr(around:#{radius},#{lat},#{lon})#{s};" }.join
+    ql = "[out:json][timeout:25];(#{union});out center tags 80;"
     resp = overpass_post(ql)
     return nil unless resp&.is_a?(Net::HTTPSuccess)
 

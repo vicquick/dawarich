@@ -188,6 +188,23 @@
   .map-search__row-dist { flex: 0 0 auto; font-size: 0.75rem; opacity: 0.55; white-space: nowrap; }
   .map-search__empty { padding: 0.8rem; opacity: 0.6; font-size: 0.9rem; }
 
+  /* Result-set header (e.g. "✨ Nearby · bed linen") — tells you what matched. */
+  .map-search__head {
+    padding: 0.55rem 0.85rem 0.4rem;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    opacity: 0.55;
+  }
+  /* "Search nearby for X" affordance row — turns any text into a content search. */
+  .map-search__row--action .map-search__row-dot {
+    background: color-mix(in oklch, #1a73e8 16%, transparent); color: #1a73e8;
+  }
+  .map-search__row--action .map-search__row-name { font-weight: 600; }
+  .map-search__row-go {
+    flex: 0 0 auto; font-size: 0.85rem; opacity: 0.35;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 22%, transparent);
+    border-radius: 0.4rem; padding: 0.05rem 0.35rem;
+  }
+
   /* "Search this area" pill — floats over the map, centered under the bar, and
      stays visible after the dropdown closes so you can pan then re-query. */
   .map-search__area {

@@ -282,16 +282,65 @@ export default class extends Controller {
   }
 
   // --- rendering ---
-  renderList(list, q) {
+  renderList(list, q, header = null) {
     this._items = list
     this._active = -1
-    this.resultsTarget.innerHTML = list.map((s, i) => this.rowHTML(s, i, q)).join("")
+    const rows = list.map((s, i) => this.rowHTML(s, i, q)).join("")
+    let top = ""
+    if (header) {
+      top = `<li class="map-search__head">${this.esc(header)}</li>`
+    } else if (q && q.trim().length >= 2) {
+      // Google-style affordance: turn any free text into a content search.
+      top = `
+        <li>
+          <button type="button" class="map-search__row map-search__row--action" data-content-action>
+            <span class="map-search__row-dot">🔎</span>
+            <span class="map-search__row-text">
+              <span class="map-search__row-name">Search nearby for “${this.esc(q)}”</span>
+              <span class="map-search__row-sub">Shops &amp; places matching this</span>
+            </span>
+            <span class="map-search__row-go">↵</span>
+          </button>
+        </li>`
+    }
+    this.resultsTarget.innerHTML = top + rows
     this.resultsTarget.querySelectorAll(".map-search__row").forEach((el) => {
-      el.addEventListener("click", () => this.choose(Number(el.dataset.idx)))
+      if (el.hasAttribute("data-content-action")) {
+        el.addEventListener("click", () => this.contentSearch(this.inputTarget.value.trim()))
+      } else {
+        el.addEventListener("click", () => this.choose(Number(el.dataset.idx)))
+      }
     })
     this.resultsTarget.hidden = false
     this.panelTarget.hidden = false
     this.drawPins(list)
+  }
+
+  // Content/intent search: resolve free text ("bed linen", "birthday gift") to
+  // real places via the backend (product dict + local LLM → OSM tags).
+  async contentSearch(q) {
+    q = (q || "").trim()
+    if (!q || !this.map) return
+    this.hideQuick()
+    this.chipsTarget.hidden = true
+    this.renderLoading()
+    const c = this.map.getCenter()
+    this._lastPoi = { mode: "keyword", value: q, lat: c.lat, lon: c.lng }
+    this.hideArea()
+    try {
+      const openParam = this._openNow ? "&open_now=true" : ""
+      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&q=${encodeURIComponent(q)}&limit=24${openParam}`)
+      if (!res.ok) return this.renderEmpty("Nothing found nearby")
+      const data = await res.json()
+      const list = (data.results || []).map((r) => ({
+        name: r.name, address: r.address || "", type: r.category || "",
+        lat: r.lat, lon: r.lon, osm_type: r.osm_type, osm_id: r.osm_id,
+        distance_m: r.distance_m, open_now: r.open_now,
+      })).filter((r) => r.lat != null && r.lon != null)
+      if (!list.length) { this.clearPins(); return this.renderEmpty(`No places matching “${q}” nearby`) }
+      const smart = String(data.category || "").startsWith("ai:")
+      this.renderList(list, null, `${smart ? "✨ " : ""}Nearby · ${q}`)
+    } catch (e) { this.renderEmpty("Search failed") }
   }
 
   rowHTML(s, i, q) {
@@ -396,10 +445,18 @@ export default class extends Controller {
 
   onKeydown(e) {
     if (e.key === "Escape") return this.close()
+    if (e.key === "Enter") {
+      e.preventDefault()
+      // Highlighted a result → open it. Otherwise treat the text as a content
+      // search ("bed linen" → nearby shops), like Google's Enter behaviour.
+      if (this._active >= 0 && this._items[this._active]) return this.choose(this._active)
+      const q = this.inputTarget.value.trim()
+      if (q.length >= 2) return this.contentSearch(q)
+      return
+    }
     if (!this._items.length || this.resultsTarget.hidden) return
     if (e.key === "ArrowDown") { e.preventDefault(); this._active = (this._active + 1) % this._items.length; this.highlight() }
     else if (e.key === "ArrowUp") { e.preventDefault(); this._active = (this._active - 1 + this._items.length) % this._items.length; this.highlight() }
-    else if (e.key === "Enter") { e.preventDefault(); this.choose(this._active >= 0 ? this._active : 0) }
   }
 
   highlight() {
