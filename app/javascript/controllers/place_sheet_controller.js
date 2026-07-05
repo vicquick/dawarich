@@ -414,6 +414,11 @@ export default class extends Controller {
     // not the viewport. Drop it so the picker overlay is truly fullscreen (the
     // sheet is hidden behind the overlay while it's open).
     this.element.style.transform = "none"
+    // The map content sits in a z-20 stacking context; the navbar is a z-40
+    // sibling, so the overlay's z-index can't beat it from inside. Lift the whole
+    // map layer above the navbar while the picker is open (it's covered anyway).
+    this._mapLayer = this.element.closest(".z-20")
+    if (this._mapLayer) { this._mapLayerZ = this._mapLayer.style.zIndex; this._mapLayer.style.zIndex = "100" }
     this.endpointPickerTarget.hidden = false
     this.endpointInputTarget.value = ""
     this.endpointResultsTarget.innerHTML = this._editing === "start"
@@ -427,6 +432,7 @@ export default class extends Controller {
   closeEndpointPicker() {
     if (this.hasEndpointPickerTarget) this.endpointPickerTarget.hidden = true
     this.element.style.transform = "translateY(0)" // restore the sheet
+    if (this._mapLayer) { this._mapLayer.style.zIndex = this._mapLayerZ || ""; this._mapLayer = null }
   }
 
   swapEnds() {
