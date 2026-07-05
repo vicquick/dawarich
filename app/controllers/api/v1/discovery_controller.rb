@@ -136,6 +136,67 @@ class Api::V1::DiscoveryController < ApiController
     'computer'  => ['[shop=computer]', '[shop=electronics]']
   }.freeze
 
+  # Semantic catalog: curated OSM selectors + a synonym-rich description. The
+  # always-on embedding model matches a free-text query against these (cosine),
+  # so ANY phrasing ("duvet cover", "somewhere to buy a sofa", "place to fix my
+  # bike") resolves to VALID OSM tags — fast (~50ms), no GPU-chat contention.
+  EMBED_CATALOG = [
+    { t: ['[shop=bed]', '[shop=household_linen]', '[shop=department_store]'], d: 'bed linen bedding bed sheets duvet cover pillows blankets household linen towels' },
+    { t: ['[shop=furniture]', '[shop=interior_decoration]'], d: 'furniture sofa couch table chairs wardrobe interior furnishings home decor' },
+    { t: ['[shop=curtain]', '[shop=interior_decoration]'], d: 'curtains blinds drapes window coverings' },
+    { t: ['[shop=carpet]', '[shop=flooring]'], d: 'carpet rug flooring laminate floor tiles parquet' },
+    { t: ['[shop=kitchen]'], d: 'fitted kitchen cabinets kitchen units worktops' },
+    { t: ['[shop=florist]'], d: 'flowers bouquet florist plants roses birthday flowers' },
+    { t: ['[shop=books]'], d: 'books bookshop bookstore novels reading literature' },
+    { t: ['[shop=stationery]'], d: 'stationery pens paper notebooks office supplies' },
+    { t: ['[shop=shoes]'], d: 'shoes sneakers boots footwear trainers sandals' },
+    { t: ['[shop=clothes]', '[shop=boutique]'], d: 'clothes clothing fashion apparel dress shirt jacket boutique' },
+    { t: ['[shop=jewelry]'], d: 'jewellery jewelry rings necklace watches gold silver' },
+    { t: ['[shop=gift]'], d: 'gift present souvenir birthday present gift shop' },
+    { t: ['[shop=toys]'], d: 'toys games kids children toy shop board games' },
+    { t: ['[shop=electronics]', '[shop=computer]'], d: 'electronics computer laptop tv television gadgets appliances' },
+    { t: ['[shop=mobile_phone]'], d: 'phone mobile smartphone cellphone phone repair phone shop' },
+    { t: ['[shop=hardware]', '[shop=doityourself]'], d: 'hardware diy tools screws building materials home improvement baumarkt drill' },
+    { t: ['[shop=paint]'], d: 'paint wall paint decorating brushes' },
+    { t: ['[shop=garden_centre]'], d: 'garden plants seeds gardening soil garden centre' },
+    { t: ['[shop=bicycle]', '[craft=bicycle]'], d: 'bicycle bike repair cycle shop bike parts fix a bike' },
+    { t: ['[shop=car_repair]', '[shop=car_parts]'], d: 'car repair garage mechanic auto workshop car parts service' },
+    { t: ['[shop=sports]'], d: 'sports equipment sportswear outdoor gear fitness gear' },
+    { t: ['[shop=optician]'], d: 'glasses spectacles optician eyewear contact lenses eye test' },
+    { t: ['[shop=hairdresser]', '[shop=beauty]'], d: 'hairdresser barber salon haircut beauty nails' },
+    { t: ['[shop=cosmetics]', '[shop=chemist]'], d: 'cosmetics makeup beauty products perfume drugstore toiletries' },
+    { t: ['[shop=supermarket]', '[shop=convenience]'], d: 'groceries supermarket food shop grocery store convenience' },
+    { t: ['[shop=bakery]'], d: 'bakery bread pastries cake baker rolls' },
+    { t: ['[shop=butcher]'], d: 'butcher meat sausage steak deli' },
+    { t: ['[shop=greengrocer]'], d: 'fruit vegetables greengrocer fresh produce' },
+    { t: ['[shop=wine]', '[shop=alcohol]'], d: 'wine alcohol spirits liquor beer bottle shop' },
+    { t: ['[shop=pet]'], d: 'pet supplies dog cat pet food pet shop aquarium' },
+    { t: ['[shop=musical_instrument]'], d: 'musical instruments guitar piano keyboard music shop' },
+    { t: ['[shop=art]', '[shop=frame]'], d: 'art supplies paint canvas picture framing crafts' },
+    { t: ['[amenity=restaurant]'], d: 'restaurant dinner food eat meal dining' },
+    { t: ['[amenity=cafe]'], d: 'cafe coffee espresso breakfast brunch' },
+    { t: ['[amenity=bar]', '[amenity=pub]'], d: 'bar pub beer drinks cocktails' },
+    { t: ['[amenity=fast_food]'], d: 'fast food takeaway burger snack imbiss' },
+    { t: ['[amenity=pharmacy]'], d: 'pharmacy chemist medicine prescription apotheke' },
+    { t: ['[amenity~"^(hospital|clinic)$"]'], d: 'hospital emergency clinic medical urgent care' },
+    { t: ['[amenity=doctors]'], d: 'doctor gp medical practice physician' },
+    { t: ['[amenity=dentist]'], d: 'dentist dental teeth' },
+    { t: ['[amenity=fuel]'], d: 'fuel petrol gas station diesel refuel' },
+    { t: ['[amenity=charging_station]'], d: 'ev charging electric car charger charging station' },
+    { t: ['[amenity=bank]', '[amenity=atm]'], d: 'bank atm cash money withdraw cashpoint' },
+    { t: ['[amenity=post_office]'], d: 'post office parcel mail stamps shipping package' },
+    { t: ['[amenity=library]'], d: 'library books borrow reading room study' },
+    { t: ['[amenity=parking]'], d: 'parking car park parking lot parking space' },
+    { t: ['[leisure~"^(park|garden)$"]'], d: 'park green space garden walk nature' },
+    { t: ['[leisure=playground]'], d: 'playground kids children play area swings' },
+    { t: ['[leisure~"^(fitness_centre|sports_centre)$"]'], d: 'gym fitness workout sports centre exercise training' },
+    { t: ['[leisure=swimming_pool]'], d: 'swimming pool swim baths' },
+    { t: ['[amenity=cinema]'], d: 'cinema movie film screening' },
+    { t: ['[tourism~"^(hotel|hostel|guest_house)$"]'], d: 'hotel accommodation stay overnight room hostel' },
+    { t: ['[tourism=museum]'], d: 'museum exhibition art history gallery' },
+    { t: ['[tourism=attraction]'], d: 'attraction sightseeing landmark tourist sights' }
+  ].freeze
+
   def nearby
     lat = params[:lat]&.to_f
     lon = params[:lon]&.to_f
@@ -192,8 +253,14 @@ class Api::V1::DiscoveryController < ApiController
       return [prod, "product:#{term}"]
     end
 
-    # Semantic fallback: the local LLM maps free text → real OSM selectors,
-    # e.g. "bed linen" → shop=household_linen / shop=bed / department_store.
+    # Semantic match against the curated OSM catalog via the always-on embedding
+    # model (~50ms, no GPU-chat contention, always-valid OSM tags). Handles any
+    # phrasing: "duvet cover", "somewhere to buy a sofa", "place to fix my bike".
+    if term.length >= 3 && (sel = embed_resolve(term)).present?
+      return [sel, "ai:#{term}"]
+    end
+
+    # Legacy LLM fallback (gated off — see llm_selectors; slow + imprecise).
     if term.length >= 3 && (sel = llm_selectors(term)).present?
       return [sel, "ai:#{term}"]
     end
@@ -208,6 +275,73 @@ class Api::V1::DiscoveryController < ApiController
   def name_filter(q)
     esc = q.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
     "[name~\"#{esc}\",i]"
+  end
+
+  # Semantic resolver: embed the query, cosine-match the curated OSM catalog,
+  # union the tags of the top matches. Cached per query (30d). Threshold 0.62
+  # (calibrated: correct matches score 0.71-0.84, noise 0.49-0.65).
+  def embed_resolve(term)
+    Rails.cache.fetch("v1/embed_q/#{Digest::MD5.hexdigest(term)}", expires_in: 30.days) do
+      qv = embed(term)
+      cat = catalog_vectors
+      next nil if qv.nil? || cat.blank?
+
+      scored = cat.map { |e| [cosine(qv, e['v']), e['t']] }
+      best = scored.map(&:first).max
+      next nil if best.nil? || best < 0.62
+
+      scored.select { |s| s[0] >= best - 0.06 }
+            .sort_by { |s| -s[0] }.first(3)
+            .flat_map { |s| s[1] }.uniq
+    end
+  rescue StandardError
+    nil
+  end
+
+  # Embed every catalog description once; cached in Redis (30d) so the ~50
+  # embed calls run only on the first cold query after a cache flush.
+  def catalog_vectors
+    Rails.cache.fetch('v1/embed_catalog/v2', expires_in: 30.days) do
+      EMBED_CATALOG.filter_map do |e|
+        v = embed(e[:d])
+        { 't' => e[:t], 'v' => v } if v
+      end.presence
+    end
+  rescue StandardError
+    nil
+  end
+
+  # One embedding vector from the always-on model (OpenAI-compatible endpoint).
+  def embed(text)
+    base = ENV['LLM_BASE_URL'].presence || 'http://10.10.10.12:8080/v1'
+    model = ENV['EMBED_MODEL'].presence || 'qwen3-embedding'
+    uri = URI("#{base}/embeddings")
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = uri.scheme == 'https'
+    http.open_timeout = 3
+    http.read_timeout = 10
+    req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
+    req.body = Oj.dump({ model: model, input: text })
+    resp = http.request(req)
+    return nil unless resp.is_a?(Net::HTTPSuccess)
+
+    Oj.load(resp.body).dig('data', 0, 'embedding')
+  rescue StandardError
+    nil
+  end
+
+  def cosine(a, b)
+    return -1.0 unless a.is_a?(Array) && b.is_a?(Array) && a.length == b.length
+
+    dot = na = nb = 0.0
+    a.each_index do |i|
+      dot += a[i] * b[i]
+      na += a[i]**2
+      nb += b[i]**2
+    end
+    return -1.0 if na.zero? || nb.zero?
+
+    dot / (Math.sqrt(na) * Math.sqrt(nb))
   end
 
   # Local-LLM intent resolver: free text → up to 6 OSM selectors. Uses the
