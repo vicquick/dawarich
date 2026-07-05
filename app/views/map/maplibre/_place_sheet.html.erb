@@ -85,7 +85,7 @@
         <button type="button" data-action="click->place-sheet#backToInfo" class="btn btn-ghost btn-sm gap-1" style="flex:0 0 auto;">‹</button>
         <%# Modes, Google order: Walk (default) → Bike → Transit → Drive. Scrolls
             sideways on narrow screens so all stay reachable. %>
-        <div style="display:flex; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; flex:1 1 auto; padding-bottom:2px;" role="group" aria-label="Travel mode">
+        <div style="display:flex; gap:4px; overflow:hidden; flex:1 1 auto;" role="group" aria-label="Travel mode">
           <button type="button" data-action="click->place-sheet#setMode" data-mode="pedestrian" class="btn btn-sm dir-mode btn-active" style="flex:0 0 auto;">🚶 Walk</button>
           <button type="button" data-action="click->place-sheet#setMode" data-mode="bicycle" class="btn btn-sm dir-mode" style="flex:0 0 auto;">🚲 Bike</button>
           <button type="button" data-action="click->place-sheet#setMode" data-mode="transit" class="btn btn-sm dir-mode" style="flex:0 0 auto;">🚆 Transit</button>
@@ -168,6 +168,11 @@
     background: transparent !important; color: inherit !important;
     font-weight: 600; opacity: 0.82;
     transition: background .15s ease, color .15s ease, opacity .15s ease, border-color .15s ease;
+    /* Crunch: all four fit one row on mobile without sideways scroll. */
+    flex: 1 1 0; min-width: 0; height: auto; min-height: 0;
+    padding: 0.32rem 0.35rem !important; font-size: 0.78rem !important;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    gap: 0.2rem !important;
   }
   .dir-mode:hover { opacity: 1; background: color-mix(in oklch, oklch(var(--bc)) 8%, transparent) !important; }
   .dir-mode.btn-active {

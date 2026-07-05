@@ -104,6 +104,7 @@ export class DirectionsManager {
 
   setCosting(value) {
     this.costing = value
+    this.renderRideLinks() // show/hide Uber+Bolt as the mode changes
     if (value === "transit") { this.computeTransit(); return }
     // Switching back to a road mode: restore the road preview UI.
     if (!this.tracking) {
@@ -382,6 +383,8 @@ export class DirectionsManager {
     const bolt = document.getElementById("ride-bolt")
     if (uber) uber.style.display = "none"
     if (bolt) bolt.style.display = "none"
+    // Ride-hailing only makes sense when driving — hide for walk/bike/transit.
+    if (this.costing !== "auto") return
     if (!this.start || !this.end) return
     const s = this.start, e = this.end
     const name = encodeURIComponent(this.destName || "Destination")
