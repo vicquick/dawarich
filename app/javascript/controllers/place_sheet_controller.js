@@ -106,7 +106,10 @@ export default class extends Controller {
     this.showBackdrop()
     this.highlightOnMap()
     this.syncPad()
-    this.flyToPlace()
+    // syncPad() schedules a rAF that eases the camera to apply sheet padding
+    // (no center → keeps current center). Run the fly on the NEXT frame so it
+    // supersedes that padding ease instead of being cancelled by it.
+    requestAnimationFrame(() => this.flyToPlace())
     this.enrich()
   }
 
