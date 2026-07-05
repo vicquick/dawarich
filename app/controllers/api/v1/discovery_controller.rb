@@ -281,7 +281,7 @@ class Api::V1::DiscoveryController < ApiController
   # union the tags of the top matches. Cached per query (30d). Threshold 0.62
   # (calibrated: correct matches score 0.71-0.84, noise 0.49-0.65).
   def embed_resolve(term)
-    Rails.cache.fetch("v1/embed_q/#{Digest::MD5.hexdigest(term)}", expires_in: 30.days) do
+    Rails.cache.fetch("v2/embed_q/#{Digest::MD5.hexdigest(term)}", expires_in: 30.days, skip_nil: true) do
       qv = embed(term)
       cat = catalog_vectors
       next nil if qv.nil? || cat.blank?
@@ -301,7 +301,7 @@ class Api::V1::DiscoveryController < ApiController
   # Embed every catalog description once; cached in Redis (30d) so the ~50
   # embed calls run only on the first cold query after a cache flush.
   def catalog_vectors
-    Rails.cache.fetch('v1/embed_catalog/v2', expires_in: 30.days) do
+    Rails.cache.fetch('v1/embed_catalog/v3', expires_in: 30.days, skip_nil: true) do
       EMBED_CATALOG.filter_map do |e|
         v = embed(e[:d])
         { 't' => e[:t], 'v' => v } if v
@@ -321,7 +321,7 @@ class Api::V1::DiscoveryController < ApiController
     http.open_timeout = 3
     http.read_timeout = 10
     req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-    req.body = Oj.dump({ model: model, input: text })
+    req.body = JSON.generate({ model: model, input: text })
     resp = http.request(req)
     return nil unless resp.is_a?(Net::HTTPSuccess)
 
@@ -371,7 +371,7 @@ class Api::V1::DiscoveryController < ApiController
       http.open_timeout = 4
       http.read_timeout = 20
       req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-      req.body = Oj.dump(body)
+      req.body = JSON.generate(body)
       resp = http.request(req)
       next nil unless resp.is_a?(Net::HTTPSuccess)
 
