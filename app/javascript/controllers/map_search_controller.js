@@ -426,7 +426,7 @@ export default class extends Controller {
       },
     }))
     this.highlightPin(s)
-    try { this.map?.flyTo({ center: [s.lon, s.lat], zoom: 16 }) } catch (e) { /* noop */ }
+    // Camera move is owned by the place sheet's open() (sheet-aware padding).
   }
 
   clear() {

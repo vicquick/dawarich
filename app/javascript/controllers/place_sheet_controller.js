@@ -106,7 +106,26 @@ export default class extends Controller {
     this.showBackdrop()
     this.highlightOnMap()
     this.syncPad()
+    this.flyToPlace()
     this.enrich()
+  }
+
+  // Move the map to the opened place, framed above the sheet. Zooms IN when the
+  // place is off-screen / far out, but never zooms out if you're already close.
+  // Skipped for dropped pins (editableName) — you long-pressed that exact spot.
+  flyToPlace() {
+    const map = window.dawarichMap
+    if (!map || this.editableName || this.place.lat == null || this.place.lon == null) return
+    const sheetPx = Math.round(this.element?.offsetHeight || window.innerHeight * 0.34)
+    try {
+      map.flyTo({
+        center: [this.place.lon, this.place.lat],
+        zoom: Math.max(map.getZoom(), 16),
+        padding: { top: 0, right: 0, left: 0, bottom: sheetPx },
+        duration: 800,
+        essential: true,
+      })
+    } catch (e) { /* style/animation not ready — non-fatal */ }
   }
 
   // Blue selection ring on the map for the active place (Google-style).
