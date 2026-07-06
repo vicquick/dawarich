@@ -250,19 +250,20 @@ export class StreetView {
     for (const q of this._photos || []) {
       if (String(q.seq) === String(p.sequenceId)) continue
       const d = this._haversine(hLat, hLng, q.lat, q.lng)
-      if (d > 28) continue
+      if (d > 22) continue // only a genuinely-adjacent crossing counts as a junction
       if (!bySeq[q.seq] || d < bySeq[q.seq].d) bySeq[q.seq] = { q, d }
     }
     const cands = []
     for (const { q } of Object.values(bySeq)) {
       const rel = ((this._bearing(hLat, hLng, q.lat, q.lng) - fwd + 540) % 360) - 180
-      if (Math.abs(rel) < 32 || Math.abs(rel) > 150) continue // straight ahead / behind = fwd/back already
+      // require an actual turn: ~45°-135° off our heading (not the road ahead/behind)
+      if (Math.abs(rel) < 45 || Math.abs(rel) > 135) continue
       cands.push({ q, rel })
     }
-    cands.sort((a, b) => Math.abs(a.rel) - Math.abs(b.rel))
+    cands.sort((a, b) => Math.abs(Math.abs(a.rel) - 90) - Math.abs(Math.abs(b.rel) - 90)) // prefer the most perpendicular
     const used = []
     for (const t of cands) {
-      if (used.some((u) => Math.abs(u - t.rel) < 45)) continue
+      if (used.some((u) => Math.abs(u - t.rel) < 50)) continue
       used.push(t.rel)
       this._renderTurn(t)
       if (used.length >= 2) break
@@ -272,12 +273,12 @@ export class StreetView {
   _renderTurn(t) {
     const b = document.createElement("button")
     b.className = "kv-ground kv-turn"
-    b.setAttribute("aria-label", "Turn here")
+    b.setAttribute("aria-label", t.rel > 0 ? "Turn right" : "Turn left")
     b.innerHTML = '<svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 34 L32 11 L56 34"/></svg>'
-    b.style.left = `${Math.max(13, Math.min(87, 50 + (t.rel / 90) * 36))}%`
-    b.style.bottom = "27%"
-    const tilt = Math.max(-72, Math.min(72, t.rel * 0.7))
-    b.querySelector("svg").style.transform = `rotateX(50deg) rotateZ(${tilt}deg)`
+    b.style.left = `${Math.max(15, Math.min(85, 50 + (t.rel / 90) * 40))}%`
+    b.style.bottom = "30%"
+    const tilt = Math.max(-82, Math.min(82, t.rel * 0.9)) // point the chevron toward the turn
+    b.querySelector("svg").style.transform = `rotateX(48deg) rotateZ(${tilt}deg)`
     b.addEventListener("pointerdown", (e) => { e.preventDefault(); this.openPhoto(t.q.id, t.q.seq) })
     this._overlay.appendChild(b)
     this._turns.push(b)
@@ -332,20 +333,23 @@ export class StreetView {
     }
     hold(this._fwd, 1)
     hold(this._back, -1)
-    // drag-to-look (pan the cover-filled frame horizontally)
+    // drag-to-look (pan the cover-filled frame horizontally). Window-level move/up
+    // listeners are more robust than setPointerCapture across touch devices.
     this._stage.addEventListener("pointerdown", (e) => {
+      if (e.button === 2) return
       this._drag = { x: e.clientX, pan: this._pan }
-      try { this._stage.setPointerCapture(e.pointerId) } catch (_) { /* noop */ }
+      this._stage.style.cursor = "grabbing"
     })
-    this._stage.addEventListener("pointermove", (e) => {
+    this._onDragMove = (e) => {
       if (!this._drag) return
       const dx = e.clientX - this._drag.x
-      this._pan = Math.max(0, Math.min(100, this._drag.pan - (dx / this._stage.clientWidth) * 90))
+      this._pan = Math.max(0, Math.min(100, this._drag.pan - (dx / (this._stage.clientWidth || 1)) * 95))
       this._applyPan()
-    })
-    const end = () => { this._drag = null }
-    this._stage.addEventListener("pointerup", end)
-    this._stage.addEventListener("pointercancel", end)
+    }
+    this._onDragEnd = () => { this._drag = null; if (this._stage) this._stage.style.cursor = "grab" }
+    window.addEventListener("pointermove", this._onDragMove, { passive: true })
+    window.addEventListener("pointerup", this._onDragEnd)
+    window.addEventListener("pointercancel", this._onDragEnd)
     document.addEventListener("keydown", (e) => {
       if (this._overlay?.style.display !== "block") return
       if (e.key === "Escape") this.close()
