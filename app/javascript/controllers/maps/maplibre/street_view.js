@@ -65,20 +65,20 @@ export class StreetView {
     const map = this.map
     if (!map.getLayer("pnx-grid")) {
       map.addLayer({
-        id: "pnx-grid", type: "circle", source: SRC, "source-layer": "geovisio_grid", maxzoom: 7,
+        id: "pnx-grid", type: "circle", source: SRC, "source-layer": "grid", maxzoom: 7,
         paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 2, 6, 7], "circle-color": BLUE, "circle-opacity": 0.35, "circle-blur": 0.4 },
       })
     }
     if (!map.getLayer("pnx-seq")) {
       map.addLayer({
-        id: "pnx-seq", type: "line", source: SRC, "source-layer": "geovisio_sequences", minzoom: 7,
+        id: "pnx-seq", type: "line", source: SRC, "source-layer": "sequences", minzoom: 7,
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": BLUE, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2, 16, 5], "line-opacity": 0.9 },
+        paint: { "line-color": BLUE, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 16, 6], "line-opacity": 0.9 },
       })
     }
     if (!map.getLayer("pnx-pic")) {
       map.addLayer({
-        id: "pnx-pic", type: "circle", source: SRC, "source-layer": "geovisio_pictures", minzoom: 14,
+        id: "pnx-pic", type: "circle", source: SRC, "source-layer": "pictures", minzoom: 15,
         paint: { "circle-radius": 4.5, "circle-color": "#fff", "circle-stroke-color": BLUE, "circle-stroke-width": 2.5 },
       })
     }
