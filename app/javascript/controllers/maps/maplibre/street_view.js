@@ -41,8 +41,9 @@ export class StreetView {
     map.on("click", this._boundClick)
     map.on("moveend", this._boundMove)
     map.getCanvas().style.cursor = "crosshair"
+    this._hinted = false
+    this._loading(true)
     this.refresh()
-    this._toast("Tap a blue street to look around")
   }
 
   disable() {
@@ -54,6 +55,7 @@ export class StreetView {
     map.off("click", this._boundClick)
     map.off("moveend", this._boundMove)
     map.getCanvas().style.cursor = ""
+    this._loading(false)
   }
 
   _empty() { return { type: "FeatureCollection", features: [] } }
@@ -63,15 +65,17 @@ export class StreetView {
   async refresh() {
     const map = this.map
     if (!map || !this.on) return
-    if (map.getZoom() < 13) { map.getSource(SRC)?.setData(this._empty()); this._photos = []; this._lastQ = null; return }
+    if (map.getZoom() < 13) { map.getSource(SRC)?.setData(this._empty()); this._photos = []; this._lastQ = null; this._loading(true, "Zoom in to load Street View"); return }
     const c = map.getCenter()
     // skip refetch when we've barely moved (smoother panning, fewer requests)
     if (this._lastQ && this._haversine(c.lat, c.lng, this._lastQ.lat, this._lastQ.lng) < 220 && Math.abs(map.getZoom() - this._lastQ.z) < 0.5) return
     this._lastQ = { lat: c.lat, lng: c.lng, z: map.getZoom() }
+    this._loading(true, "Loading Street View…")
     const b = map.getBounds()
     const radius = Math.min(1600, Math.round(this._haversine(c.lat, c.lng, b.getNorth(), b.getEast())))
     const items = await this._nearby(c.lat, c.lng, radius)
-    if (!items || !this.on) return
+    if (!this.on) return
+    if (!items || !items.length) { this._loading(true, "No Street View imagery here"); this._photos = []; map.getSource(SRC)?.setData(this._empty()); return }
     this._photos = this._mapItems(items)
     // group into sequences → LineStrings
     const bySeq = {}
@@ -83,6 +87,8 @@ export class StreetView {
       else if (seq.length === 1) feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [+seq[0].lng, +seq[0].lat] }, properties: {} })
     }
     map.getSource(SRC)?.setData({ type: "FeatureCollection", features: feats })
+    this._loading(false)
+    if (!this._hinted) { this._hinted = true; this._toast("Tap a blue street to look around") }
   }
 
   async _nearby(lat, lng, radius) {
@@ -103,14 +109,14 @@ export class StreetView {
     const items = await this._nearby(lat, lng, 70)
     const best = this._closest(this._mapItems(items), lng, lat, 70)
     if (!best) return this._toast("No imagery right here — try a blue street")
-    this.openPhoto(best.id, best.seq)
+    this.openPhoto(best.id, best.seq, best.lat, best.lng)
   }
 
   async openAt(lng, lat) {
     const items = await this._nearby(lat, lng, 120)
     const best = this._closest(this._mapItems(items), lng, lat, 120)
     if (!best) { this._toast("No Street View here"); return false }
-    this.openPhoto(best.id, best.seq)
+    this.openPhoto(best.id, best.seq, best.lat, best.lng)
     return true
   }
 
@@ -135,13 +141,18 @@ export class StreetView {
   }
 
   // --- viewer ---
-  async openPhoto(id, seqId) {
+  async openPhoto(id, seqId, lat, lng) {
     if (!this._overlay) this._buildOverlay()
     this._overlay.style.display = "block"
     requestAnimationFrame(() => { this._overlay.classList.add("kv--in"); this._miniMap?.resize() })
     const seq = await this._sequence(seqId)
     this._seq = seq
-    this._idx = Math.max(0, seq.findIndex((p) => String(p.id) === String(id)))
+    let idx = seq.findIndex((p) => String(p.id) === String(id))
+    if (idx < 0 && lat != null && lng != null) { // fallback: nearest frame to the tap
+      let bd = Infinity
+      seq.forEach((p, i) => { const d = this._haversine(lat, lng, +p.lat, +p.lng); if (d < bd) { bd = d; idx = i } })
+    }
+    this._idx = Math.max(0, idx)
     this._panX = 50; this._panY = 50 // centered on a fresh open
     this._showFrame()
   }
@@ -183,7 +194,9 @@ export class StreetView {
   async _sequence(seqId) {
     if (this._seqCache[seqId]) return this._seqCache[seqId]
     try {
-      const r = await fetch(`${API2}/sequence/${seqId}/photos`)
+      // default page is only 100 photos — fetch the whole drive so any tapped
+      // frame is found (else openPhoto falls back to the far start of the seq).
+      const r = await fetch(`${API2}/sequence/${seqId}/photos?itemsPerPage=5000`)
       const data = (await r.json())?.result?.data || []
       data.sort((a, b) => (+a.sequenceIndex) - (+b.sequenceIndex))
       this._seqCache[seqId] = data
@@ -282,7 +295,7 @@ export class StreetView {
     b.style.bottom = "30%"
     const tilt = Math.max(-82, Math.min(82, t.rel * 0.9)) // point the chevron toward the turn
     b.querySelector("svg").style.transform = `rotateX(48deg) rotateZ(${tilt}deg)`
-    b.addEventListener("pointerdown", (e) => { e.preventDefault(); this.openPhoto(t.q.id, t.q.seq) })
+    b.addEventListener("pointerdown", (e) => { e.preventDefault(); this.openPhoto(t.q.id, t.q.seq, t.q.lat, t.q.lng) })
     this._overlay.appendChild(b)
     this._turns.push(b)
   }
@@ -473,6 +486,22 @@ export class StreetView {
     const dlat = (lat2 - lat1) * rad, dlon = (lon2 - lon1) * rad
     const a = Math.sin(dlat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dlon / 2) ** 2
     return 2 * R * Math.asin(Math.sqrt(a))
+  }
+
+  // Persistent loading pill (shown while coverage / imagery is being fetched).
+  _loading(on, text = "Loading Street View…") {
+    let el = document.getElementById("kv-loadpill")
+    if (on) {
+      if (!el) {
+        el = document.createElement("div"); el.id = "kv-loadpill"
+        el.style.cssText = "position:fixed;top:calc(env(safe-area-inset-top) + 4.4rem);left:50%;transform:translateX(-50%);z-index:1600;display:flex;align-items:center;gap:9px;background:rgba(20,20,22,.92);color:#fff;padding:8px 15px;border-radius:999px;font-size:.85rem;font-weight:600;box-shadow:0 3px 14px rgba(0,0,0,.4);pointer-events:none"
+        el.innerHTML = '<span style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;animation:kvspin .7s linear infinite;flex:0 0 auto"></span><span class="kv-loadtxt"></span>'
+        document.body.appendChild(el)
+        if (!document.getElementById("kv-spin-kf")) { const s = document.createElement("style"); s.id = "kv-spin-kf"; s.textContent = "@keyframes kvspin{to{transform:rotate(360deg)}}"; document.head.appendChild(s) }
+      }
+      el.querySelector(".kv-loadtxt").textContent = text
+      el.style.display = "flex"
+    } else if (el) { el.style.display = "none" }
   }
 
   _toast(msg, ms = 2200) {
