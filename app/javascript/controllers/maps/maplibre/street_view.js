@@ -102,10 +102,10 @@ export class StreetView {
   }
 
   async _nearest(lng, lat) {
-    const d = 0.0006 // ~50 m box around the tap
+    const d = 0.003 // ~250 m snap box; we still return the closest picture in it
     const bbox = `${lng - d},${lat - d},${lng + d},${lat + d}`
     try {
-      const r = await fetch(`${API}/search?bbox=${bbox}&limit=40`)
+      const r = await fetch(`${API}/search?bbox=${bbox}&limit=60`)
       if (!r.ok) return null
       const feats = (await r.json()).features || []
       if (!feats.length) return null
@@ -113,7 +113,12 @@ export class StreetView {
       return feats[0]
     } catch (_) { return null }
   }
-  _d2(f, lng, lat) { const c = f.geometry?.coordinates || [0, 0]; return (c[0] - lng) ** 2 + (c[1] - lat) ** 2 }
+  _d2(f, lng, lat) {
+    const c = f.geometry?.coordinates || [0, 0]
+    const k = Math.cos((lat * Math.PI) / 180) // lon degrees are shorter at high lat
+    const dx = (c[0] - lng) * k, dy = c[1] - lat
+    return dx * dx + dy * dy
+  }
 
   async _ensurePsv() {
     if (this._PSV) return
