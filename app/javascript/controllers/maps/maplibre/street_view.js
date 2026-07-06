@@ -1,34 +1,29 @@
-// Panoramax Street View (vicquick fork).
+// Street View via KartaView (vicquick fork).
 //
-// A fully free / open-source Street-View — no API key, no self-hosting, no
-// backend. We consume the federated Panoramax API (api.panoramax.xyz):
-//   • MapLibre vector tiles show where imagery exists (blue "streets").
-//   • Tapping a covered spot opens a fullscreen 360° viewer (Photo Sphere
-//     Viewer, lazy-loaded from a CDN), oriented to the shot's heading.
-//   • Prev/next arrows walk the capture sequence, just like Google.
-// CORS is open on the API + image storage, so it all runs client-side.
-const API = "https://api.panoramax.xyz/api"
-const TILES = `${API}/map/{z}/{x}/{y}.mvt`
-const SRC = "panoramax"
-const PSV_JS = "https://esm.sh/@photo-sphere-viewer/core@5"
-const PSV_CSS = "https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core@5/index.min.css"
+// Free & open street-level imagery, no API key, no self-hosting, no backend.
+// KartaView (ex-OpenStreetCam) has dense coverage — Lüneburg has 10-20 driven
+// sequences per block. We:
+//   • query nearby photos as you pan → draw the covered "streets" in blue,
+//   • tap a blue street → fullscreen photo viewer (flat dashcam frames),
+//   • ‹ › walk the capture sequence, like Google.
+// The API is CORS-open (*) and images come off a CDN, so it's pure client-side.
+const API1 = "https://api.kartaview.org/1.0"
+const API2 = "https://api.kartaview.org/2.0"
+const SRC = "kartaview"
 const BLUE = "#1a73e8"
-
-// Bundler-agnostic runtime import (keeps esbuild/importmap from touching the URL).
-const importURL = new Function("u", "return import(u)")
 
 export class StreetView {
   constructor(controller) {
     this.controller = controller
     this.on = false
+    this._photos = []          // flat cache of nearby photos for tap-nearest
+    this._seqCache = {}         // sequenceId -> ordered [photo]
     this._boundClick = (e) => this.onMapClick(e)
-    this._boundEnter = () => { if (this.map) this.map.getCanvas().style.cursor = "pointer" }
-    this._boundLeave = () => { if (this.map && this.on) this.map.getCanvas().style.cursor = "crosshair" }
+    this._boundMove = () => this._debounceRefresh()
   }
 
   get map() { return this.controller.map }
   isOn() { return this.on }
-
   toggle() { this.on ? this.disable() : this.enable(); return this.on }
 
   enable() {
@@ -36,16 +31,14 @@ export class StreetView {
     if (!map || this.on) return
     this.on = true
     if (!map.getSource(SRC)) {
-      map.addSource(SRC, {
-        type: "vector", tiles: [TILES], minzoom: 0, maxzoom: 15,
-        attribution: '<a href="https://panoramax.xyz" target="_blank" rel="noopener">Panoramax</a>',
-      })
+      map.addSource(SRC, { type: "geojson", data: this._empty(), attribution: '<a href="https://kartaview.org" target="_blank" rel="noopener">KartaView</a>' })
+      map.addLayer({ id: "kv-seq", type: "line", source: SRC, filter: ["==", "$type", "LineString"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": BLUE, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2.5, 17, 6], "line-opacity": 0.9 } })
+      map.addLayer({ id: "kv-pic", type: "circle", source: SRC, filter: ["==", "$type", "Point"], minzoom: 16, paint: { "circle-radius": 4, "circle-color": "#fff", "circle-stroke-color": BLUE, "circle-stroke-width": 2 } })
     }
-    this._addLayers()
     map.on("click", this._boundClick)
-    map.on("mouseenter", "pnx-pic", this._boundEnter)
-    map.on("mouseleave", "pnx-pic", this._boundLeave)
+    map.on("moveend", this._boundMove)
     map.getCanvas().style.cursor = "crosshair"
+    this.refresh()
     this._toast("Tap a blue street to look around")
   }
 
@@ -53,204 +46,206 @@ export class StreetView {
     const map = this.map
     this.on = false
     if (!map) return
-    for (const id of ["pnx-pic", "pnx-seq", "pnx-grid"]) if (map.getLayer(id)) map.removeLayer(id)
+    for (const id of ["kv-pic", "kv-seq"]) if (map.getLayer(id)) map.removeLayer(id)
     if (map.getSource(SRC)) map.removeSource(SRC)
     map.off("click", this._boundClick)
-    map.off("mouseenter", "pnx-pic", this._boundEnter)
-    map.off("mouseleave", "pnx-pic", this._boundLeave)
+    map.off("moveend", this._boundMove)
     map.getCanvas().style.cursor = ""
   }
 
-  _addLayers() {
+  _empty() { return { type: "FeatureCollection", features: [] } }
+  _debounceRefresh() { clearTimeout(this._refreshT); this._refreshT = setTimeout(() => this.refresh(), 350) }
+
+  // Pull nearby photos for the current viewport → blue coverage lines.
+  async refresh() {
     const map = this.map
-    if (!map.getLayer("pnx-grid")) {
-      map.addLayer({
-        id: "pnx-grid", type: "circle", source: SRC, "source-layer": "grid", maxzoom: 7,
-        paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 2, 6, 7], "circle-color": BLUE, "circle-opacity": 0.35, "circle-blur": 0.4 },
-      })
+    if (!map || !this.on) return
+    if (map.getZoom() < 13) { map.getSource(SRC)?.setData(this._empty()); this._photos = []; return }
+    const c = map.getCenter()
+    const b = map.getBounds()
+    const radius = Math.min(1600, Math.round(this._haversine(c.lat, c.lng, b.getNorth(), b.getEast())))
+    const items = await this._nearby(c.lat, c.lng, radius)
+    if (!items || !this.on) return
+    this._photos = items.map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng }))
+    // group into sequences → LineStrings
+    const bySeq = {}
+    for (const p of items) (bySeq[p.sequence_id] ||= []).push(p)
+    const feats = []
+    for (const seq of Object.values(bySeq)) {
+      seq.sort((a, b2) => (+a.sequence_index) - (+b2.sequence_index))
+      if (seq.length >= 2) feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: seq.map((p) => [+p.lng, +p.lat]) }, properties: {} })
+      else if (seq.length === 1) feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [+seq[0].lng, +seq[0].lat] }, properties: {} })
     }
-    if (!map.getLayer("pnx-seq")) {
-      map.addLayer({
-        id: "pnx-seq", type: "line", source: SRC, "source-layer": "sequences", minzoom: 7,
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": BLUE, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 16, 6], "line-opacity": 0.9 },
+    map.getSource(SRC)?.setData({ type: "FeatureCollection", features: feats })
+  }
+
+  async _nearby(lat, lng, radius) {
+    try {
+      const r = await fetch(`${API1}/list/nearby-photos/`, {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `lat=${lat}&lng=${lng}&radius=${radius}`,
       })
-    }
-    if (!map.getLayer("pnx-pic")) {
-      map.addLayer({
-        id: "pnx-pic", type: "circle", source: SRC, "source-layer": "pictures", minzoom: 15,
-        paint: { "circle-radius": 4.5, "circle-color": "#fff", "circle-stroke-color": BLUE, "circle-stroke-width": 2.5 },
-      })
-    }
+      if (!r.ok) return null
+      return (await r.json()).currentPageItems || []
+    } catch (_) { return null }
   }
 
   async onMapClick(e) {
     const { lng, lat } = e.lngLat
-    this._toast("Loading view…", 900)
-    const item = await this._nearest(lng, lat)
-    if (!item) return this._toast("No imagery right here — try a blue street")
-    this.openViewer(item)
+    let best = this._closest(this._photos, lng, lat, 0.0025)
+    if (!best) { // nothing cached near tap → one-off query
+      this._toast("Loading view…", 900)
+      const items = await this._nearby(lat, lng, 120)
+      best = this._closest((items || []).map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng })), lng, lat, 1)
+    }
+    if (!best) return this._toast("No imagery right here — try a blue street")
+    this.openPhoto(best.id, best.seq)
   }
 
-  // Public: open the nearest pano to a coordinate (used by the place sheet too).
   async openAt(lng, lat) {
-    await this._ensurePsv()
-    const item = await this._nearest(lng, lat)
-    if (!item) { this._toast("No Street View here"); return false }
-    this.openViewer(item)
+    const items = await this._nearby(lat, lng, 200)
+    const best = this._closest((items || []).map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng })), lng, lat, 1)
+    if (!best) { this._toast("No Street View here"); return false }
+    this.openPhoto(best.id, best.seq)
     return true
   }
 
-  async _nearest(lng, lat) {
-    const d = 0.003 // ~250 m snap box; we still return the closest picture in it
-    const bbox = `${lng - d},${lat - d},${lng + d},${lat + d}`
-    try {
-      const r = await fetch(`${API}/search?bbox=${bbox}&limit=60`)
-      if (!r.ok) return null
-      const feats = (await r.json()).features || []
-      if (!feats.length) return null
-      feats.sort((a, b) => this._d2(a, lng, lat) - this._d2(b, lng, lat))
-      return feats[0]
-    } catch (_) { return null }
-  }
-  _d2(f, lng, lat) {
-    const c = f.geometry?.coordinates || [0, 0]
-    const k = Math.cos((lat * Math.PI) / 180) // lon degrees are shorter at high lat
-    const dx = (c[0] - lng) * k, dy = c[1] - lat
-    return dx * dx + dy * dy
-  }
-
-  async _ensurePsv() {
-    if (this._PSV) return
-    if (!document.getElementById("pnx-psv-css")) {
-      const l = document.createElement("link")
-      l.id = "pnx-psv-css"; l.rel = "stylesheet"; l.href = PSV_CSS
-      document.head.appendChild(l)
+  _closest(list, lng, lat, maxDeg) {
+    let best = null; let bd = maxDeg * maxDeg
+    const k = Math.cos((lat * Math.PI) / 180)
+    for (const p of list || []) {
+      const dx = (p.lng - lng) * k, dy = p.lat - lat, d = dx * dx + dy * dy
+      if (d < bd) { bd = d; best = p }
     }
-    this._PSV = await importURL(PSV_JS)
+    return best
   }
 
-  async openViewer(item) {
-    await this._ensurePsv()
-    this._current = item
+  // --- viewer ---
+  async openPhoto(id, seqId) {
     if (!this._overlay) this._buildOverlay()
     this._overlay.style.display = "block"
-    requestAnimationFrame(() => this._overlay.classList.add("pnx--in"))
-    const url = item.assets?.hd?.href || item.assets?.sd?.href
-    const yaw = ((item.properties?.["view:azimuth"] || 0) * Math.PI) / 180
-    if (!this._viewer) {
-      this._viewer = new this._PSV.Viewer({
-        container: this._canvas, panorama: url, defaultYaw: yaw,
-        navbar: false, mousewheel: true, touchmoveTwoFingers: false,
-        defaultZoomLvl: 0, loadingTxt: "",
-      })
-    } else {
-      this._viewer.setPanorama(url, { transition: 200 }).then(() => this._viewer.rotate({ yaw })).catch(() => {})
-    }
-    this._updateMeta(item)
+    requestAnimationFrame(() => this._overlay.classList.add("kv--in"))
+    const seq = await this._sequence(seqId)
+    this._seq = seq
+    this._idx = Math.max(0, seq.findIndex((p) => String(p.id) === String(id)))
+    this._showFrame()
   }
 
-  _updateMeta(item) {
-    const dt = (item.properties?.datetime || "").slice(0, 10)
-    if (this._date) this._date.textContent = dt || ""
-    const has = (rel) => (item.links || []).some((l) => l.rel === rel)
-    this._prev.style.visibility = has("prev") ? "visible" : "hidden"
-    this._next.style.visibility = has("next") ? "visible" : "hidden"
-  }
-
-  async _nav(rel) {
-    const link = (this._current?.links || []).find((l) => l.rel === rel)
-    if (!link?.href) return
+  async _sequence(seqId) {
+    if (this._seqCache[seqId]) return this._seqCache[seqId]
     try {
-      const r = await fetch(link.href)
-      if (!r.ok) return
-      this.openViewer(await r.json())
-    } catch (_) { /* noop */ }
+      const r = await fetch(`${API2}/sequence/${seqId}/photos`)
+      const data = (await r.json())?.result?.data || []
+      data.sort((a, b) => (+a.sequenceIndex) - (+b.sequenceIndex))
+      this._seqCache[seqId] = data
+      return data
+    } catch (_) { return [] }
+  }
+
+  _showFrame() {
+    const p = this._seq?.[this._idx]
+    if (!p) return
+    const url = p.imageLthUrl || p.imageProcUrl
+    // crossfade: preload, then swap
+    const pre = new Image()
+    pre.onload = () => { this._img.style.opacity = "0"; setTimeout(() => { this._img.src = url; this._img.style.opacity = "1" }, 90) }
+    pre.src = url
+    this._date.textContent = (p.shotDate || "").slice(0, 10)
+    this._prev.style.visibility = this._idx > 0 ? "visible" : "hidden"
+    this._next.style.visibility = this._idx < this._seq.length - 1 ? "visible" : "hidden"
+    // preload the likely-next frame
+    const nxt = this._seq[this._idx + 1]
+    if (nxt) { const i = new Image(); i.src = nxt.imageLthUrl || nxt.imageProcUrl }
+  }
+
+  _nav(delta) {
+    if (!this._seq) return
+    const i = this._idx + delta
+    if (i < 0 || i >= this._seq.length) return
+    this._idx = i
+    this._showFrame()
   }
 
   close() {
     if (!this._overlay) return
-    this._overlay.classList.remove("pnx--in")
-    setTimeout(() => {
-      if (this._overlay) this._overlay.style.display = "none"
-      try { this._viewer?.destroy() } catch (_) { /* noop */ }
-      this._viewer = null
-    }, 200)
+    this._overlay.classList.remove("kv--in")
+    setTimeout(() => { if (this._overlay) this._overlay.style.display = "none" }, 200)
   }
 
   _buildOverlay() {
     this._injectStyle()
     const o = document.createElement("div")
-    o.className = "pnx-overlay"
+    o.className = "kv-overlay"
     o.innerHTML = `
-      <div class="pnx-canvas"></div>
-      <div class="pnx-top">
-        <button class="pnx-btn pnx-close" aria-label="Close Street View">✕</button>
-        <div class="pnx-meta"><span class="pnx-dot"></span><span class="pnx-date"></span>
-          <a href="https://panoramax.xyz" target="_blank" rel="noopener" class="pnx-credit">© Panoramax</a></div>
+      <img class="kv-img" alt="Street View" />
+      <div class="kv-top">
+        <button class="kv-btn kv-close" aria-label="Close Street View">✕</button>
+        <div class="kv-meta"><span class="kv-dot"></span><span class="kv-date"></span>
+          <a href="https://kartaview.org" target="_blank" rel="noopener" class="kv-credit">© KartaView</a></div>
       </div>
-      <button class="pnx-arrow pnx-prev" aria-label="Previous">‹</button>
-      <button class="pnx-arrow pnx-next" aria-label="Next">›</button>`
+      <button class="kv-arrow kv-prev" aria-label="Back">‹</button>
+      <button class="kv-arrow kv-next" aria-label="Forward">›</button>`
     document.body.appendChild(o)
     this._overlay = o
-    this._canvas = o.querySelector(".pnx-canvas")
-    this._date = o.querySelector(".pnx-date")
-    this._prev = o.querySelector(".pnx-prev")
-    this._next = o.querySelector(".pnx-next")
-    o.querySelector(".pnx-close").addEventListener("click", () => this.close())
-    this._prev.addEventListener("click", () => this._nav("prev"))
-    this._next.addEventListener("click", () => this._nav("next"))
+    this._img = o.querySelector(".kv-img")
+    this._date = o.querySelector(".kv-date")
+    this._prev = o.querySelector(".kv-prev")
+    this._next = o.querySelector(".kv-next")
+    o.querySelector(".kv-close").addEventListener("click", () => this.close())
+    this._prev.addEventListener("click", () => this._nav(-1))
+    this._next.addEventListener("click", () => this._nav(1))
     document.addEventListener("keydown", (e) => {
       if (this._overlay?.style.display !== "block") return
       if (e.key === "Escape") this.close()
-      else if (e.key === "ArrowLeft") this._nav("prev")
-      else if (e.key === "ArrowRight") this._nav("next")
+      else if (e.key === "ArrowLeft") this._nav(-1)
+      else if (e.key === "ArrowRight") this._nav(1)
     })
   }
 
   _injectStyle() {
-    if (document.getElementById("pnx-style")) return
+    if (document.getElementById("kv-style")) return
     const s = document.createElement("style")
-    s.id = "pnx-style"
+    s.id = "kv-style"
     s.textContent = `
-      .pnx-overlay{position:fixed;inset:0;z-index:2000;background:#0b0b0d;display:none;
-        opacity:0;transition:opacity .22s ease}
-      .pnx-overlay.pnx--in{opacity:1}
-      .pnx-canvas{position:absolute;inset:0}
-      .pnx-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;
-        padding:calc(env(safe-area-inset-top) + 12px) 16px 28px;
-        background:linear-gradient(to bottom,rgba(0,0,0,.55),transparent);z-index:2;pointer-events:none}
-      .pnx-top>*{pointer-events:auto}
-      .pnx-btn,.pnx-arrow{border:0;cursor:pointer;color:#fff;background:rgba(20,20,22,.55);
-        backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-      .pnx-close{width:40px;height:40px;border-radius:50%;font-size:1rem;line-height:1;flex:0 0 auto}
-      .pnx-close:hover{background:rgba(40,40,44,.7)}
-      .pnx-meta{display:flex;align-items:center;gap:8px;color:#fff;font-size:.82rem;
-        background:rgba(20,20,22,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
-        padding:7px 12px;border-radius:999px}
-      .pnx-dot{width:7px;height:7px;border-radius:50%;background:${BLUE};flex:0 0 auto}
-      .pnx-date{font-weight:600;font-variant-numeric:tabular-nums}
-      .pnx-credit{color:rgba(255,255,255,.6);text-decoration:none;font-size:.72rem;margin-left:2px}
-      .pnx-credit:hover{color:#fff}
-      .pnx-arrow{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;
-        border-radius:50%;font-size:1.8rem;line-height:1;display:flex;align-items:center;justify-content:center;z-index:2}
-      .pnx-arrow:hover{background:rgba(40,40,44,.75)}
-      .pnx-arrow:active{transform:translateY(-50%) scale(.92)}
-      .pnx-prev{left:14px}.pnx-next{right:14px}
-      @media (max-width:768px){.pnx-arrow{width:46px;height:46px;font-size:1.5rem}}`
+      .kv-overlay{position:fixed;inset:0;z-index:2000;background:#0b0b0d;display:none;opacity:0;transition:opacity .22s ease}
+      .kv-overlay.kv--in{opacity:1}
+      .kv-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transition:opacity .14s ease;background:#0b0b0d}
+      .kv-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;
+        padding:calc(env(safe-area-inset-top) + 12px) 16px 28px;background:linear-gradient(to bottom,rgba(0,0,0,.55),transparent);z-index:2;pointer-events:none}
+      .kv-top>*{pointer-events:auto}
+      .kv-btn,.kv-arrow{border:0;cursor:pointer;color:#fff;background:rgba(20,20,22,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+      .kv-close{width:40px;height:40px;border-radius:50%;font-size:1rem;line-height:1;flex:0 0 auto}
+      .kv-close:hover{background:rgba(40,40,44,.7)}
+      .kv-meta{display:flex;align-items:center;gap:8px;color:#fff;font-size:.82rem;background:rgba(20,20,22,.5);
+        backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:7px 12px;border-radius:999px}
+      .kv-dot{width:7px;height:7px;border-radius:50%;background:${BLUE};flex:0 0 auto}
+      .kv-date{font-weight:600;font-variant-numeric:tabular-nums}
+      .kv-credit{color:rgba(255,255,255,.6);text-decoration:none;font-size:.72rem;margin-left:2px}
+      .kv-credit:hover{color:#fff}
+      .kv-arrow{position:absolute;top:50%;transform:translateY(-50%);width:54px;height:54px;border-radius:50%;
+        font-size:1.9rem;line-height:1;display:flex;align-items:center;justify-content:center;z-index:2}
+      .kv-arrow:hover{background:rgba(40,40,44,.75)}
+      .kv-arrow:active{transform:translateY(-50%) scale(.92)}
+      .kv-prev{left:14px}.kv-next{right:14px}
+      @media (max-width:768px){.kv-arrow{width:48px;height:48px;font-size:1.6rem}}`
     document.head.appendChild(s)
   }
 
+  _haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000, rad = Math.PI / 180
+    const dlat = (lat2 - lat1) * rad, dlon = (lon2 - lon1) * rad
+    const a = Math.sin(dlat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dlon / 2) ** 2
+    return 2 * R * Math.asin(Math.sqrt(a))
+  }
+
   _toast(msg, ms = 2200) {
-    let t = document.getElementById("pnx-toast")
+    let t = document.getElementById("kv-toast")
     if (!t) {
-      t = document.createElement("div"); t.id = "pnx-toast"
+      t = document.createElement("div"); t.id = "kv-toast"
       t.style.cssText = "position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 92px);transform:translateX(-50%);z-index:1600;background:rgba(20,20,22,.9);color:#fff;padding:9px 15px;border-radius:999px;font-size:.85rem;font-weight:500;box-shadow:0 3px 14px rgba(0,0,0,.4);opacity:0;transition:opacity .18s ease;pointer-events:none;max-width:90vw;text-align:center"
       document.body.appendChild(t)
     }
-    t.textContent = msg
-    t.style.opacity = "1"
-    clearTimeout(this._toastT)
-    this._toastT = setTimeout(() => { t.style.opacity = "0" }, ms)
+    t.textContent = msg; t.style.opacity = "1"
+    clearTimeout(this._toastT); this._toastT = setTimeout(() => { t.style.opacity = "0" }, ms)
   }
 }
