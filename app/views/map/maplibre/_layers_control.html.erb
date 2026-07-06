@@ -36,6 +36,14 @@
       <span class="layers-overlay__label">Traffic incidents</span>
       <span class="layers-overlay__switch" aria-hidden="true"></span>
     </button>
+    <button type="button" class="layers-overlay"
+            data-layers-control-target="streetToggle"
+            data-action="click->layers-control#toggleStreet"
+            aria-pressed="false" aria-label="Toggle Street View">
+      <span class="layers-overlay__icon">🧍</span>
+      <span class="layers-overlay__label">Street View</span>
+      <span class="layers-overlay__switch" aria-hidden="true"></span>
+    </button>
   </div>
 
   <%# The trigger button (bottom-right) %>

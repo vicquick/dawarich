@@ -21,6 +21,7 @@ import { MapInitializer } from "./maplibre/map_initializer"
 import { installMapPadding } from "./maplibre/map_overlay_padding"
 import { PlacesManager } from "./maplibre/places_manager"
 import { POIsManager } from "./maplibre/pois_manager"
+import { StreetView } from "./maplibre/street_view"
 import { RoutesManager } from "./maplibre/routes_manager"
 import { SettingsController } from "./maplibre/settings_manager"
 import { VisitsManager } from "./maplibre/visits_manager"
@@ -265,6 +266,10 @@ export default class extends Controller {
     } else {
       this.map.once("load", () => { this.poisManager.setup(); this.restoreSharedRouteFromUrl() })
     }
+
+    // vicquick fork: Panoramax Street View (free open imagery, no backend).
+    this.streetView = new StreetView(this)
+    window.dawarichStreetView = this.streetView
 
     // Listen for tab changes to trigger timeline feed loading via Turbo Frame
     this.boundHandleTabChanged = this.handleTabChanged.bind(this)

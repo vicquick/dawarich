@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // basemap swap + incident layer are driven through window hooks exposed by the
 // maplibre controller, so this stays a thin, self-contained UI.
 export default class extends Controller {
-  static targets = ["panel", "button", "chip", "trafficToggle"]
+  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle"]
 
   connect() {
     this.open = false
@@ -73,6 +73,11 @@ export default class extends Controller {
       this.trafficToggleTarget.classList.toggle("layers-overlay--on", on)
       this.trafficToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
     }
+    if (this.hasStreetToggleTarget) {
+      const on = !!window.dawarichStreetView?.isOn?.()
+      this.streetToggleTarget.classList.toggle("layers-overlay--on", on)
+      this.streetToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
+    }
   }
 
   toggleTraffic(e) {
@@ -80,5 +85,12 @@ export default class extends Controller {
     try { window.dawarichTraffic?.toggle?.() } catch (_) { /* noop */ }
     // state flips synchronously in the controller; reflect it
     this.syncActive()
+  }
+
+  toggleStreet(e) {
+    e?.stopPropagation()
+    try { window.dawarichStreetView?.toggle?.() } catch (_) { /* noop */ }
+    this.syncActive()
+    this.close() // get out of the way so you can tap the map
   }
 }
