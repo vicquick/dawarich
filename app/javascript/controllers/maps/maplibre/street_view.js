@@ -70,7 +70,7 @@ export class StreetView {
     const radius = Math.min(1600, Math.round(this._haversine(c.lat, c.lng, b.getNorth(), b.getEast())))
     const items = await this._nearby(c.lat, c.lng, radius)
     if (!items || !this.on) return
-    this._photos = items.map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng }))
+    this._photos = items.map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng, date: p.shot_date }))
     // group into sequences → LineStrings
     const bySeq = {}
     for (const p of items) (bySeq[p.sequence_id] ||= []).push(p)
@@ -96,32 +96,42 @@ export class StreetView {
 
   async onMapClick(e) {
     const { lng, lat } = e.lngLat
-    let best = this._closest(this._photos, lng, lat, 0.0025)
+    let best = this._closest(this._photos, lng, lat, 250)
     if (!best) { // nothing cached near tap → one-off query
       this._toast("Loading view…", 900)
-      const items = await this._nearby(lat, lng, 120)
-      best = this._closest((items || []).map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng })), lng, lat, 1)
+      const items = await this._nearby(lat, lng, 150)
+      best = this._closest(this._mapItems(items), lng, lat, 300)
     }
     if (!best) return this._toast("No imagery right here — try a blue street")
     this.openPhoto(best.id, best.seq)
   }
 
   async openAt(lng, lat) {
-    const items = await this._nearby(lat, lng, 200)
-    const best = this._closest((items || []).map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng })), lng, lat, 1)
+    const items = await this._nearby(lat, lng, 250)
+    const best = this._closest(this._mapItems(items), lng, lat, 300)
     if (!best) { this._toast("No Street View here"); return false }
     this.openPhoto(best.id, best.seq)
     return true
   }
 
-  _closest(list, lng, lat, maxDeg) {
-    let best = null; let bd = maxDeg * maxDeg
-    const k = Math.cos((lat * Math.PI) / 180)
+  _mapItems(items) {
+    return (items || []).map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng, date: p.shot_date }))
+  }
+
+  // Snap to the nearest photo, but among photos at the same spot prefer the
+  // NEWEST capture (KartaView has several drives per street on different dates).
+  _closest(list, lng, lat, maxMeters) {
+    const scored = []
     for (const p of list || []) {
-      const dx = (p.lng - lng) * k, dy = p.lat - lat, d = dx * dx + dy * dy
-      if (d < bd) { bd = d; best = p }
+      const m = this._haversine(lat, lng, p.lat, p.lng)
+      if (m <= maxMeters) scored.push({ p, m })
     }
-    return best
+    if (!scored.length) return null
+    scored.sort((a, b) => a.m - b.m)
+    const dmin = scored[0].m
+    const cluster = scored.filter((x) => x.m <= dmin + 45) // ≈ same spot (±45 m)
+    cluster.sort((a, b) => String(b.p.date || "").localeCompare(String(a.p.date || "")))
+    return cluster[0].p
   }
 
   // --- viewer ---
