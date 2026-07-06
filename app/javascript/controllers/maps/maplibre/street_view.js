@@ -248,54 +248,97 @@ export class StreetView {
     return (Math.atan2(y, x) / r + 360) % 360
   }
 
-  // At junctions, show extra chevrons pointing onto crossing sequences.
+  // At junctions, show chevrons pointing down the REAL crossing streets. We take
+  // turn directions from OSM road geometry (Overpass) — not from where some other
+  // KartaView drive happened to sit, which was laterally offset and mostly wrong.
   _updateJunctions() {
     (this._turns || []).forEach((b) => b.remove())
     this._turns = []
     const p = this._seq?.[this._idx]
     if (!p || !this._overlay) return
-    const hLat = +p.lat, hLng = +p.lng, fwd = +p.heading || this._bearing(hLat, hLng, +(this._seq[this._idx + 1]?.lat ?? hLat), +(this._seq[this._idx + 1]?.lng ?? hLng))
-    // nearest photo of each OTHER sequence within ~28 m
-    const bySeq = {}
-    for (const q of this._photos || []) {
-      if (String(q.seq) === String(p.sequenceId)) continue
-      const d = this._haversine(hLat, hLng, q.lat, q.lng)
-      if (d > 22) continue // only a genuinely-adjacent crossing counts as a junction
-      if (!bySeq[q.seq] || d < bySeq[q.seq].d) bySeq[q.seq] = { q, d }
-    }
+    const hLat = +p.lat, hLng = +p.lng
+    const fwd = +p.heading || this._bearing(hLat, hLng, +(this._seq[this._idx + 1]?.lat ?? hLat), +(this._seq[this._idx + 1]?.lng ?? hLng))
+    // Warm/refresh the OSM junction cache for this ~100 m tile; re-renders on land.
+    this._fetchOsmJunctions(hLat, hLng)
+    const js = this._osmJunctions
+    if (!js || !js.length) return
+    // The junction we're standing at / rolling into (within ~26 m).
+    let best = null, bd = 26
+    for (const jn of js) { const d = this._haversine(hLat, hLng, jn.lat, jn.lng); if (d < bd) { bd = d; best = jn } }
+    if (!best) return
     const cands = []
-    for (const { q } of Object.values(bySeq)) {
-      // Reject parallel drives of the SAME road: fold both travel headings to a
-      // 0-90° road orientation and require a real angular difference (a crossing).
-      if (Number.isFinite(q.heading)) {
-        let hd = (((q.heading - fwd) % 180) + 180) % 180
-        if (hd > 90) hd = 180 - hd
-        if (hd < 38) continue // <38° apart = same/parallel street, not a junction
-      }
-      const rel = ((this._bearing(hLat, hLng, q.lat, q.lng) - fwd + 540) % 360) - 180
-      if (Math.abs(rel) < 25 || Math.abs(rel) > 155) continue // straight ahead/behind
-      cands.push({ q, rel })
+    for (const br of best.branches) {
+      const rel = ((br - fwd + 540) % 360) - 180
+      if (Math.abs(rel) < 32 || Math.abs(rel) > 148) continue // the road we're on (ahead/behind)
+      cands.push({ rel, br })
     }
-    cands.sort((a, b) => Math.abs(Math.abs(a.rel) - 90) - Math.abs(Math.abs(b.rel) - 90)) // prefer the most perpendicular
+    cands.sort((a, b) => Math.abs(Math.abs(a.rel) - 90) - Math.abs(Math.abs(b.rel) - 90)) // most perpendicular first
     const used = []
     for (const t of cands) {
-      if (used.some((u) => Math.abs(u - t.rel) < 50)) continue
+      if (used.some((u) => Math.abs(u - t.rel) < 40)) continue
       used.push(t.rel)
-      this._renderTurn(t)
+      const jn = best
+      // Tap → drive onto that street: aim ~18 m down the branch, open imagery there.
+      this._renderTurn(t.rel, () => { const [tlng, tlat] = this._project(jn.lat, jn.lng, t.br, 18); this.openAt(tlng, tlat) })
       if (used.length >= 2) break
     }
   }
 
-  _renderTurn(t) {
+  // Pull the road network around us from Overpass, reduce to junction nodes
+  // (degree ≥ 3) with the true bearing of each branch. Cached per ~100 m tile.
+  async _fetchOsmJunctions(lat, lng) {
+    const key = `${lat.toFixed(3)},${lng.toFixed(3)}`
+    if (this._osmKey === key || this._osmPending === key) return this._osmJunctions
+    this._osmPending = key
+    const q = `[out:json][timeout:8];way(around:130,${lat},${lng})[highway~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|road|pedestrian)$"];(._;>;);out;`
+    try {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 7000)
+      const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: "data=" + encodeURIComponent(q), signal: ctrl.signal })
+      clearTimeout(to)
+      const j = await r.json()
+      const nodes = {}, adj = {}
+      for (const el of j.elements || []) if (el.type === "node") nodes[el.id] = [el.lat, el.lon]
+      for (const el of j.elements || []) if (el.type === "way" && el.nodes) {
+        const ns = el.nodes
+        for (let i = 0; i < ns.length; i++) {
+          (adj[ns[i]] ||= new Set())
+          if (i > 0) adj[ns[i]].add(ns[i - 1])
+          if (i < ns.length - 1) adj[ns[i]].add(ns[i + 1])
+        }
+      }
+      const junctions = []
+      for (const id in adj) {
+        const nb = [...adj[id]]
+        if (nb.length < 3) continue // a real junction has ≥3 road branches
+        const c = nodes[id]; if (!c) continue
+        const branches = nb.map((nid) => nodes[nid]).filter(Boolean).map((nc) => this._bearing(c[0], c[1], nc[0], nc[1]))
+        junctions.push({ lat: c[0], lng: c[1], branches })
+      }
+      this._osmKey = key; this._osmJunctions = junctions; this._osmPending = null
+      if (this._overlay?.style.display === "block") this._updateJunctions()
+      return junctions
+    } catch (_) { this._osmPending = null; return this._osmJunctions }
+  }
+
+  // Destination point `dist` metres along `bearing` from (lat,lng). Returns [lng,lat].
+  _project(lat, lng, bearing, dist) {
+    const R = 6371000, d = dist / R, br = bearing * Math.PI / 180
+    const la = lat * Math.PI / 180, lo = lng * Math.PI / 180
+    const la2 = Math.asin(Math.sin(la) * Math.cos(d) + Math.cos(la) * Math.sin(d) * Math.cos(br))
+    const lo2 = lo + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la), Math.cos(d) - Math.sin(la) * Math.sin(la2))
+    return [lo2 * 180 / Math.PI, la2 * 180 / Math.PI]
+  }
+
+  _renderTurn(rel, onTap) {
     const b = document.createElement("button")
     b.className = "kv-ground kv-turn"
-    b.setAttribute("aria-label", t.rel > 0 ? "Turn right" : "Turn left")
+    b.setAttribute("aria-label", rel > 0 ? "Turn right" : "Turn left")
     b.innerHTML = '<svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 34 L32 11 L56 34"/></svg>'
-    b.style.left = `${Math.max(15, Math.min(85, 50 + (t.rel / 90) * 40))}%`
+    b.style.left = `${Math.max(15, Math.min(85, 50 + (rel / 90) * 40))}%`
     b.style.bottom = "30%"
-    const tilt = Math.max(-82, Math.min(82, t.rel * 0.9)) // point the chevron toward the turn
+    const tilt = Math.max(-82, Math.min(82, rel * 0.9)) // point the chevron toward the turn
     b.querySelector("svg").style.transform = `rotateX(48deg) rotateZ(${tilt}deg)`
-    b.addEventListener("pointerdown", (e) => { e.preventDefault(); this.openPhoto(t.q.id, t.q.seq, t.q.lat, t.q.lng) })
+    b.addEventListener("pointerdown", (e) => { e.preventDefault(); onTap() })
     this._overlay.appendChild(b)
     this._turns.push(b)
   }
@@ -494,7 +537,7 @@ export class StreetView {
     if (on) {
       if (!el) {
         el = document.createElement("div"); el.id = "kv-loadpill"
-        el.style.cssText = "position:fixed;top:calc(env(safe-area-inset-top) + 4.4rem);left:50%;transform:translateX(-50%);z-index:1600;display:flex;align-items:center;gap:9px;background:rgba(20,20,22,.92);color:#fff;padding:8px 15px;border-radius:999px;font-size:.85rem;font-weight:600;box-shadow:0 3px 14px rgba(0,0,0,.4);pointer-events:none"
+        el.style.cssText = "position:fixed;bottom:calc(env(safe-area-inset-bottom) + 92px);left:50%;transform:translateX(-50%);z-index:1600;display:flex;align-items:center;gap:9px;background:rgba(20,20,22,.92);color:#fff;padding:8px 15px;border-radius:999px;font-size:.85rem;font-weight:600;box-shadow:0 3px 14px rgba(0,0,0,.4);pointer-events:none"
         el.innerHTML = '<span style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;animation:kvspin .7s linear infinite;flex:0 0 auto"></span><span class="kv-loadtxt"></span>'
         document.body.appendChild(el)
         if (!document.getElementById("kv-spin-kf")) { const s = document.createElement("style"); s.id = "kv-spin-kf"; s.textContent = "@keyframes kvspin{to{transform:rotate(360deg)}}"; document.head.appendChild(s) }
