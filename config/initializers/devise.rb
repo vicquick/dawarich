@@ -158,8 +158,10 @@ Devise.setup do |config|
 
   # ==> Configuration for :rememberable
   # The time the user will be remembered without asking for credentials again.
-  # vicquick fork: stay logged in on a device for 3 months (was default 2 weeks).
-  config.remember_for = 3.months
+  # vicquick fork: stay logged in on a device for 6 months (was default 2 weeks).
+  # Remember-me is force-enabled on every login (sessions + OTP controllers), so
+  # this persistent cookie is always issued — no more daily logouts.
+  config.remember_for = 6.months
 
   # Invalidates all the remember me tokens when the user signs out.
   config.expire_all_remember_me_on_sign_out = true

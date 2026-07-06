@@ -9,6 +9,14 @@ class Users::SessionsController < Devise::SessionsController
     super
   end
 
+  # Force "remember me" so the 6-month persistent cookie is always issued —
+  # a private daily-use map app should not log you out overnight.
+  def create
+    params[:user] ||= {}
+    params[:user][:remember_me] = '1'
+    super
+  end
+
   private
 
   def check_otp_required
