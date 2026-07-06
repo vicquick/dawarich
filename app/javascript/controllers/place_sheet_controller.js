@@ -404,6 +404,12 @@ export default class extends Controller {
     this.hideBackdrop() // closing: no dim (backToInfo would have re-shown it)
   }
 
+  // Open Street View at this place (nearest KartaView photo).
+  streetView() {
+    if (!this.place) return
+    try { window.dawarichStreetView?.openAt(this.place.lon, this.place.lat) } catch (_) { /* noop */ }
+  }
+
   // Switch the sheet into directions mode (route panel lives inside the sheet).
   directions() {
     if (!this.place) return

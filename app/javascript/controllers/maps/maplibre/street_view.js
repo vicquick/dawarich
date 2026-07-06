@@ -146,14 +146,21 @@ export class StreetView {
     const p = this._seq?.[this._idx]
     if (!p) return
     const url = p.imageLthUrl || p.imageProcUrl
-    // crossfade: preload, then swap
+    // crossfade: preload, then swap the cover-filled background
     const pre = new Image()
-    pre.onload = () => { this._img.style.opacity = "0"; setTimeout(() => { this._img.src = url; this._img.style.opacity = "1" }, 90) }
+    pre.onload = () => {
+      this._stage.style.opacity = "0"
+      setTimeout(() => {
+        this._stage.style.backgroundImage = `url("${url}")`
+        this._pan = 50; this._applyPan()
+        this._stage.style.opacity = "1"
+      }, 90)
+    }
     pre.src = url
     this._date.textContent = (p.shotDate || "").slice(0, 10)
-    this._prev.style.visibility = this._idx > 0 ? "visible" : "hidden"
-    this._next.style.visibility = this._idx < this._seq.length - 1 ? "visible" : "hidden"
-    // preload the likely-next frame
+    this._fwd.style.display = this._idx < this._seq.length - 1 ? "block" : "none"
+    this._back.style.display = this._idx > 0 ? "block" : "none"
+    // preload the next frame so walking forward is instant
     const nxt = this._seq[this._idx + 1]
     if (nxt) { const i = new Image(); i.src = nxt.imageLthUrl || nxt.imageProcUrl }
   }
@@ -177,30 +184,49 @@ export class StreetView {
     const o = document.createElement("div")
     o.className = "kv-overlay"
     o.innerHTML = `
-      <img class="kv-img" alt="Street View" />
+      <div class="kv-stage"></div>
       <div class="kv-top">
         <button class="kv-btn kv-close" aria-label="Close Street View">✕</button>
         <div class="kv-meta"><span class="kv-dot"></span><span class="kv-date"></span>
           <a href="https://kartaview.org" target="_blank" rel="noopener" class="kv-credit">© KartaView</a></div>
       </div>
-      <button class="kv-arrow kv-prev" aria-label="Back">‹</button>
-      <button class="kv-arrow kv-next" aria-label="Forward">›</button>`
+      <button class="kv-ground kv-fwd" aria-label="Move forward">
+        <svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 34 L32 11 L56 34"/></svg></button>
+      <button class="kv-ground kv-back" aria-label="Move back">
+        <svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 12 L32 34 L56 12"/></svg></button>`
     document.body.appendChild(o)
     this._overlay = o
-    this._img = o.querySelector(".kv-img")
+    this._stage = o.querySelector(".kv-stage")
     this._date = o.querySelector(".kv-date")
-    this._prev = o.querySelector(".kv-prev")
-    this._next = o.querySelector(".kv-next")
+    this._fwd = o.querySelector(".kv-fwd")
+    this._back = o.querySelector(".kv-back")
+    this._pan = 50
     o.querySelector(".kv-close").addEventListener("click", () => this.close())
-    this._prev.addEventListener("click", () => this._nav(-1))
-    this._next.addEventListener("click", () => this._nav(1))
+    this._fwd.addEventListener("click", () => this._nav(1))
+    this._back.addEventListener("click", () => this._nav(-1))
+    // drag-to-look (pan the cover-filled frame horizontally)
+    this._stage.addEventListener("pointerdown", (e) => {
+      this._drag = { x: e.clientX, pan: this._pan }
+      try { this._stage.setPointerCapture(e.pointerId) } catch (_) { /* noop */ }
+    })
+    this._stage.addEventListener("pointermove", (e) => {
+      if (!this._drag) return
+      const dx = e.clientX - this._drag.x
+      this._pan = Math.max(0, Math.min(100, this._drag.pan - (dx / this._stage.clientWidth) * 90))
+      this._applyPan()
+    })
+    const end = () => { this._drag = null }
+    this._stage.addEventListener("pointerup", end)
+    this._stage.addEventListener("pointercancel", end)
     document.addEventListener("keydown", (e) => {
       if (this._overlay?.style.display !== "block") return
       if (e.key === "Escape") this.close()
-      else if (e.key === "ArrowLeft") this._nav(-1)
-      else if (e.key === "ArrowRight") this._nav(1)
+      else if (e.key === "ArrowUp" || e.key === "ArrowRight") this._nav(1)
+      else if (e.key === "ArrowDown" || e.key === "ArrowLeft") this._nav(-1)
     })
   }
+
+  _applyPan() { if (this._stage) this._stage.style.backgroundPosition = `${this._pan}% 50%` }
 
   _injectStyle() {
     if (document.getElementById("kv-style")) return
@@ -209,11 +235,13 @@ export class StreetView {
     s.textContent = `
       .kv-overlay{position:fixed;inset:0;z-index:2000;background:#0b0b0d;display:none;opacity:0;transition:opacity .22s ease}
       .kv-overlay.kv--in{opacity:1}
-      .kv-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;transition:opacity .14s ease;background:#0b0b0d}
+      .kv-stage{position:absolute;inset:0;background:#0b0b0d center/cover no-repeat;
+        transition:opacity .14s ease;cursor:grab;touch-action:none}
+      .kv-stage:active{cursor:grabbing}
       .kv-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;
-        padding:calc(env(safe-area-inset-top) + 12px) 16px 28px;background:linear-gradient(to bottom,rgba(0,0,0,.55),transparent);z-index:2;pointer-events:none}
+        padding:calc(env(safe-area-inset-top) + 12px) 16px 28px;background:linear-gradient(to bottom,rgba(0,0,0,.55),transparent);z-index:4;pointer-events:none}
       .kv-top>*{pointer-events:auto}
-      .kv-btn,.kv-arrow{border:0;cursor:pointer;color:#fff;background:rgba(20,20,22,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+      .kv-btn{border:0;cursor:pointer;color:#fff;background:rgba(20,20,22,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
       .kv-close{width:40px;height:40px;border-radius:50%;font-size:1rem;line-height:1;flex:0 0 auto}
       .kv-close:hover{background:rgba(40,40,44,.7)}
       .kv-meta{display:flex;align-items:center;gap:8px;color:#fff;font-size:.82rem;background:rgba(20,20,22,.5);
@@ -222,12 +250,20 @@ export class StreetView {
       .kv-date{font-weight:600;font-variant-numeric:tabular-nums}
       .kv-credit{color:rgba(255,255,255,.6);text-decoration:none;font-size:.72rem;margin-left:2px}
       .kv-credit:hover{color:#fff}
-      .kv-arrow{position:absolute;top:50%;transform:translateY(-50%);width:54px;height:54px;border-radius:50%;
-        font-size:1.9rem;line-height:1;display:flex;align-items:center;justify-content:center;z-index:2}
-      .kv-arrow:hover{background:rgba(40,40,44,.75)}
-      .kv-arrow:active{transform:translateY(-50%) scale(.92)}
-      .kv-prev{left:14px}.kv-next{right:14px}
-      @media (max-width:768px){.kv-arrow{width:48px;height:48px;font-size:1.6rem}}`
+      /* Google-style movement chevrons painted on the road */
+      .kv-ground{position:absolute;left:50%;transform:translateX(-50%);border:0;background:none;padding:6px 10px;
+        cursor:pointer;z-index:3;perspective:340px;-webkit-tap-highlight-color:transparent}
+      .kv-ground svg{width:70px;height:48px;display:block;filter:drop-shadow(0 4px 7px rgba(0,0,0,.55));
+        transition:transform .12s ease}
+      .kv-ground path{stroke:rgba(255,255,255,.94);stroke-width:9;fill:none;stroke-linecap:round;stroke-linejoin:round}
+      .kv-fwd{bottom:19%}
+      .kv-fwd svg{transform:rotateX(50deg)}
+      .kv-fwd:hover svg{transform:rotateX(50deg) translateY(-3px) scale(1.06)}
+      .kv-fwd:active svg{transform:rotateX(50deg) scale(.93)}
+      .kv-back{bottom:5%}
+      .kv-back svg{width:52px;height:36px;transform:rotateX(-46deg);opacity:.85}
+      .kv-back:hover svg{transform:rotateX(-46deg) scale(1.06);opacity:1}
+      .kv-back:active svg{transform:rotateX(-46deg) scale(.93)}`
     document.head.appendChild(s)
   }
 
