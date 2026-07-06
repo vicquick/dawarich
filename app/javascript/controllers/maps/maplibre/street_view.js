@@ -98,19 +98,17 @@ export class StreetView {
 
   async onMapClick(e) {
     const { lng, lat } = e.lngLat
-    let best = this._closest(this._photos, lng, lat, 250)
-    if (!best) { // nothing cached near tap → one-off query
-      this._toast("Loading view…", 900)
-      const items = await this._nearby(lat, lng, 150)
-      best = this._closest(this._mapItems(items), lng, lat, 300)
-    }
+    // Always query around the EXACT tapped point so we open the imagery there —
+    // not whatever happened to be cached in the viewport.
+    const items = await this._nearby(lat, lng, 70)
+    const best = this._closest(this._mapItems(items), lng, lat, 70)
     if (!best) return this._toast("No imagery right here — try a blue street")
     this.openPhoto(best.id, best.seq)
   }
 
   async openAt(lng, lat) {
-    const items = await this._nearby(lat, lng, 250)
-    const best = this._closest(this._mapItems(items), lng, lat, 300)
+    const items = await this._nearby(lat, lng, 120)
+    const best = this._closest(this._mapItems(items), lng, lat, 120)
     if (!best) { this._toast("No Street View here"); return false }
     this.openPhoto(best.id, best.seq)
     return true
@@ -131,7 +129,7 @@ export class StreetView {
     if (!scored.length) return null
     scored.sort((a, b) => a.m - b.m)
     const dmin = scored[0].m
-    const cluster = scored.filter((x) => x.m <= dmin + 45) // ≈ same spot (±45 m)
+    const cluster = scored.filter((x) => x.m <= dmin + 18) // ≈ same spot (±18 m)
     cluster.sort((a, b) => String(b.p.date || "").localeCompare(String(a.p.date || "")))
     return cluster[0].p
   }
@@ -144,7 +142,7 @@ export class StreetView {
     const seq = await this._sequence(seqId)
     this._seq = seq
     this._idx = Math.max(0, seq.findIndex((p) => String(p.id) === String(id)))
-    this._pan = 50 // face forward on a fresh open
+    this._panX = 50; this._panY = 50 // centered on a fresh open
     this._showFrame()
   }
 
@@ -197,17 +195,16 @@ export class StreetView {
     const p = this._seq?.[this._idx]
     if (!p) return
     const lth = p.imageLthUrl || p.imageProcUrl
-    const setBg = (u) => { this._stage.style.backgroundImage = `url("${u}")` }
-    const cached = this._imgCache.get(lth)
-    if (cached && cached.complete && cached.naturalWidth) {
-      setBg(lth) // instant — already decoded
+    const th = p.imageThUrl
+    // show only once the image is decoded (so _fit knows the natural aspect)
+    const show = (u) => { if (this._seq?.[this._idx] !== p) return; this._stage.style.backgroundImage = `url("${u}")`; this._fit(u); this._applyPan() }
+    const lthImg = this._preload(lth)
+    if (lthImg.complete && lthImg.naturalWidth) {
+      show(lth)
     } else {
-      if (p.imageThUrl) setBg(p.imageThUrl) // 8 KB thumb shows instantly…
-      const img = this._preload(lth)
-      if (img.complete && img.naturalWidth) setBg(lth)
-      else img.addEventListener("load", () => { if (this._seq?.[this._idx] === p) setBg(lth) }, { once: true }) // …then sharp
+      if (th) { const t = this._preload(th); if (t.complete && t.naturalWidth) show(th); else t.addEventListener("load", () => { if (!(lthImg.complete && lthImg.naturalWidth)) show(th) }, { once: true }) }
+      lthImg.addEventListener("load", () => show(lth), { once: true })
     }
-    this._applyPan()
     this._date.textContent = (p.shotDate || "").slice(0, 10)
     this._fwd.style.display = this._idx < this._seq.length - 1 ? "block" : "none"
     this._back.style.display = this._idx > 0 ? "block" : "none"
@@ -255,9 +252,15 @@ export class StreetView {
     }
     const cands = []
     for (const { q } of Object.values(bySeq)) {
+      // Reject parallel drives of the SAME road: fold both travel headings to a
+      // 0-90° road orientation and require a real angular difference (a crossing).
+      if (Number.isFinite(q.heading)) {
+        let hd = (((q.heading - fwd) % 180) + 180) % 180
+        if (hd > 90) hd = 180 - hd
+        if (hd < 38) continue // <38° apart = same/parallel street, not a junction
+      }
       const rel = ((this._bearing(hLat, hLng, q.lat, q.lng) - fwd + 540) % 360) - 180
-      // require an actual turn: ~45°-135° off our heading (not the road ahead/behind)
-      if (Math.abs(rel) < 45 || Math.abs(rel) > 135) continue
+      if (Math.abs(rel) < 25 || Math.abs(rel) > 155) continue // straight ahead/behind
       cands.push({ q, rel })
     }
     cands.sort((a, b) => Math.abs(Math.abs(a.rel) - 90) - Math.abs(Math.abs(b.rel) - 90)) // prefer the most perpendicular
@@ -337,13 +340,14 @@ export class StreetView {
     // listeners are more robust than setPointerCapture across touch devices.
     this._stage.addEventListener("pointerdown", (e) => {
       if (e.button === 2) return
-      this._drag = { x: e.clientX, pan: this._pan }
+      this._drag = { x: e.clientX, y: e.clientY, px: this._panX ?? 50, py: this._panY ?? 50 }
       this._stage.style.cursor = "grabbing"
     })
     this._onDragMove = (e) => {
       if (!this._drag) return
-      const dx = e.clientX - this._drag.x
-      this._pan = Math.max(0, Math.min(100, this._drag.pan - (dx / (this._stage.clientWidth || 1)) * 95))
+      const dx = e.clientX - this._drag.x, dy = e.clientY - this._drag.y
+      this._panX = Math.max(0, Math.min(100, this._drag.px - (dx / (this._ovX || 1)) * 100))
+      this._panY = Math.max(0, Math.min(100, this._drag.py - (dy / (this._ovY || 1)) * 100))
       this._applyPan()
     }
     this._onDragEnd = () => { this._drag = null; if (this._stage) this._stage.style.cursor = "grab" }
@@ -358,7 +362,20 @@ export class StreetView {
     })
   }
 
-  _applyPan() { if (this._stage) this._stage.style.backgroundPosition = `${this._pan}% 50%` }
+  _applyPan() { if (this._stage) this._stage.style.backgroundPosition = `${this._panX ?? 50}% ${this._panY ?? 50}%` }
+
+  // Scale the frame ~1.18× past cover so BOTH axes overflow → drag pans in any
+  // direction regardless of whether the photo is landscape or portrait.
+  _fit(url) {
+    const img = this._imgCache.get(url)
+    if (!this._stage || !img || !img.naturalWidth) { if (this._stage) this._stage.style.backgroundSize = "cover"; this._ovX = this._ovY = 1; return }
+    const cw = this._stage.clientWidth || 1, ch = this._stage.clientHeight || 1
+    const scale = Math.max(cw / img.naturalWidth, ch / img.naturalHeight) * 1.18
+    const w = img.naturalWidth * scale, h = img.naturalHeight * scale
+    this._stage.style.backgroundSize = `${Math.round(w)}px ${Math.round(h)}px`
+    this._ovX = Math.max(1, w - cw)
+    this._ovY = Math.max(1, h - ch)
+  }
 
   // --- minimap (Google-style) ---
   _buildMini() {
