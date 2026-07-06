@@ -18,6 +18,7 @@ export class StreetView {
     this.on = false
     this._photos = []          // flat cache of nearby photos for tap-nearest
     this._seqCache = {}         // sequenceId -> ordered [photo]
+    this._imgCache = new Map()  // url -> decoded HTMLImageElement (prefetch)
     this._boundClick = (e) => this.onMapClick(e)
     this._boundMove = () => this._debounceRefresh()
   }
@@ -60,8 +61,11 @@ export class StreetView {
   async refresh() {
     const map = this.map
     if (!map || !this.on) return
-    if (map.getZoom() < 13) { map.getSource(SRC)?.setData(this._empty()); this._photos = []; return }
+    if (map.getZoom() < 13) { map.getSource(SRC)?.setData(this._empty()); this._photos = []; this._lastQ = null; return }
     const c = map.getCenter()
+    // skip refetch when we've barely moved (smoother panning, fewer requests)
+    if (this._lastQ && this._haversine(c.lat, c.lng, this._lastQ.lat, this._lastQ.lng) < 220 && Math.abs(map.getZoom() - this._lastQ.z) < 0.5) return
+    this._lastQ = { lat: c.lat, lng: c.lng, z: map.getZoom() }
     const b = map.getBounds()
     const radius = Math.min(1600, Math.round(this._haversine(c.lat, c.lng, b.getNorth(), b.getEast())))
     const items = await this._nearby(c.lat, c.lng, radius)
@@ -128,8 +132,43 @@ export class StreetView {
     const seq = await this._sequence(seqId)
     this._seq = seq
     this._idx = Math.max(0, seq.findIndex((p) => String(p.id) === String(id)))
+    this._pan = 50 // face forward on a fresh open
     this._showFrame()
   }
+
+  _preload(url) {
+    if (!url) return null
+    let img = this._imgCache.get(url)
+    if (img) return img
+    img = new Image(); img.decoding = "async"; img.src = url
+    this._imgCache.set(url, img)
+    if (this._imgCache.size > 48) { // evict oldest
+      const k = this._imgCache.keys().next().value
+      this._imgCache.delete(k)
+    }
+    return img
+  }
+
+  // Prefetch a rolling window so driving forward is instant.
+  _prefetchWindow() {
+    const s = this._seq; if (!s) return
+    for (let i = this._idx - 2; i <= this._idx + 8; i++) {
+      const p = s[i]; if (p) this._preload(p.imageLthUrl || p.imageProcUrl)
+    }
+  }
+
+  // Hold a chevron to keep driving; a quick tap advances one frame.
+  _startDrive(dir) {
+    this._nav(dir)
+    this._driving = true
+    clearInterval(this._driveT)
+    this._driveT = setInterval(() => {
+      const i = this._idx + dir
+      if (i < 0 || i >= (this._seq?.length || 0)) return this._stopDrive()
+      this._nav(dir)
+    }, 300)
+  }
+  _stopDrive() { this._driving = false; clearInterval(this._driveT) }
 
   async _sequence(seqId) {
     if (this._seqCache[seqId]) return this._seqCache[seqId]
@@ -145,24 +184,22 @@ export class StreetView {
   _showFrame() {
     const p = this._seq?.[this._idx]
     if (!p) return
-    const url = p.imageLthUrl || p.imageProcUrl
-    // crossfade: preload, then swap the cover-filled background
-    const pre = new Image()
-    pre.onload = () => {
-      this._stage.style.opacity = "0"
-      setTimeout(() => {
-        this._stage.style.backgroundImage = `url("${url}")`
-        this._pan = 50; this._applyPan()
-        this._stage.style.opacity = "1"
-      }, 90)
+    const lth = p.imageLthUrl || p.imageProcUrl
+    const setBg = (u) => { this._stage.style.backgroundImage = `url("${u}")` }
+    const cached = this._imgCache.get(lth)
+    if (cached && cached.complete && cached.naturalWidth) {
+      setBg(lth) // instant — already decoded
+    } else {
+      if (p.imageThUrl) setBg(p.imageThUrl) // 8 KB thumb shows instantly…
+      const img = this._preload(lth)
+      if (img.complete && img.naturalWidth) setBg(lth)
+      else img.addEventListener("load", () => { if (this._seq?.[this._idx] === p) setBg(lth) }, { once: true }) // …then sharp
     }
-    pre.src = url
+    this._applyPan()
     this._date.textContent = (p.shotDate || "").slice(0, 10)
     this._fwd.style.display = this._idx < this._seq.length - 1 ? "block" : "none"
     this._back.style.display = this._idx > 0 ? "block" : "none"
-    // preload the next frame so walking forward is instant
-    const nxt = this._seq[this._idx + 1]
-    if (nxt) { const i = new Image(); i.src = nxt.imageLthUrl || nxt.imageProcUrl }
+    this._prefetchWindow()
   }
 
   _nav(delta) {
@@ -202,8 +239,16 @@ export class StreetView {
     this._back = o.querySelector(".kv-back")
     this._pan = 50
     o.querySelector(".kv-close").addEventListener("click", () => this.close())
-    this._fwd.addEventListener("click", () => this._nav(1))
-    this._back.addEventListener("click", () => this._nav(-1))
+    // Hold a chevron to keep driving; a quick tap = one frame.
+    const hold = (btn, dir) => {
+      btn.addEventListener("pointerdown", (e) => { e.preventDefault(); this._startDrive(dir) })
+      const stop = () => this._stopDrive()
+      btn.addEventListener("pointerup", stop)
+      btn.addEventListener("pointerleave", stop)
+      btn.addEventListener("pointercancel", stop)
+    }
+    hold(this._fwd, 1)
+    hold(this._back, -1)
     // drag-to-look (pan the cover-filled frame horizontally)
     this._stage.addEventListener("pointerdown", (e) => {
       this._drag = { x: e.clientX, pan: this._pan }
