@@ -261,8 +261,9 @@ export default class extends Controller {
     this.poisManager = new POIsManager(this)
     if (this.map.isStyleLoaded()) {
       this.poisManager.setup()
+      this.restoreSharedRouteFromUrl()
     } else {
-      this.map.once("load", () => this.poisManager.setup())
+      this.map.once("load", () => { this.poisManager.setup(); this.restoreSharedRouteFromUrl() })
     }
 
     // Listen for tab changes to trigger timeline feed loading via Turbo Frame
@@ -402,6 +403,18 @@ export default class extends Controller {
     if (this.settings?.familyEnabled && this.hasFamilyMembersListTarget) {
       this.familyMembersListTarget.style.display = "block"
     }
+  }
+
+  // vicquick fork: rebuild a route shared via ?dir= (base64url of {c,s}). Dispatch
+  // to the place-sheet controller which owns the directions UI.
+  restoreSharedRouteFromUrl() {
+    try {
+      const enc = new URLSearchParams(window.location.search).get("dir")
+      if (!enc) return
+      const json = decodeURIComponent(escape(atob(enc.replace(/-/g, "+").replace(/_/g, "/"))))
+      const data = JSON.parse(json)
+      setTimeout(() => document.dispatchEvent(new CustomEvent("directions:restore", { detail: data })), 600)
+    } catch (_) { /* malformed link — ignore */ }
   }
 
   disconnect() {

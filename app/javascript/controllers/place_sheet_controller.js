@@ -17,6 +17,8 @@ export default class extends Controller {
     document.addEventListener("place-sheet:open", this.onOpen)
     this.onStops = (e) => this.renderStops(e.detail) // multi-stop trip rows
     document.addEventListener("directions:stops", this.onStops)
+    this.onRestore = (e) => this.restoreSharedRoute(e.detail) // shared-link route
+    document.addEventListener("directions:restore", this.onRestore)
     this.expanded = false
     this.backdrop = document.getElementById("place-sheet-backdrop")
     if (this.backdrop) this.backdrop.addEventListener("click", () => this.close())
@@ -57,6 +59,7 @@ export default class extends Controller {
     document.removeEventListener("location-search:selected", this.onSelected)
     document.removeEventListener("place-sheet:open", this.onOpen)
     document.removeEventListener("directions:stops", this.onStops)
+    document.removeEventListener("directions:restore", this.onRestore)
   }
 
   open(loc) {
@@ -404,29 +407,60 @@ export default class extends Controller {
   // Switch the sheet into directions mode (route panel lives inside the sheet).
   directions() {
     if (!this.place) return
+    this._enterDirectionsView("pedestrian")
+    if (this.hasEndLabelTarget) this.endLabelTarget.textContent = this.place.name
+    // Open the route PREVIEW (2D overview + ETA); user taps Start to navigate.
+    try { window.dawarichDirections?.preview(this.place.lat, this.place.lon, this.place.name) } catch (e) { /* noop */ }
+  }
+
+  // DOM setup for directions mode (no route compute) — shared by directions()
+  // and shared-link restore.
+  _enterDirectionsView(activeMode) {
     if (this.hasInfoTarget) this.infoTarget.style.display = "none"
     if (this.hasDirectionsTarget) this.directionsTarget.classList.remove("hidden")
-    // Google-Maps feel: no dim over the map while routing — the map is the hero
-    // and stays fully interactive (the backdrop was eating all map gestures).
+    // Google-Maps feel: no dim over the map while routing — the map is the hero.
     this.hideBackdrop()
-    // ~half height so the route + an interactive map both show.
     this.element.style.height = "48vh"
     this.expanded = true
-    // Hand the camera to directions_manager — it already pads per-call for the
-    // route + sheet; releasing here avoids two coordinators fighting.
     this.clearPad()
-    // Default mode = Walk.
     this.element.querySelectorAll(".dir-mode").forEach((b) =>
-      b.classList.toggle("btn-active", b.dataset.mode === "pedestrian"))
-    // Trip planner: show editable Start/End, hide history chrome.
+      b.classList.toggle("btn-active", b.dataset.mode === activeMode))
     const trip = document.getElementById("directions-trip")
     if (trip) trip.style.display = "block"
     if (this.hasStartLabelTarget) this.startLabelTarget.textContent = "Your location"
-    if (this.hasEndLabelTarget) this.endLabelTarget.textContent = this.place.name
     if (this.hasEndpointPickerTarget) this.endpointPickerTarget.hidden = true
     document.body.classList.add("routing-active")
-    // Open the route PREVIEW (2D overview + ETA); user taps Start to navigate.
-    try { window.dawarichDirections?.preview(this.place.lat, this.place.lon, this.place.name) } catch (e) { /* noop */ }
+  }
+
+  // Share the current route as a link (opens the OS share sheet, else copies).
+  async shareRoute(e) {
+    const data = window.dawarichDirections?.routeShareData?.()
+    if (!data) return
+    const enc = btoa(unescape(encodeURIComponent(JSON.stringify(data))))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    const url = `${location.origin}/map/v2?dir=${enc}`
+    try {
+      if (navigator.share) await navigator.share({ title: "Route", url })
+      else { await navigator.clipboard.writeText(url); this._flash(e?.currentTarget, "✓ Link copied") }
+    } catch (_) { /* user cancelled — noop */ }
+  }
+
+  // Rebuild a shared route from ?dir= (dispatched by the map controller on load).
+  restoreSharedRoute(data) {
+    if (!data?.s || data.s.length < 2) return
+    const last = data.s[data.s.length - 1]
+    this.open({ name: last[2] || "Destination", lat: last[0], lon: last[1], type: "", tags: [] })
+    this._enterDirectionsView(data.c || "pedestrian")
+    try { window.dawarichDirections?.restoreRoute(data) } catch (_) { /* noop */ }
+  }
+
+  _flash(btn, txt) {
+    if (!btn) return
+    const orig = btn.dataset._orig || btn.textContent
+    btn.dataset._orig = orig
+    btn.textContent = txt
+    clearTimeout(this._flashT)
+    this._flashT = setTimeout(() => { btn.textContent = orig }, 1600)
   }
 
   // --- Editable Start/End/stops trip planner ---
@@ -491,32 +525,48 @@ export default class extends Controller {
       </div>`).join("")
   }
 
-  // Pointer drag-reorder for waypoint rows (touch + mouse). moveStop on drop;
-  // the manager re-emits stops which rebuilds the rows authoritatively.
+  // Smooth pointer drag-reorder (touch + mouse). The dragged row tracks the
+  // finger 1:1; the other rows slide to open a gap where it will drop. On
+  // release we commit via moveStop and the manager re-emits stops to rebuild.
   dragStop(e) {
     e.preventDefault()
-    const row = e.currentTarget.closest(".trip-wp")
+    const handle = e.currentTarget
+    const row = handle.closest(".trip-wp")
     const container = this.hasWaypointsTarget ? this.waypointsTarget : null
     if (!row || !container) return
-    const from = Number(row.dataset.wp)
-    row.style.opacity = "0.55"
+    const rows = [...container.querySelectorAll(".trip-wp")]
+    const from = rows.indexOf(row)
+    const h = row.offsetHeight || 40
+    const startY = e.clientY
+    let target = from
+    row.style.transition = "none"
+    row.style.position = "relative"
+    row.style.zIndex = "5"
+    row.classList.add("trip-wp--dragging")
+    try { handle.setPointerCapture(e.pointerId) } catch (_) { /* noop */ }
+
     const move = (ev) => {
-      const y = ev.clientY
-      for (const r of container.querySelectorAll(".trip-wp")) {
-        if (r === row) continue
-        const rect = r.getBoundingClientRect()
-        if (y > rect.top && y < rect.bottom) {
-          container.insertBefore(row, y < rect.top + rect.height / 2 ? r : r.nextSibling)
-          break
-        }
+      const dy = ev.clientY - startY
+      row.style.transform = `translateY(${dy}px)`
+      const idx = Math.max(0, Math.min(rows.length - 1, from + Math.round(dy / h)))
+      if (idx !== target) {
+        target = idx
+        rows.forEach((r, i) => {
+          if (r === row) return
+          let shift = 0
+          if (from < target && i > from && i <= target) shift = -h
+          else if (from > target && i < from && i >= target) shift = h
+          r.style.transition = "transform .18s cubic-bezier(.2,.7,.2,1)"
+          r.style.transform = shift ? `translateY(${shift}px)` : ""
+        })
       }
     }
     const up = () => {
-      row.style.opacity = ""
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", up)
-      const to = [...container.querySelectorAll(".trip-wp")].indexOf(row)
-      if (to >= 0 && to !== from) { try { window.dawarichDirections?.moveStop(from, to) } catch (_) { /* noop */ } }
+      rows.forEach((r) => { r.style.transition = ""; r.style.transform = ""; r.style.zIndex = ""; r.style.position = "" })
+      row.classList.remove("trip-wp--dragging")
+      if (target !== from) { try { window.dawarichDirections?.moveStop(from, target) } catch (_) { /* noop */ } }
     }
     window.addEventListener("pointermove", move)
     window.addEventListener("pointerup", up)

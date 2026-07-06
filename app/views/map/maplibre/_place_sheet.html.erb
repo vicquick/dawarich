@@ -121,6 +121,7 @@
       <%# PREVIEW actions: Start nav + ride-hailing hand-off (opens Uber/Bolt). %>
       <div id="directions-preview-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px;">
         <button type="button" data-action="click->place-sheet#startNav" class="btn btn-primary btn-sm gap-1" style="font-weight:700;">▶ Start</button>
+        <button type="button" data-action="click->place-sheet#shareRoute" class="btn btn-outline btn-sm gap-1" aria-label="Share route">↗ Share</button>
         <a id="ride-uber" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm gap-1">🚕 Uber</a>
         <a id="ride-bolt" href="#" target="_blank" rel="noopener" class="btn btn-outline btn-sm gap-1">⚡ Bolt</a>
       </div>
@@ -160,6 +161,10 @@
   .trip-drag { flex:0 0 auto; width:20px; text-align:center; cursor:grab; opacity:.4; font-size:1rem;
     touch-action:none; -webkit-user-select:none; user-select:none; }
   .trip-drag:active { cursor:grabbing; opacity:.8; }
+  .trip-wp--dragging { cursor:grabbing; }
+  .trip-wp--dragging .trip-text, .trip-wp--dragging .trip-dot {
+    background:oklch(var(--b1)); box-shadow:0 8px 22px rgba(0,0,0,.28); }
+  .trip-wp--dragging { border-radius:12px; background:oklch(var(--b1)); box-shadow:0 8px 22px rgba(0,0,0,.28); }
   .trip-wp-del { flex:0 0 auto; width:26px; height:26px; border:0; border-radius:50%; background:transparent;
     color:inherit; opacity:.45; cursor:pointer; font-size:.8rem; }
   .trip-wp-del:hover { opacity:.9; background:color-mix(in oklch, oklch(var(--bc)) 14%, transparent); }

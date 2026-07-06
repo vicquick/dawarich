@@ -351,6 +351,37 @@ export class DirectionsManager {
     })
   }
 
+  // Compact snapshot of the current route for a shareable link.
+  routeShareData() {
+    const stops = this.orderedStops()
+    if (stops.length < 2) return null
+    const names = [this.startName, ...this.waypoints.map((w) => w.name), this.destName]
+    return { c: this.costing, s: stops.map((p, i) => [Number(p.lat.toFixed(5)), Number(p.lon.toFixed(5)), names[i] || ""]) }
+  }
+
+  // Rebuild a route from a shared snapshot (start, waypoints, end + mode).
+  restoreRoute(data) {
+    if (!this.map || !data || !Array.isArray(data.s) || data.s.length < 2) return
+    this.active = true
+    this.clear()
+    this.costing = data.c || "pedestrian"
+    const s = data.s
+    const first = s[0]; const last = s[s.length - 1]
+    this.startName = first[2] || null
+    this.manualStart = true
+    this.start = { lat: Number(first[0]), lon: Number(first[1]) }
+    this.addUserMarker([this.start.lon, this.start.lat])
+    this.destName = last[2] || "Destination"
+    this.end = { lat: Number(last[0]), lon: Number(last[1]) }
+    this.endMarker = this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.waypoints = s.slice(1, -1).map((p) => ({ lat: Number(p[0]), lon: Number(p[1]), name: p[2] || "Stop" }))
+    this._syncWpMarkers()
+    this.showState("preview")
+    this.computeRoute(true)
+    this.renderRideLinks()
+    this._emitStops()
+  }
+
   // Tell the trip planner (place_sheet) to re-render the stop rows.
   _emitStops() {
     document.dispatchEvent(new CustomEvent("directions:stops", { detail: {
