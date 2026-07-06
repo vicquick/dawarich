@@ -7,6 +7,8 @@
 //   • tap a blue street → fullscreen photo viewer (flat dashcam frames),
 //   • ‹ › walk the capture sequence, like Google.
 // The API is CORS-open (*) and images come off a CDN, so it's pure client-side.
+import maplibregl from "maplibre-gl"
+
 const API1 = "https://api.kartaview.org/1.0"
 const API2 = "https://api.kartaview.org/2.0"
 const SRC = "kartaview"
@@ -70,7 +72,7 @@ export class StreetView {
     const radius = Math.min(1600, Math.round(this._haversine(c.lat, c.lng, b.getNorth(), b.getEast())))
     const items = await this._nearby(c.lat, c.lng, radius)
     if (!items || !this.on) return
-    this._photos = items.map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng, date: p.shot_date }))
+    this._photos = this._mapItems(items)
     // group into sequences → LineStrings
     const bySeq = {}
     for (const p of items) (bySeq[p.sequence_id] ||= []).push(p)
@@ -115,7 +117,7 @@ export class StreetView {
   }
 
   _mapItems(items) {
-    return (items || []).map((p) => ({ id: p.id, seq: p.sequence_id, lat: +p.lat, lng: +p.lng, date: p.shot_date }))
+    return (items || []).map((p) => ({ id: p.id, seq: p.sequence_id, idx: +p.sequence_index, lat: +p.lat, lng: +p.lng, date: p.shot_date, heading: +p.heading }))
   }
 
   // Snap to the nearest photo, but among photos at the same spot prefer the
@@ -138,7 +140,7 @@ export class StreetView {
   async openPhoto(id, seqId) {
     if (!this._overlay) this._buildOverlay()
     this._overlay.style.display = "block"
-    requestAnimationFrame(() => this._overlay.classList.add("kv--in"))
+    requestAnimationFrame(() => { this._overlay.classList.add("kv--in"); this._miniMap?.resize() })
     const seq = await this._sequence(seqId)
     this._seq = seq
     this._idx = Math.max(0, seq.findIndex((p) => String(p.id) === String(id)))
@@ -210,6 +212,75 @@ export class StreetView {
     this._fwd.style.display = this._idx < this._seq.length - 1 ? "block" : "none"
     this._back.style.display = this._idx > 0 ? "block" : "none"
     this._prefetchWindow()
+    this._maybeNearby()   // keep _photos fresh around us (junctions + minimap)
+    this._updateMini()
+    this._updateJunctions()
+  }
+
+  // Refresh nearby photos when we've moved enough (drives junctions + minimap).
+  _maybeNearby() {
+    const p = this._seq?.[this._idx]; if (!p) return
+    const lat = +p.lat, lng = +p.lng
+    if (this._nbCenter && this._haversine(lat, lng, this._nbCenter.lat, this._nbCenter.lng) < 55) return
+    this._nbCenter = { lat, lng }
+    this._nearby(lat, lng, 160).then((items) => {
+      if (!items) return
+      this._photos = this._mapItems(items)
+      this._updateJunctions()
+      this._updateMiniCoverage()
+    })
+  }
+
+  _bearing(lat1, lon1, lat2, lon2) {
+    const r = Math.PI / 180
+    const y = Math.sin((lon2 - lon1) * r) * Math.cos(lat2 * r)
+    const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r)
+    return (Math.atan2(y, x) / r + 360) % 360
+  }
+
+  // At junctions, show extra chevrons pointing onto crossing sequences.
+  _updateJunctions() {
+    (this._turns || []).forEach((b) => b.remove())
+    this._turns = []
+    const p = this._seq?.[this._idx]
+    if (!p || !this._overlay) return
+    const hLat = +p.lat, hLng = +p.lng, fwd = +p.heading || this._bearing(hLat, hLng, +(this._seq[this._idx + 1]?.lat ?? hLat), +(this._seq[this._idx + 1]?.lng ?? hLng))
+    // nearest photo of each OTHER sequence within ~28 m
+    const bySeq = {}
+    for (const q of this._photos || []) {
+      if (String(q.seq) === String(p.sequenceId)) continue
+      const d = this._haversine(hLat, hLng, q.lat, q.lng)
+      if (d > 28) continue
+      if (!bySeq[q.seq] || d < bySeq[q.seq].d) bySeq[q.seq] = { q, d }
+    }
+    const cands = []
+    for (const { q } of Object.values(bySeq)) {
+      const rel = ((this._bearing(hLat, hLng, q.lat, q.lng) - fwd + 540) % 360) - 180
+      if (Math.abs(rel) < 32 || Math.abs(rel) > 150) continue // straight ahead / behind = fwd/back already
+      cands.push({ q, rel })
+    }
+    cands.sort((a, b) => Math.abs(a.rel) - Math.abs(b.rel))
+    const used = []
+    for (const t of cands) {
+      if (used.some((u) => Math.abs(u - t.rel) < 45)) continue
+      used.push(t.rel)
+      this._renderTurn(t)
+      if (used.length >= 2) break
+    }
+  }
+
+  _renderTurn(t) {
+    const b = document.createElement("button")
+    b.className = "kv-ground kv-turn"
+    b.setAttribute("aria-label", "Turn here")
+    b.innerHTML = '<svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 34 L32 11 L56 34"/></svg>'
+    b.style.left = `${Math.max(13, Math.min(87, 50 + (t.rel / 90) * 36))}%`
+    b.style.bottom = "27%"
+    const tilt = Math.max(-72, Math.min(72, t.rel * 0.7))
+    b.querySelector("svg").style.transform = `rotateX(50deg) rotateZ(${tilt}deg)`
+    b.addEventListener("pointerdown", (e) => { e.preventDefault(); this.openPhoto(t.q.id, t.q.seq) })
+    this._overlay.appendChild(b)
+    this._turns.push(b)
   }
 
   _nav(delta) {
@@ -240,9 +311,11 @@ export class StreetView {
       <button class="kv-ground kv-fwd" aria-label="Move forward">
         <svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 34 L32 11 L56 34"/></svg></button>
       <button class="kv-ground kv-back" aria-label="Move back">
-        <svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 12 L32 34 L56 12"/></svg></button>`
+        <svg viewBox="0 0 64 44" aria-hidden="true"><path d="M8 12 L32 34 L56 12"/></svg></button>
+      <div class="kv-mini" aria-label="Street View minimap"></div>`
     document.body.appendChild(o)
     this._overlay = o
+    this._mini = o.querySelector(".kv-mini")
     this._stage = o.querySelector(".kv-stage")
     this._date = o.querySelector(".kv-date")
     this._fwd = o.querySelector(".kv-fwd")
@@ -283,6 +356,50 @@ export class StreetView {
 
   _applyPan() { if (this._stage) this._stage.style.backgroundPosition = `${this._pan}% 50%` }
 
+  // --- minimap (Google-style) ---
+  _buildMini() {
+    if (this._miniMap || !this._mini) return
+    let style
+    try {
+      style = JSON.parse(JSON.stringify(window.dawarichMap?.getStyle()))
+      // keep only the basemap — drop our overlays so the minimap stays clean
+      const drop = /^(kv-|pnx-|directions|route|places|place-|search-results|pois|poi_|traffic|napspan|highlight)/i
+      style.layers = (style.layers || []).filter((l) => !drop.test(l.id))
+    } catch (_) { /* noop */ }
+    if (!style) return
+    this._miniMap = new maplibregl.Map({
+      container: this._mini, style, interactive: true, attributionControl: false,
+      center: this._nbCenter ? [this._nbCenter.lng, this._nbCenter.lat] : [0, 0], zoom: 16,
+    })
+    this._miniMap.on("load", () => {
+      this._miniMap.addSource("mini-cov", { type: "geojson", data: this._empty() })
+      this._miniMap.addLayer({ id: "mini-seq", type: "line", source: "mini-cov", paint: { "line-color": BLUE, "line-width": 3, "line-opacity": 0.9 } })
+      this._miniMap.addSource("mini-here", { type: "geojson", data: this._empty() })
+      this._miniMap.addLayer({ id: "mini-here", type: "circle", source: "mini-here", paint: { "circle-radius": 6, "circle-color": "#fff", "circle-stroke-color": BLUE, "circle-stroke-width": 3 } })
+      this._miniReady = true
+      this._updateMiniCoverage(); this._updateMini()
+    })
+    this._miniMap.on("click", (e) => this.openAt(e.lngLat.lng, e.lngLat.lat))
+  }
+
+  _updateMini() {
+    if (!this._miniMap) { this._buildMini(); return }
+    if (!this._miniReady) return
+    const p = this._seq?.[this._idx]; if (!p) return
+    const here = [+p.lng, +p.lat]
+    this._miniMap.easeTo({ center: here, bearing: +p.heading || 0, duration: 250 })
+    this._miniMap.getSource("mini-here")?.setData({ type: "Feature", geometry: { type: "Point", coordinates: here }, properties: {} })
+  }
+
+  _updateMiniCoverage() {
+    if (!this._miniReady) return
+    const bySeq = {}
+    for (const q of this._photos || []) (bySeq[q.seq] ||= []).push(q)
+    const feats = Object.values(bySeq).filter((s) => s.length >= 2)
+      .map((s) => { s.sort((a, b) => a.idx - b.idx); return { type: "Feature", geometry: { type: "LineString", coordinates: s.map((q) => [q.lng, q.lat]) }, properties: {} } })
+    this._miniMap.getSource("mini-cov")?.setData({ type: "FeatureCollection", features: feats })
+  }
+
   _injectStyle() {
     if (document.getElementById("kv-style")) return
     const s = document.createElement("style")
@@ -318,7 +435,15 @@ export class StreetView {
       .kv-back{bottom:5%}
       .kv-back svg{width:52px;height:36px;transform:rotateX(-46deg);opacity:.85}
       .kv-back:hover svg{transform:rotateX(-46deg) scale(1.06);opacity:1}
-      .kv-back:active svg{transform:rotateX(-46deg) scale(.93)}`
+      .kv-back:active svg{transform:rotateX(-46deg) scale(.93)}
+      /* turn chevrons at junctions reuse .kv-ground; positioned inline */
+      .kv-turn svg{width:60px;height:42px}
+      /* minimap */
+      .kv-mini{position:absolute;left:14px;bottom:calc(env(safe-area-inset-bottom) + 16px);
+        width:132px;height:132px;border-radius:14px;overflow:hidden;z-index:3;background:#0b0b0d;
+        box-shadow:0 4px 18px rgba(0,0,0,.55);border:2px solid rgba(255,255,255,.85)}
+      .kv-mini .maplibregl-ctrl,.kv-mini .maplibregl-ctrl-attrib{display:none!important}
+      .kv-mini .maplibregl-canvas{cursor:pointer}`
     document.head.appendChild(s)
   }
 
