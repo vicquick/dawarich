@@ -307,6 +307,26 @@ export default class extends Controller {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
   }
 
+  // Type glyph for a result row (OSM type/value → emoji), so the picker shows
+  // what each place is instead of a uniform pin.
+  glyph(type) {
+    const t = String(type || "").toLowerCase()
+    if (/(restaurant|cafe|bar|pub|food|fast_food|biergarten)/.test(t)) return "🍴"
+    if (/(hotel|hostel|guest|motel)/.test(t)) return "🛏️"
+    if (/(supermarket|convenience|mall|department|shop|store|bakery|butcher)/.test(t)) return "🛒"
+    if (/(fuel|charging)/.test(t)) return "⛽"
+    if (/(atm|bank)/.test(t)) return "🏧"
+    if (/(pharmacy|hospital|clinic|doctor|dentist)/.test(t)) return "⚕️"
+    if (/(park|forest|garden|wood|playground)/.test(t)) return "🌳"
+    if (/(station|halt|bus_stop|train|railway|airport|aerodrome|subway|tram)/.test(t)) return "🚉"
+    if (/(museum|gallery|attraction|artwork|viewpoint|theatre|cinema)/.test(t)) return "🎭"
+    if (/(school|university|college|library|kindergarten)/.test(t)) return "🎓"
+    if (/(city|town|village|suburb|hamlet|municipality|state|county)/.test(t)) return "🏙️"
+    if (/(street|road|way|avenue|residential|path|highway)/.test(t)) return "🛣️"
+    if (/(house|building|address|yes|apartments)/.test(t)) return "🏠"
+    return "📍"
+  }
+
   // Tallest the sheet may grow — leaves the navbar clear so the drag handle
   // stays reachable (otherwise a fully-raised sheet tucks under the navbar and
   // can't be pulled back down on mobile).
@@ -454,7 +474,7 @@ export default class extends Controller {
       this._epList = list
       this.endpointResultsTarget.innerHTML = list.map((s, i) => `
         <li><button type="button" data-idx="${i}">
-          <span class="ep-res-dot">${s.saved ? (s.icon || "⭐") : "📍"}</span>
+          <span class="ep-res-dot">${s.saved ? (s.icon || "⭐") : this.glyph(s.type)}</span>
           <span class="ep-res-txt">
             <span class="ep-res-name">${this.esc(s.name)}</span>
             ${s.address ? `<span class="ep-res-sub">${this.esc(s.address)}</span>` : ""}
@@ -497,6 +517,7 @@ export default class extends Controller {
       if (!r.ok) return []
       return (await r.json()).suggestions?.map((s) => ({
         name: s.name, address: s.address || "", lat: s.coordinates?.[0], lon: s.coordinates?.[1],
+        type: s.type || s.osm_value || "",
       })).filter((s) => s.lat != null) || []
     } catch (_) { return [] }
   }
