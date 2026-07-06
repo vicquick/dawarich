@@ -6,7 +6,7 @@ import { Controller } from "@hotwired/stimulus"
 // Self-contained: failures here never break the core map.
 export default class extends Controller {
   static targets = ["title", "address", "meta", "enrichment", "info", "directions", "categoryBtn", "tagPicker", "handle",
-    "startLabel", "endLabel", "endpointPicker", "endpointInput", "endpointResults"]
+    "startLabel", "endLabel", "endpointPicker", "endpointInput", "endpointResults", "waypoints"]
   static values = { apiKey: String, starredTagId: { type: Number, default: 5 }, tags: { type: Array, default: [] } }
 
   connect() {
@@ -15,6 +15,8 @@ export default class extends Controller {
     // allow other code to open the sheet: dispatch CustomEvent("place-sheet:open", {detail:{name,lat,lon,address}})
     this.onOpen = (e) => this.open(e.detail)
     document.addEventListener("place-sheet:open", this.onOpen)
+    this.onStops = (e) => this.renderStops(e.detail) // multi-stop trip rows
+    document.addEventListener("directions:stops", this.onStops)
     this.expanded = false
     this.backdrop = document.getElementById("place-sheet-backdrop")
     if (this.backdrop) this.backdrop.addEventListener("click", () => this.close())
@@ -54,6 +56,7 @@ export default class extends Controller {
     if (this._dragUp) window.removeEventListener("pointerup", this._dragUp)
     document.removeEventListener("location-search:selected", this.onSelected)
     document.removeEventListener("place-sheet:open", this.onOpen)
+    document.removeEventListener("directions:stops", this.onStops)
   }
 
   open(loc) {
@@ -426,9 +429,29 @@ export default class extends Controller {
     try { window.dawarichDirections?.preview(this.place.lat, this.place.lon, this.place.name) } catch (e) { /* noop */ }
   }
 
-  // --- Editable Start/End trip planner ---
+  // --- Editable Start/End/stops trip planner ---
   editEndpoint(e) {
     this._editing = e.currentTarget.dataset.end // "start" | "end"
+    this._openPicker()
+  }
+
+  editWaypoint(e) {
+    this._editing = Number(e.currentTarget.dataset.wp) // stop index
+    this._openPicker()
+  }
+
+  addStop() {
+    this._editing = "new"
+    this._openPicker()
+  }
+
+  removeStop(e) {
+    const i = Number(e.currentTarget.dataset.wp)
+    try { window.dawarichDirections?.removeStop(i) } catch (_) { /* noop */ }
+  }
+
+  // Open the fullscreen picker for whatever this._editing points at.
+  _openPicker() {
     if (!this.hasEndpointPickerTarget) return
     // The sheet's transform makes position:fixed resolve relative to the sheet,
     // not the viewport. Drop it so the picker overlay is truly fullscreen (the
@@ -441,12 +464,62 @@ export default class extends Controller {
     if (this._mapLayer) { this._mapLayerZ = this._mapLayer.style.zIndex; this._mapLayer.style.zIndex = "100" }
     this.endpointPickerTarget.hidden = false
     this.endpointInputTarget.value = ""
+    // "Your location" shortcut only when editing the START point.
     this.endpointResultsTarget.innerHTML = this._editing === "start"
       ? `<li><button type="button" data-loc="me"><span class="ep-res-dot">📍</span><span class="ep-res-txt"><span class="ep-res-name">Your location (GPS)</span></span></button></li>`
       : ""
     this.endpointResultsTarget.querySelector('[data-loc="me"]')
-      ?.addEventListener("click", () => { window.dawarichDirections?.useMyLocation(); this.startLabelTarget.textContent = "Your location"; this.closeEndpointPicker() })
+      ?.addEventListener("click", () => { window.dawarichDirections?.useMyLocation(); this.closeEndpointPicker() })
     requestAnimationFrame(() => this.endpointInputTarget.focus())
+  }
+
+  // Re-render the trip rows (start label, end label, waypoint rows) from the
+  // directions manager's emitted stop snapshot.
+  renderStops(d) {
+    if (!d) return
+    if (this.hasStartLabelTarget) this.startLabelTarget.textContent = d.start?.isMe ? "Your location" : (d.start?.name || "Your location")
+    if (this.hasEndLabelTarget) this.endLabelTarget.textContent = d.end?.name || "Destination"
+    if (!this.hasWaypointsTarget) return
+    const wps = d.waypoints || []
+    const draggable = wps.length >= 2
+    this.waypointsTarget.innerHTML = wps.map((w, i) => `
+      <div class="trip-wp" data-wp="${i}">
+        ${draggable ? `<span class="trip-drag" data-action="pointerdown->place-sheet#dragStop" data-wp="${i}" aria-label="Reorder stop">⠿</span>` : `<span class="trip-drag" style="opacity:.15">⠿</span>`}
+        <span class="trip-dot trip-dot--wp"></span>
+        <button type="button" class="trip-text" data-action="click->place-sheet#editWaypoint" data-wp="${i}">${this.esc(w.name || "Stop")}</button>
+        <button type="button" class="trip-wp-del" data-action="click->place-sheet#removeStop" data-wp="${i}" aria-label="Remove stop">✕</button>
+      </div>`).join("")
+  }
+
+  // Pointer drag-reorder for waypoint rows (touch + mouse). moveStop on drop;
+  // the manager re-emits stops which rebuilds the rows authoritatively.
+  dragStop(e) {
+    e.preventDefault()
+    const row = e.currentTarget.closest(".trip-wp")
+    const container = this.hasWaypointsTarget ? this.waypointsTarget : null
+    if (!row || !container) return
+    const from = Number(row.dataset.wp)
+    row.style.opacity = "0.55"
+    const move = (ev) => {
+      const y = ev.clientY
+      for (const r of container.querySelectorAll(".trip-wp")) {
+        if (r === row) continue
+        const rect = r.getBoundingClientRect()
+        if (y > rect.top && y < rect.bottom) {
+          container.insertBefore(row, y < rect.top + rect.height / 2 ? r : r.nextSibling)
+          break
+        }
+      }
+    }
+    const up = () => {
+      row.style.opacity = ""
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", up)
+      const to = [...container.querySelectorAll(".trip-wp")].indexOf(row)
+      if (to >= 0 && to !== from) { try { window.dawarichDirections?.moveStop(from, to) } catch (_) { /* noop */ } }
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", up)
   }
 
   closeEndpointPicker() {
@@ -491,11 +564,13 @@ export default class extends Controller {
 
   pickEndpoint(loc) {
     if (!loc) return
-    const label = this._editing === "start" ? this.startLabelTarget : this.endLabelTarget
-    if (label) label.textContent = loc.name
+    const d = window.dawarichDirections
+    // Labels + waypoint rows re-render from the manager's "directions:stops" emit.
     try {
-      if (this._editing === "start") window.dawarichDirections?.setStart(loc.lat, loc.lon, loc.name)
-      else window.dawarichDirections?.setEnd(loc.lat, loc.lon, loc.name)
+      if (this._editing === "start") d?.setStart(loc.lat, loc.lon, loc.name)
+      else if (this._editing === "end") d?.setEnd(loc.lat, loc.lon, loc.name)
+      else if (this._editing === "new") d?.addStop(loc.lat, loc.lon, loc.name)
+      else if (typeof this._editing === "number") d?.setStop(this._editing, loc.lat, loc.lon, loc.name)
     } catch (_) { /* noop */ }
     this.closeEndpointPicker()
   }

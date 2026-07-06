@@ -9,6 +9,8 @@ export class DirectionsManager {
     this.active = false
     this.start = null
     this.end = null
+    this.waypoints = []          // intermediate stops [{lat,lon,name}] (multi-stop)
+    this.wpMarkers = []          // map markers for the waypoints (numbered)
     this.costing = "pedestrian" // Walk by default
     this.markers = []
     this.boundClick = this.onMapClick.bind(this)
@@ -82,6 +84,9 @@ export class DirectionsManager {
     this.exitNav()
     this.start = null
     this.end = null
+    this.waypoints = []
+    this.wpMarkers.forEach((m) => m.remove())
+    this.wpMarkers = []
     this.markers.forEach((m) => m.remove())
     this.markers = []
     this.userMarker = null
@@ -265,6 +270,7 @@ export class DirectionsManager {
     else this.endMarker = this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
     this.computeRoute(true)
     this.renderRideLinks()
+    this._emitStops()
   }
 
   setStart(lat, lon, name) {
@@ -275,6 +281,7 @@ export class DirectionsManager {
     if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
     else this.addUserMarker([this.start.lon, this.start.lat])
     this.computeRoute(true)
+    this._emitStops()
   }
 
   async useMyLocation() {
@@ -284,6 +291,7 @@ export class DirectionsManager {
     this.start = await this.currentLocation()
     if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
     this.computeRoute(true)
+    this._emitStops()
   }
 
   swapEndpoints() {
@@ -295,6 +303,61 @@ export class DirectionsManager {
     if (this.endMarker) this.endMarker.setLngLat([this.end.lon, this.end.lat])
     this.computeRoute(true)
     this.renderRideLinks()
+    this._emitStops()
+  }
+
+  // --- multi-stop waypoints ---
+  // Ordered [start, ...waypoints, end] with only valid points — what we route.
+  orderedStops() {
+    return [this.start, ...this.waypoints, this.end].filter((p) => p && p.lat != null && p.lon != null)
+  }
+
+  addStop(lat, lon, name) {
+    this.waypoints.push({ lat: Number(lat), lon: Number(lon), name: name || "Stop" })
+    this._syncWpMarkers(); this._emitStops()
+    if (this.orderedStops().length >= 2) this.computeRoute(true)
+  }
+
+  setStop(i, lat, lon, name) {
+    if (!this.waypoints[i]) return
+    this.waypoints[i] = { lat: Number(lat), lon: Number(lon), name: name || "Stop" }
+    this._syncWpMarkers(); this._emitStops(); this.computeRoute(true)
+  }
+
+  removeStop(i) {
+    if (!this.waypoints[i]) return
+    this.waypoints.splice(i, 1)
+    this._syncWpMarkers(); this._emitStops()
+    if (this.orderedStops().length >= 2) this.computeRoute(true)
+  }
+
+  moveStop(from, to) {
+    if (from === to || !this.waypoints[from] || to < 0 || to >= this.waypoints.length) return
+    const [x] = this.waypoints.splice(from, 1)
+    this.waypoints.splice(to, 0, x)
+    this._syncWpMarkers(); this._emitStops(); this.computeRoute(true)
+  }
+
+  _syncWpMarkers() {
+    this.wpMarkers.forEach((m) => m.remove())
+    this.wpMarkers = []
+    if (!this.map) return
+    this.waypoints.forEach((w, i) => {
+      if (w.lat == null) return
+      const el = document.createElement("div")
+      el.style.cssText = "background:#f59e0b;color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:bold 11px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4)"
+      el.textContent = String(i + 1)
+      this.wpMarkers.push(new maplibregl.Marker({ element: el }).setLngLat([w.lon, w.lat]).addTo(this.map))
+    })
+  }
+
+  // Tell the trip planner (place_sheet) to re-render the stop rows.
+  _emitStops() {
+    document.dispatchEvent(new CustomEvent("directions:stops", { detail: {
+      start: { name: this.startName, isMe: !this.manualStart },
+      waypoints: this.waypoints.map((w) => ({ name: w.name })),
+      end: { name: this.destName },
+    } }))
   }
 
   // Programmatic "directions to here" — destination = given coords, start =
@@ -317,6 +380,7 @@ export class DirectionsManager {
     this.showState("preview")
     this.computeRoute(true) // tracking off → 2D whole-route fit
     this.renderRideLinks()
+    this._emitStops()
   }
 
   // Back-compat: older callers may still invoke routeTo.
@@ -591,7 +655,7 @@ export class DirectionsManager {
       const res = await fetch(`/api/v1/directions?api_key=${encodeURIComponent(this.apiKey)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locations: [this.start, this.end], costing: this.costing }),
+        body: JSON.stringify({ locations: this.orderedStops(), costing: this.costing }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
