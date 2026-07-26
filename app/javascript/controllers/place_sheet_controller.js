@@ -735,10 +735,13 @@ export default class extends Controller {
   // small inline row of options; each option hands its payload to the native
   // share sheet (or clipboard fallback).
   share() {
+    // One tap -> native share of the clean map link; ▾ reveals the options.
     if (!this.place) return
-    const host = this.element.querySelector("[data-share-options]")
-    if (!host) return this._shareText(this._shareOsm())
-    host.classList.toggle("hidden")
+    this._shareText(this._mapLink())
+  }
+
+  shareOptions() {
+    this.element.querySelector("[data-share-options]")?.classList.toggle("hidden")
   }
 
   // Tap the "cafe · 53.24665, 10.40620" meta line -> coordinates to clipboard.
@@ -755,21 +758,21 @@ export default class extends Controller {
 
   shareCoords() { this._shareText(`${(+this.place.lat).toFixed(5)}, ${(+this.place.lon).toFixed(5)}`) }
 
-  shareLink() {
-    const name = encodeURIComponent(this.place.name || "")
-    this._shareText(`${this.place.name} — ${location.origin}/map?p=${this.place.lon},${this.place.lat}${name ? `&pname=${name}` : ""}`)
+  shareLink() { this._shareText(this._mapLink()) }
+
+  shareOsm() {
+    this._shareText(`https://www.openstreetmap.org/?mlat=${this.place.lat}&mlon=${this.place.lon}#map=17/${this.place.lat}/${this.place.lon}`)
   }
 
-  shareOsm() { this._shareText(this._shareOsm()) }
-
-  _shareOsm() {
-    return `${this.place.name} — https://www.openstreetmap.org/?mlat=${this.place.lat}&mlon=${this.place.lon}#map=17/${this.place.lat}/${this.place.lon}`
+  _mapLink() {
+    const name = encodeURIComponent(this.place.name || "")
+    return `${location.origin}/map?p=${this.place.lon},${this.place.lat}${name ? `&pname=${name}` : ""}`
   }
 
   async _shareText(text) {
     try {
       if (navigator.share) {
-        await navigator.share({ title: this.place.name, text })
+        await navigator.share({ text })  // no title: payloads stay clean
       } else {
         await navigator.clipboard.writeText(text)
         const btn = this.element.querySelector("[data-share-label]")
