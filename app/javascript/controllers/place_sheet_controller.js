@@ -397,10 +397,12 @@ export default class extends Controller {
 
   close() {
     this.element.style.transform = "translateY(100%)"
-    this.clearPad()
     this.clearHighlight()
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
     this.backToInfo()
+    // AFTER backToInfo: it calls syncPad(), which would re-add the map
+    // padding we're releasing (padding leak while the sheet is hidden).
+    this.clearPad()
     this.hideBackdrop() // closing: no dim (backToInfo would have re-shown it)
   }
 
@@ -579,8 +581,14 @@ export default class extends Controller {
   }
 
   closeEndpointPicker() {
+    // No-op unless the picker is actually open: close() routes through
+    // backToInfo() -> here, and the unconditional translateY(0) "restore"
+    // was clobbering close()'s translateY(100%) in the same tick — the
+    // ✕ button visibly did nothing. Only restore what we actually hid.
+    const wasOpen = this.hasEndpointPickerTarget && !this.endpointPickerTarget.hidden
+    if (!wasOpen && !this._mapLayer) return
     if (this.hasEndpointPickerTarget) this.endpointPickerTarget.hidden = true
-    this.element.style.transform = "translateY(0)" // restore the sheet
+    if (wasOpen) this.element.style.transform = "translateY(0)" // restore the sheet
     if (this._mapLayer) { this._mapLayer.style.zIndex = this._mapLayerZ || ""; this._mapLayer = null }
   }
 
@@ -723,9 +731,42 @@ export default class extends Controller {
     }
   }
 
-  async share() {
+  // Share chooser: coordinates / clean link / OSM link. First tap opens a
+  // small inline row of options; each option hands its payload to the native
+  // share sheet (or clipboard fallback).
+  share() {
     if (!this.place) return
-    const text = `${this.place.name} — https://www.openstreetmap.org/?mlat=${this.place.lat}&mlon=${this.place.lon}#map=17/${this.place.lat}/${this.place.lon}`
+    const host = this.element.querySelector("[data-share-options]")
+    if (!host) return this._shareText(this._shareOsm())
+    host.classList.toggle("hidden")
+  }
+
+  // Tap the "cafe · 53.24665, 10.40620" meta line -> coordinates to clipboard.
+  async copyCoords() {
+    if (!this.place || !this.hasMetaTarget) return
+    const coords = `${(+this.place.lat).toFixed(5)}, ${(+this.place.lon).toFixed(5)}`
+    try {
+      await navigator.clipboard.writeText(coords)
+      const prev = this.metaTarget.textContent
+      this.metaTarget.textContent = "coordinates copied ✓"
+      setTimeout(() => { this.metaTarget.textContent = prev }, 1200)
+    } catch (_) { /* clipboard unavailable */ }
+  }
+
+  shareCoords() { this._shareText(`${(+this.place.lat).toFixed(5)}, ${(+this.place.lon).toFixed(5)}`) }
+
+  shareLink() {
+    const name = encodeURIComponent(this.place.name || "")
+    this._shareText(`${this.place.name} — ${location.origin}/map?p=${this.place.lon},${this.place.lat}${name ? `&pname=${name}` : ""}`)
+  }
+
+  shareOsm() { this._shareText(this._shareOsm()) }
+
+  _shareOsm() {
+    return `${this.place.name} — https://www.openstreetmap.org/?mlat=${this.place.lat}&mlon=${this.place.lon}#map=17/${this.place.lat}/${this.place.lon}`
+  }
+
+  async _shareText(text) {
     try {
       if (navigator.share) {
         await navigator.share({ title: this.place.name, text })

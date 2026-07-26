@@ -1,7 +1,8 @@
 <% state = changelog_indicator_state %>
 <% github_update = state != :widget && new_version_available? %>
 <div id="version-indicator" class="relative inline-flex items-center">
-  <div class="badge mx-4 <%= 'badge-outline' if github_update %>">
+  <%# vicquick fork: version text is sm+ only — hide the whole badge on mobile (was an empty circle) %>
+  <div class="badge mx-4 hidden sm:inline-flex <%= 'badge-outline' if github_update %>">
     <a href="https://github.com/Freika/dawarich/releases/latest" target="_blank" class="inline-flex items-center">
       <% if github_update %>
         <span class="tooltip tooltip-bottom" data-tip="New version available! Check out Github releases!">

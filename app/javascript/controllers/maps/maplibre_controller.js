@@ -263,6 +263,7 @@ export default class extends Controller {
     if (this.map.isStyleLoaded()) {
       this.poisManager.setup()
       this.restoreSharedRouteFromUrl()
+    this.restoreSharedPlaceFromUrl()
     } else {
       this.map.once("load", () => { this.poisManager.setup(); this.restoreSharedRouteFromUrl() })
     }
@@ -419,6 +420,23 @@ export default class extends Controller {
       const json = decodeURIComponent(escape(atob(enc.replace(/-/g, "+").replace(/_/g, "/"))))
       const data = JSON.parse(json)
       setTimeout(() => document.dispatchEvent(new CustomEvent("directions:restore", { detail: data })), 600)
+    } catch (_) { /* malformed link — ignore */ }
+  }
+
+  // vicquick fork: open a place shared via ?p=lon,lat[&pname=…] — the clean
+  // share link. Flies there and opens the place sheet.
+  restoreSharedPlaceFromUrl() {
+    try {
+      const q = new URLSearchParams(window.location.search)
+      const p = q.get("p")
+      if (!p) return
+      const [lon, lat] = p.split(",").map(Number)
+      if (!isFinite(lon) || !isFinite(lat)) return
+      const name = q.get("pname") || `${lat.toFixed(5)}, ${lon.toFixed(5)}`
+      setTimeout(() => {
+        try { this.map?.flyTo({ center: [lon, lat], zoom: 17 }) } catch (_) {}
+        document.dispatchEvent(new CustomEvent("place-sheet:open", { detail: { name, lat, lon } }))
+      }, 700)
     } catch (_) { /* malformed link — ignore */ }
   }
 

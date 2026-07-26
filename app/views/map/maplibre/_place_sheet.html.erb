@@ -25,7 +25,7 @@
       <div style="min-width:0;">
         <h3 data-place-sheet-target="title" style="margin:0; font-size:1.15rem; font-weight:700; line-height:1.2;">Place</h3>
         <p data-place-sheet-target="address" style="margin:2px 0 0; font-size:.85rem; opacity:.75;"></p>
-        <p data-place-sheet-target="meta" style="margin:2px 0 0; font-size:.72rem; opacity:.55;"></p>
+        <p data-place-sheet-target="meta" data-action="click->place-sheet#copyCoords" title="Tap to copy coordinates" style="margin:2px 0 0; font-size:.72rem; opacity:.55; cursor:copy;"></p>
       </div>
       <button type="button" data-action="click->place-sheet#close" aria-label="Close"
               class="btn btn-ghost btn-sm btn-circle">✕</button>
@@ -45,6 +45,14 @@
         <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
           🔗 <span data-share-label>Share</span>
         </button>
+      </div>
+      <%# share chooser: coordinates / clean link / OSM (hidden until Share is tapped) %>
+      <div data-share-options class="hidden" style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+        <button type="button" data-action="click->place-sheet#shareCoords" class="btn btn-ghost btn-xs">📍 Coordinates</button>
+        <button type="button" data-action="click->place-sheet#shareLink" class="btn btn-ghost btn-xs">🔗 Map link</button>
+        <button type="button" data-action="click->place-sheet#shareOsm" class="btn btn-ghost btn-xs">🌍 OSM link</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
         <button type="button" data-action="click->place-sheet#streetView" class="btn btn-outline btn-sm gap-1" aria-label="Street View">🧍 Street View</button>
       </div>
 
