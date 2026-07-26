@@ -233,7 +233,7 @@ Rails.application.routes.draw do
     get '/v1', to: 'leaflet#index', as: :v1
     # vicquick fork: /map is canonical (no version in the URL) — old /map/v2
     # links redirect there, query string preserved.
-    get '/v2', to: redirect { |_p, req| req.query_string.to_s.empty? ? '/map' : "/map?#{req.query_string}" }
+    get '/v2', to: redirect { |_p, req| req.query_string.to_s.empty? ? '/map' : "/map?#{req.query_string}" }, as: :v2_legacy
     resources :timeline_feeds, only: [:index] do
       get :track_info, on: :member
       get :calendar, on: :collection
