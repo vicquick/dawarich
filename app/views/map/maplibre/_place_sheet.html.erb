@@ -43,13 +43,13 @@
                 data-action="click->place-sheet#toggleTagPicker"
                 class="btn btn-sm gap-1">⭐ Save</button>
         <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
-          🔗 <span data-share-label>Share</span>
+          <span data-share-emoji>🔗</span> <span data-share-label>Share</span>
         </button>
         <button type="button" data-action="click->place-sheet#shareOptions" class="btn btn-outline btn-sm px-2"
                 aria-label="More share options">▾</button>
       </div>
       <%# share chooser: coordinates / clean link / OSM (hidden until Share is tapped) %>
-      <div data-share-options class="hidden" style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+      <div data-share-options style="display:none; gap:8px; margin-top:10px; flex-wrap:wrap;">
         <button type="button" data-action="click->place-sheet#shareCoords" class="btn btn-ghost btn-xs">📍 Coordinates</button>
         <button type="button" data-action="click->place-sheet#shareLink" class="btn btn-ghost btn-xs">🔗 Map link</button>
         <button type="button" data-action="click->place-sheet#shareOsm" class="btn btn-ghost btn-xs">🌍 OSM link</button>
