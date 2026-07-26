@@ -734,14 +734,17 @@ export default class extends Controller {
   // Share chooser: coordinates / clean link / OSM link. First tap opens a
   // small inline row of options; each option hands its payload to the native
   // share sheet (or clipboard fallback).
+  // Share is ONE tap: shares the current mode's payload (default: clean map
+  // link). ▾ opens the chips; picking one becomes the sticky mode, updates the
+  // Share button icon, shares immediately, and collapses the row.
   share() {
-    // One tap -> native share of the clean map link; ▾ reveals the options.
     if (!this.place) return
-    this._shareText(this._mapLink())
+    this._shareText(this._payload(this._shareMode || "link"))
   }
 
   shareOptions() {
-    this.element.querySelector("[data-share-options]")?.classList.toggle("hidden")
+    const host = this.element.querySelector("[data-share-options]")
+    if (host) host.style.display = host.style.display === "none" ? "flex" : "none"
   }
 
   // Tap the "cafe · 53.24665, 10.40620" meta line -> coordinates to clipboard.
@@ -756,12 +759,23 @@ export default class extends Controller {
     } catch (_) { /* clipboard unavailable */ }
   }
 
-  shareCoords() { this._shareText(`${(+this.place.lat).toFixed(5)}, ${(+this.place.lon).toFixed(5)}`) }
+  shareCoords() { this._pickShareMode("coords", "📍") }
+  shareLink()   { this._pickShareMode("link", "🔗") }
+  shareOsm()    { this._pickShareMode("osm", "🌍") }
 
-  shareLink() { this._shareText(this._mapLink()) }
+  _pickShareMode(mode, emoji) {
+    this._shareMode = mode
+    const em = this.element.querySelector("[data-share-emoji]")
+    if (em) em.textContent = emoji
+    const host = this.element.querySelector("[data-share-options]")
+    if (host) host.style.display = "none"
+    this._shareText(this._payload(mode))
+  }
 
-  shareOsm() {
-    this._shareText(`https://www.openstreetmap.org/?mlat=${this.place.lat}&mlon=${this.place.lon}#map=17/${this.place.lat}/${this.place.lon}`)
+  _payload(mode) {
+    if (mode === "coords") return `${(+this.place.lat).toFixed(5)}, ${(+this.place.lon).toFixed(5)}`
+    if (mode === "osm") return `https://www.openstreetmap.org/?mlat=${this.place.lat}&mlon=${this.place.lon}#map=17/${this.place.lat}/${this.place.lon}`
+    return this._mapLink()
   }
 
   _mapLink() {
