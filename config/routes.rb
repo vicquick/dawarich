@@ -104,7 +104,7 @@ Rails.application.routes.draw do
   # once the redesign is known-stable so browsers cache the redirect.
   get '/visits', to: redirect(status: 302) { |_params, req|
     status = req.params[:status]
-    base = '/map/v2?panel=timeline&date=today'
+    base = '/map?panel=timeline&date=today'
     status ? "#{base}&status=#{status}" : "#{base}&status=confirmed"
   }
   resources :visits, only: %i[update destroy] do
@@ -231,7 +231,9 @@ Rails.application.routes.draw do
   # Map namespace with versioning
   namespace :map do
     get '/v1', to: 'leaflet#index', as: :v1
-    get '/v2', to: 'maplibre#index', as: :v2
+    # vicquick fork: /map is canonical (no version in the URL) — old /map/v2
+    # links redirect there, query string preserved.
+    get '/v2', to: redirect { |_p, req| req.query_string.to_s.empty? ? '/map' : "/map?#{req.query_string}" }
     resources :timeline_feeds, only: [:index] do
       get :track_info, on: :member
       get :calendar, on: :collection
@@ -250,8 +252,8 @@ Rails.application.routes.draw do
   # Backward compatibility redirects
   # vicquick fork: /map renders the MapLibre map directly (no redirect) — it's
   # the engine we're standardising on. Explicit /map/v1 still serves Leaflet.
-  get '/map', to: 'map/maplibre#index'
-  get '/maps/v2', to: redirect('/map/v2')
+  get '/map', to: 'map/maplibre#index', as: :map_v2
+  get '/maps/v2', to: redirect('/map')
 
   namespace :api do
     namespace :v1 do

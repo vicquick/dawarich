@@ -319,7 +319,7 @@ class VisitsController < ApplicationController
   def build_timeline_url(date: 'today', status: nil)
     params = { panel: 'timeline', date: date }
     params[:status] = status if status.present?
-    "/map/v2?#{params.to_query}"
+    "/map?#{params.to_query}"
   end
 
   # Refreshes the lifetime pending-suggestion badge on the Timeline map button

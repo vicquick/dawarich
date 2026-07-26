@@ -342,7 +342,7 @@ export default class extends Controller {
     params.set("end_at", endAtLocal)
     params.set("panel", "timeline")
     params.set("date", date)
-    window.history.pushState({}, "", `/map/v2?${params.toString()}`)
+    window.history.pushState({}, "", `/map?${params.toString()}`)
 
     document.dispatchEvent(
       new CustomEvent("timeline-feed:date-navigated", {

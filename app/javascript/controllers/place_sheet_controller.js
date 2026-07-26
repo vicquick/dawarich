@@ -444,7 +444,7 @@ export default class extends Controller {
     if (!data) return
     const enc = btoa(unescape(encodeURIComponent(JSON.stringify(data))))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-    const url = `${location.origin}/map/v2?dir=${enc}`
+    const url = `${location.origin}/map?dir=${enc}`
     try {
       if (navigator.share) await navigator.share({ title: "Route", url })
       else { await navigator.clipboard.writeText(url); this._flash(e?.currentTarget, "✓ Link copied") }
