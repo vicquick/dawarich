@@ -282,7 +282,11 @@ export default class extends Controller {
       if (d.today_hours) {
         parts.push(`<span class="ps-hours-toggle" style="opacity:.8;cursor:${hasWeek ? "pointer" : "default"}">Today ${this.esc(d.today_hours)}${hasWeek ? " ▾" : ""}</span>`)
       } else if (d.opening_hours) {
-        parts.push(`<span style="opacity:.7">${this.esc(d.opening_hours)}</span>`)
+        // Raw OSM hours can be a long multi-rule string — Google never shows
+        // that. Keep it only when it's short; otherwise show just the first rule.
+        const oh = d.opening_hours.trim()
+        const short = oh.length <= 40 ? oh : `${oh.split(";")[0].trim()} …`
+        parts.push(`<span style="opacity:.7">${this.esc(short)}</span>`)
       }
       let html = ""
       // Photo (Wikidata / Brave / Wikimedia Commons) when available.
@@ -300,7 +304,11 @@ export default class extends Controller {
       if (d.phone) links.push(`<a href="tel:${this.esc(d.phone)}" class="btn btn-outline btn-sm gap-1">📞 Call</a>`)
       if (d.website) links.push(`<a href="${this.esc(d.website)}" target="_blank" rel="noopener" class="btn btn-outline btn-sm gap-1">🌐 Website</a>`)
       if (links.length) html += `<div style="display:flex;gap:8px;flex-wrap:wrap">${links.join("")}</div>`
-      if (d.description) html += `<p style="font-size:.8rem;opacity:.7;margin-top:8px">${this.esc(d.description)}</p>`
+      if (d.description) {
+        // Clamp long Wikidata/Brave blurbs to 3 lines so the sheet stays tidy.
+        const desc = d.description.length > 280 ? `${d.description.slice(0, 277).trimEnd()}…` : d.description
+        html += `<p style="font-size:.8rem;opacity:.72;margin-top:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${this.esc(desc)}</p>`
+      }
       if (d.cuisine) html += `<p style="font-size:.75rem;opacity:.6;margin-top:6px">${this.esc(d.cuisine.replace(/;/g, ", "))}</p>`
       this.enrichmentTarget.innerHTML = html
       const toggle = this.enrichmentTarget.querySelector(".ps-hours-toggle")

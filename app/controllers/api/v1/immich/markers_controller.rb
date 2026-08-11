@@ -24,7 +24,9 @@ class Api::V1::Immich::MarkersController < ApiController
     geojson = Rails.cache.fetch("immich:markers:#{fav ? 'fav' : 'all'}", expires_in: MARKERS_TTL) do
       to_geojson(fetch_markers(fav))
     end
-    render json: geojson
+    # Expose the Immich web base (foreign GeoJSON member) so the map popup can
+    # deep-link each photo to its Immich viewer without shipping a URL per asset.
+    render json: geojson.merge('immich_web' => immich_base.chomp('/'))
   rescue StandardError => e
     Rails.logger.warn("immich markers failed: #{e.message}")
     render json: { type: 'FeatureCollection', features: [] }

@@ -163,7 +163,9 @@
   }
   .immich-popup .maplibregl-popup-tip { border-top-color: oklch(var(--b1)); }
   .immich-pop { width: 240px; max-width: 62vw; }
-  .immich-pop__img { display: block; width: 100%; height: auto; border-radius: .55rem; }
+  .immich-pop__link { display: block; cursor: zoom-in; }
+  .immich-pop__link:hover .immich-pop__img { opacity: .93; }
+  .immich-pop__img { display: block; width: 100%; height: auto; border-radius: .55rem; transition: opacity .15s ease; }
   .immich-pop__meta { margin: .45rem .15rem .1rem; font-size: .8rem; font-weight: 600; opacity: .72; }
 
   /* Hide the old standalone incident toggle — folded into this control now. */

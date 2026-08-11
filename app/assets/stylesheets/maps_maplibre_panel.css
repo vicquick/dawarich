@@ -262,7 +262,10 @@
     width: 100% !important;
     max-width: none;
     height: auto;
-    max-height: 82vh;
+    /* Cap so the sheet top always sits just BELOW the fixed navbar (4rem +
+       safe-area), matching bottom_sheet_controller#maxSheetPx — otherwise on a
+       short/notched viewport the "Map Layers" header tucks under the top bar. */
+    max-height: calc(100dvh - 4rem - env(safe-area-inset-top) - 12px);
     transform: translateY(110%); /* parked below the screen */
     border-right: none;
     border-top: 1px solid oklch(var(--bc) / 0.1);
@@ -289,7 +292,7 @@
   }
   /* Inner layout fills the sheet and scrolls within it. */
   .panel-content {
-    max-height: calc(82vh - 14px);
+    max-height: calc(100dvh - 4rem - env(safe-area-inset-top) - 26px);
   }
   .panel-body {
     overflow-y: auto;

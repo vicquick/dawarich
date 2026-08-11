@@ -33,6 +33,7 @@ export class ImmichManager {
       const res = await fetch(`/api/v1/immich/markers?api_key=${encodeURIComponent(this.apiKey)}`)
       if (res.ok) geojson = await res.json()
     } catch (_) { /* noop — layer stays empty, never breaks the map */ }
+    this._immichWeb = (geojson && geojson.immich_web) || ""
 
     const map = this.map
     if (map.getSource("immich-photos")) {
@@ -116,10 +117,17 @@ export class ImmichManager {
     const coords = f.geometry.coordinates.slice()
     const city = f.properties.city || ""
     const src = `/api/v1/immich/thumb/${encodeURIComponent(id)}?size=preview&api_key=${encodeURIComponent(this.apiKey)}`
-    const html = `<div class="immich-pop"><img class="immich-pop__img" src="${src}" alt="" loading="lazy"/>${
+    // Tapping the photo opens it in Immich (full quality + metadata); fall back
+    // to the preview image itself when the Immich web base is unknown.
+    const href = this._immichWeb ? `${this._immichWeb}/photos/${encodeURIComponent(id)}` : src
+    const img = `<img class="immich-pop__img" src="${src}" alt="" loading="lazy"/>`
+    const html = `<div class="immich-pop"><a class="immich-pop__link" href="${href}" target="_blank" rel="noopener" aria-label="Open photo in Immich">${img}</a>${
       city ? `<div class="immich-pop__meta">📍 ${city}</div>` : ""
     }</div>`
     if (this._popup) this._popup.remove()
+    // Nudge the map so the whole popup lands inside the canvas (Google-style):
+    // centre the point, biased upward so the popup opening above it has room.
+    this.map.easeTo({ center: coords, offset: [0, 90], duration: 300 })
     this._popup = new maplibregl.Popup({ closeButton: true, maxWidth: "270px", offset: 14, className: "immich-popup" })
       .setLngLat(coords).setHTML(html).addTo(this.map)
   }
