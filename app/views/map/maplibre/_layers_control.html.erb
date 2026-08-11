@@ -16,7 +16,7 @@
       # MAPY_API_KEY is configured — until then we don't show a topo option
       # (OpenTopoMap was dropped).
       if ENV['MAPY_API_KEY'].present?
-        chips.insert(3, ["topo", "Outdoor", "https://api.mapy.com/v1/maptiles/outdoor/256/11/1083/665?apikey=#{ENV['MAPY_API_KEY']}"])
+        chips.insert(3, ["mapy", "Outdoor", "https://api.mapy.com/v1/maptiles/outdoor/256/11/1083/665?apikey=#{ENV['MAPY_API_KEY']}"])
       end
       chips.each do |val, label, thumb| %>
         <button type="button" class="layers-chip" data-basemap="<%= val %>"

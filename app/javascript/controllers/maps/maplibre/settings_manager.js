@@ -1091,7 +1091,7 @@ export class SettingsController {
   // (light/dark) go through getMapStyle (POI filtering); raster bases
   // (transit/topo/aerial) are plain style files served from /public. Either
   // way we re-add all data on style.load, so routes/places/incidents survive.
-  static RASTER_BASEMAPS = ["transit", "topo", "aerial"]
+  static RASTER_BASEMAPS = ["transit", "topo", "aerial", "mapy"]
 
   async selectBasemap(name) {
     let style

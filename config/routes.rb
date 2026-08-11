@@ -5,7 +5,7 @@ require 'sidekiq/web'
 Rails.application.routes.draw do
   # vicquick fork: dynamic "topo" basemap style (Mapy.com outdoor behind an ENV
   # key, CyclOSM fallback). Replaces the static public/.../topo.json.
-  get 'maps_maplibre/styles/topo', to: 'map_styles#topo', defaults: { format: 'json' }
+  get 'maps_maplibre/styles/mapy', to: 'map_styles#topo', defaults: { format: 'json' }
 
   mount ActionCable.server => '/cable'
   mount Rswag::Api::Engine => '/api-docs'
