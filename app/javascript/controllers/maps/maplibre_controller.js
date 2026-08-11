@@ -20,6 +20,7 @@ import { MapDataManager } from "./maplibre/map_data_manager"
 import { MapInitializer } from "./maplibre/map_initializer"
 import { installMapPadding } from "./maplibre/map_overlay_padding"
 import { ImmichManager } from "./maplibre/immich_manager"
+import { WeatherManager } from "./maplibre/weather_manager"
 import { PlacesManager } from "./maplibre/places_manager"
 import { POIsManager } from "./maplibre/pois_manager"
 import { StreetView } from "./maplibre/street_view"
@@ -276,6 +277,10 @@ export default class extends Controller {
     // vicquick fork: Immich photos as a native clustered layer (Layers → Photos).
     this.immichManager = new ImmichManager(this)
     window.dawarichImmich = this.immichManager
+
+    // vicquick fork: live rain radar overlay (Layers → Weather).
+    this.weatherManager = new WeatherManager(this)
+    window.dawarichWeather = this.weatherManager
 
     // Listen for tab changes to trigger timeline feed loading via Turbo Frame
     this.boundHandleTabChanged = this.handleTabChanged.bind(this)

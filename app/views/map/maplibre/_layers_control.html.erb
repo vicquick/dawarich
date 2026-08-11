@@ -52,6 +52,14 @@
       <span class="layers-overlay__label">Photos</span>
       <span class="layers-overlay__switch" aria-hidden="true"></span>
     </button>
+    <button type="button" class="layers-overlay layers-overlay--weather"
+            data-layers-control-target="weatherToggle"
+            data-action="click->layers-control#toggleWeather"
+            aria-pressed="false" aria-label="Toggle live rain radar">
+      <span class="layers-overlay__icon">🌧</span>
+      <span class="layers-overlay__label">Weather</span>
+      <span class="layers-overlay__switch" aria-hidden="true"></span>
+    </button>
   </div>
 
   <%# The trigger button (bottom-right) %>
@@ -144,6 +152,8 @@
   .layers-overlay--on .layers-overlay__switch::after { transform: translateX(1rem); }
   /* Photos overlay reads teal when on, matching its map cluster colour. */
   .layers-overlay--photos.layers-overlay--on .layers-overlay__switch { background: #0d9488; }
+  /* Weather overlay reads sky-blue when on, matching the rain radar. */
+  .layers-overlay--weather.layers-overlay--on .layers-overlay__switch { background: #0284c7; }
 
   /* Immich photo popup — clean framed preview, theme-aware. */
   .immich-popup .maplibregl-popup-content {

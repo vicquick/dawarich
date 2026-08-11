@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // basemap swap + incident layer are driven through window hooks exposed by the
 // maplibre controller, so this stays a thin, self-contained UI.
 export default class extends Controller {
-  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle", "immichToggle"]
+  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle", "immichToggle", "weatherToggle"]
 
   connect() {
     this.open = false
@@ -83,6 +83,11 @@ export default class extends Controller {
       this.immichToggleTarget.classList.toggle("layers-overlay--on", on)
       this.immichToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
     }
+    if (this.hasWeatherToggleTarget) {
+      const on = !!window.dawarichWeather?.isOn?.()
+      this.weatherToggleTarget.classList.toggle("layers-overlay--on", on)
+      this.weatherToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
+    }
   }
 
   toggleTraffic(e) {
@@ -107,5 +112,15 @@ export default class extends Controller {
     try { on = !!(await window.dawarichImmich?.toggle?.()) } catch (_) { /* noop */ }
     this.immichToggleTarget.classList.toggle("layers-overlay--on", on)
     this.immichToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
+  }
+
+  // Weather radar overlay — async (fetches the latest frame on enable).
+  async toggleWeather(e) {
+    e?.stopPropagation()
+    if (!this.hasWeatherToggleTarget) return
+    let on = false
+    try { on = !!(await window.dawarichWeather?.toggle?.()) } catch (_) { /* noop */ }
+    this.weatherToggleTarget.classList.toggle("layers-overlay--on", on)
+    this.weatherToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
   }
 }
