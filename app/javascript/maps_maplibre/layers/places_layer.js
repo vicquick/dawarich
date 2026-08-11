@@ -19,6 +19,7 @@ export class PlacesLayer extends BaseLayer {
     }
   }
 
+  getLayerConfigs() {
     // Base pin radius — smaller when zoomed out, larger up close. Reused across
     // the glow and the dot so they stay concentric. Starred gets a touch bigger.
     const baseRadius = [
