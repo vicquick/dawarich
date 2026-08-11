@@ -44,6 +44,14 @@
       <span class="layers-overlay__label">Street View</span>
       <span class="layers-overlay__switch" aria-hidden="true"></span>
     </button>
+    <button type="button" class="layers-overlay layers-overlay--photos"
+            data-layers-control-target="immichToggle"
+            data-action="click->layers-control#toggleImmich"
+            aria-pressed="false" aria-label="Toggle your photos on the map">
+      <span class="layers-overlay__icon">📷</span>
+      <span class="layers-overlay__label">Photos</span>
+      <span class="layers-overlay__switch" aria-hidden="true"></span>
+    </button>
   </div>
 
   <%# The trigger button (bottom-right) %>
@@ -134,6 +142,19 @@
   }
   .layers-overlay--on .layers-overlay__switch { background: #ea4335; }
   .layers-overlay--on .layers-overlay__switch::after { transform: translateX(1rem); }
+  /* Photos overlay reads teal when on, matching its map cluster colour. */
+  .layers-overlay--photos.layers-overlay--on .layers-overlay__switch { background: #0d9488; }
+
+  /* Immich photo popup — clean framed preview, theme-aware. */
+  .immich-popup .maplibregl-popup-content {
+    padding: .45rem; border-radius: .8rem;
+    background: oklch(var(--b1)); color: oklch(var(--bc));
+    box-shadow: 0 10px 30px rgba(0,0,0,.34);
+  }
+  .immich-popup .maplibregl-popup-tip { border-top-color: oklch(var(--b1)); }
+  .immich-pop { width: 240px; max-width: 62vw; }
+  .immich-pop__img { display: block; width: 100%; height: auto; border-radius: .55rem; }
+  .immich-pop__meta { margin: .45rem .15rem .1rem; font-size: .8rem; font-weight: 600; opacity: .72; }
 
   /* Hide the old standalone incident toggle — folded into this control now. */
   .traffic-toggle { display: none !important; }

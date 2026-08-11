@@ -373,6 +373,9 @@ Rails.application.routes.draw do
       namespace :immich do
         post 'enrich/scan', to: 'enrich#scan'
         post 'enrich', to: 'enrich#create'
+        # Native photos-on-map (vicquick fork): clustered markers + key-safe thumbnails
+        get 'markers', to: 'markers#index'
+        get 'thumb/:id', to: 'markers#thumb', constraints: { id: %r{[^/]+} }
       end
 
       namespace :families do

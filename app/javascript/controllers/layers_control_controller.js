@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // basemap swap + incident layer are driven through window hooks exposed by the
 // maplibre controller, so this stays a thin, self-contained UI.
 export default class extends Controller {
-  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle"]
+  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle", "immichToggle"]
 
   connect() {
     this.open = false
@@ -78,6 +78,11 @@ export default class extends Controller {
       this.streetToggleTarget.classList.toggle("layers-overlay--on", on)
       this.streetToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
     }
+    if (this.hasImmichToggleTarget) {
+      const on = !!window.dawarichImmich?.isOn?.()
+      this.immichToggleTarget.classList.toggle("layers-overlay--on", on)
+      this.immichToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
+    }
   }
 
   toggleTraffic(e) {
@@ -92,5 +97,15 @@ export default class extends Controller {
     try { window.dawarichStreetView?.toggle?.() } catch (_) { /* noop */ }
     this.syncActive()
     this.close() // get out of the way so you can tap the map
+  }
+
+  // Immich photos overlay — toggle is async (lazy-loads on first enable).
+  async toggleImmich(e) {
+    e?.stopPropagation()
+    if (!this.hasImmichToggleTarget) return
+    let on = false
+    try { on = !!(await window.dawarichImmich?.toggle?.()) } catch (_) { /* noop */ }
+    this.immichToggleTarget.classList.toggle("layers-overlay--on", on)
+    this.immichToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
   }
 }
