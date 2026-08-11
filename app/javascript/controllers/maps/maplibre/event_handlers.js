@@ -663,6 +663,9 @@ export class EventHandlers {
     const fullFeature = this._getFullTrackFeature(properties) || clickedFeature
     this.selectedTrackFeature = fullFeature
 
+    // vicquick fork: open the elevation + speed profile for this track.
+    try { window.dawarichTrackProfile?.open(properties.id) } catch (_) { /* noop */ }
+
     // Keep the on-map highlight + segment visualization — those are visual
     // feedback for the click itself, independent of the info surface.
     try {

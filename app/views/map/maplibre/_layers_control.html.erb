@@ -196,6 +196,28 @@
     :root:not([data-theme="light"]) .maplibregl-ctrl-group .maplibregl-ctrl-icon { filter: invert(1) brightness(1.7); }
   }
 
+  /* Theme the attribution "credits" pill to match — translucent dark card,
+     muted links, themed (i) toggle. */
+  .maplibregl-ctrl-attrib {
+    background: color-mix(in oklch, oklch(var(--b1)) 82%, transparent) !important;
+    color: oklch(var(--bc)) !important;
+    border-radius: 0.7rem !important;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    font-size: .68rem;
+  }
+  .maplibregl-ctrl-attrib a { color: oklch(var(--bc)) !important; opacity: .68; }
+  .maplibregl-ctrl-attrib a:hover { opacity: 1; }
+  .maplibregl-ctrl-attrib.maplibregl-compact {
+    background: oklch(var(--b1)) !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,.26);
+    min-height: 1.9rem; min-width: 1.9rem; border-radius: 0.85rem !important;
+  }
+  :root[data-theme="dark"] .maplibregl-ctrl-attrib-button,
+  .dark .maplibregl-ctrl-attrib-button { filter: invert(1) brightness(1.7); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .maplibregl-ctrl-attrib-button { filter: invert(1) brightness(1.7); }
+  }
+
   /* Hide the old standalone incident toggle — folded into this control now. */
   .traffic-toggle { display: none !important; }
 
