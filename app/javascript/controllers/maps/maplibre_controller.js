@@ -22,6 +22,7 @@ import { installMapPadding } from "./maplibre/map_overlay_padding"
 import { ImmichManager } from "./maplibre/immich_manager"
 import { WeatherManager } from "./maplibre/weather_manager"
 import { TrackProfileManager } from "./maplibre/track_profile"
+import { TrailsManager } from "./maplibre/trails_manager"
 import { PlacesManager } from "./maplibre/places_manager"
 import { POIsManager } from "./maplibre/pois_manager"
 import { StreetView } from "./maplibre/street_view"
@@ -286,6 +287,10 @@ export default class extends Controller {
     // vicquick fork: elevation + speed profile panel (opens on track click).
     this.trackProfile = new TrackProfileManager(this)
     window.dawarichTrackProfile = this.trackProfile
+
+    // vicquick fork: Waymarked Trails hiking overlay (Layers → Trails).
+    this.trailsManager = new TrailsManager(this)
+    window.dawarichTrails = this.trailsManager
 
     // Listen for tab changes to trigger timeline feed loading via Turbo Frame
     this.boundHandleTabChanged = this.handleTabChanged.bind(this)

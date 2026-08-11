@@ -6,13 +6,19 @@
   <div data-layers-control-target="panel" class="layers-panel">
     <div class="layers-panel__section-title">Map type</div>
     <div class="layers-chips">
-      <% [
+      <% chips = [
         ["white",   "Light",     "https://a.basemaps.cartocdn.com/light_all/11/1083/665.png"],
         ["dark",    "Dark",      "https://a.basemaps.cartocdn.com/dark_all/11/1083/665.png"],
         ["transit", "Cycle",     "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/11/1083/665.png"],
-        ["topo",    "Topo",      "https://a.tile.opentopomap.org/11/1083/665.png"],
         ["aerial",  "Satellite", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/11/665/1083"]
-      ].each do |val, label, thumb| %>
+      ]
+      # vicquick fork: the "Outdoor" (Mapy.com) chip appears only once a free
+      # MAPY_API_KEY is configured — until then we don't show a topo option
+      # (OpenTopoMap was dropped).
+      if ENV['MAPY_API_KEY'].present?
+        chips.insert(3, ["topo", "Outdoor", "https://api.mapy.com/v1/maptiles/outdoor/256/11/1083/665?apikey=#{ENV['MAPY_API_KEY']}"])
+      end
+      chips.each do |val, label, thumb| %>
         <button type="button" class="layers-chip" data-basemap="<%= val %>"
                 data-layers-control-target="chip"
                 data-action="click->layers-control#pickBase"
@@ -58,6 +64,14 @@
             aria-pressed="false" aria-label="Toggle live rain radar">
       <span class="layers-overlay__icon">🌧</span>
       <span class="layers-overlay__label">Weather</span>
+      <span class="layers-overlay__switch" aria-hidden="true"></span>
+    </button>
+    <button type="button" class="layers-overlay layers-overlay--trails"
+            data-layers-control-target="trailsToggle"
+            data-action="click->layers-control#toggleTrails"
+            aria-pressed="false" aria-label="Toggle hiking trails">
+      <span class="layers-overlay__icon">🥾</span>
+      <span class="layers-overlay__label">Trails</span>
       <span class="layers-overlay__switch" aria-hidden="true"></span>
     </button>
   </div>
@@ -154,6 +168,8 @@
   .layers-overlay--photos.layers-overlay--on .layers-overlay__switch { background: #0d9488; }
   /* Weather overlay reads sky-blue when on, matching the rain radar. */
   .layers-overlay--weather.layers-overlay--on .layers-overlay__switch { background: #0284c7; }
+  /* Trails overlay reads trail-red when on. */
+  .layers-overlay--trails.layers-overlay--on .layers-overlay__switch { background: #dc2626; }
 
   /* Immich photo popup — clean framed preview, theme-aware. */
   .immich-popup .maplibregl-popup-content {

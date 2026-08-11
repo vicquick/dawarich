@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // basemap swap + incident layer are driven through window hooks exposed by the
 // maplibre controller, so this stays a thin, self-contained UI.
 export default class extends Controller {
-  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle", "immichToggle", "weatherToggle"]
+  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle", "immichToggle", "weatherToggle", "trailsToggle"]
 
   connect() {
     this.open = false
@@ -88,6 +88,11 @@ export default class extends Controller {
       this.weatherToggleTarget.classList.toggle("layers-overlay--on", on)
       this.weatherToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
     }
+    if (this.hasTrailsToggleTarget) {
+      const on = !!window.dawarichTrails?.isOn?.()
+      this.trailsToggleTarget.classList.toggle("layers-overlay--on", on)
+      this.trailsToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
+    }
   }
 
   toggleTraffic(e) {
@@ -122,5 +127,15 @@ export default class extends Controller {
     try { on = !!(await window.dawarichWeather?.toggle?.()) } catch (_) { /* noop */ }
     this.weatherToggleTarget.classList.toggle("layers-overlay--on", on)
     this.weatherToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
+  }
+
+  // Waymarked Trails hiking overlay.
+  async toggleTrails(e) {
+    e?.stopPropagation()
+    if (!this.hasTrailsToggleTarget) return
+    let on = false
+    try { on = !!(await window.dawarichTrails?.toggle?.()) } catch (_) { /* noop */ }
+    this.trailsToggleTarget.classList.toggle("layers-overlay--on", on)
+    this.trailsToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
   }
 }
