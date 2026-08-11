@@ -723,8 +723,34 @@ export class DirectionsManager {
     const km = (p.distance_km ?? 0).toFixed(1)
     const mins = Math.round((p.duration_s ?? 0) / 60)
     const live = this.tracking && !this.manualStart ? `  <span style="color:#16a34a">● Live</span>` : ""
-    this.setSummary(`${km} km · ${mins} min${live}`, true)
+    const arrive = this.arrivalClock(p.duration_s)
+    this.setSummary(`${km} km · ${mins} min${arrive}${live}`, true)
     this.setTurns(this.maneuvers)
+  }
+
+  // "· arrive 14:32" — the live ETA Google shows. Only for a known duration.
+  arrivalClock(durationS) {
+    if (!durationS) return ""
+    const t = new Date(Date.now() + durationS * 1000)
+    const hh = String(t.getHours()).padStart(2, "0")
+    const mm = String(t.getMinutes()).padStart(2, "0")
+    return ` · <span style="color:#6b7280;font-weight:600">arrive ${hh}:${mm}</span>`
+  }
+
+  // Download the selected route as a GPX track (opens in Komoot/OsmAnd/Garmin).
+  exportGpx() {
+    const coords = this.routeCoords
+    if (!coords || coords.length < 2) return
+    const name = this.destName || "Route"
+    const pts = coords.map(([lon, lat]) => `<trkpt lat="${Number(lat).toFixed(6)}" lon="${Number(lon).toFixed(6)}"></trkpt>`).join("")
+    const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Dawarich" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${this.esc(name)}</name><trkseg>${pts}</trkseg></trk></gpx>`
+    const blob = new Blob([gpx], { type: "application/gpx+xml" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `${name.replace(/[^\w.-]+/g, "_").slice(0, 50) || "route"}.gpx`
+    document.body.appendChild(a); a.click()
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1000)
   }
 
   // Pick an alternative route (from the preview chooser) without refetching.

@@ -453,6 +453,12 @@ export default class extends Controller {
     } catch (_) { /* user cancelled — noop */ }
   }
 
+  // Download the current route as a GPX track.
+  exportGpx(e) {
+    try { window.dawarichDirections?.exportGpx?.() } catch (_) { /* noop */ }
+    this._flash(e?.currentTarget, "✓ GPX")
+  }
+
   // Rebuild a shared route from ?dir= (dispatched by the map controller on load).
   restoreSharedRoute(data) {
     if (!data?.s || data.s.length < 2) return

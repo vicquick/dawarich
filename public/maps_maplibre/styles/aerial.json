@@ -10,10 +10,22 @@
       "tileSize": 256,
       "maxzoom": 19,
       "attribution": "Imagery © <a href=\"https://www.esri.com\">Esri</a>, Maxar, Earthstar Geographics"
+    },
+    "carto-labels": {
+      "type": "raster",
+      "tiles": [
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png",
+        "https://b.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png",
+        "https://c.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}.png"
+      ],
+      "tileSize": 256,
+      "maxzoom": 20,
+      "attribution": "Labels © <a href=\"https://carto.com/attributions\">CARTO</a>"
     }
   },
   "layers": [
     { "id": "background", "type": "background", "paint": { "background-color": "#1c1c1c" } },
-    { "id": "esri-imagery", "type": "raster", "source": "esri-imagery" }
+    { "id": "esri-imagery", "type": "raster", "source": "esri-imagery" },
+    { "id": "carto-labels", "type": "raster", "source": "carto-labels", "paint": { "raster-opacity": 0.92 } }
   ]
 }
