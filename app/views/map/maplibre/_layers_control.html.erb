@@ -9,8 +9,8 @@
       <% [
         ["white",   "Light",     "https://a.basemaps.cartocdn.com/light_all/11/1083/665.png"],
         ["dark",    "Dark",      "https://a.basemaps.cartocdn.com/dark_all/11/1083/665.png"],
-        ["transit", "Transit",   "https://tileserver.memomaps.de/tilegen/11/1083/665.png"],
-        ["topo",    "Terrain",   "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web/default/WEBMERCATOR/11/665/1083.png"],
+        ["transit", "Cycle",     "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/11/1083/665.png"],
+        ["topo",    "Topo",      "https://a.tile.opentopomap.org/11/1083/665.png"],
         ["aerial",  "Satellite", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/11/665/1083"]
       ].each do |val, label, thumb| %>
         <button type="button" class="layers-chip" data-basemap="<%= val %>"
@@ -167,6 +167,34 @@
   .immich-pop__link:hover .immich-pop__img { opacity: .93; }
   .immich-pop__img { display: block; width: 100%; height: auto; border-radius: .55rem; transition: opacity .15s ease; }
   .immich-pop__meta { margin: .45rem .15rem .1rem; font-size: .8rem; font-weight: 600; opacity: .72; }
+
+  /* Theme the native MapLibre controls (zoom / compass / geolocate) to match
+     the app chrome: rounded dark cards, bigger tap targets, theme-aware icons. */
+  .maplibregl-ctrl-group {
+    background: oklch(var(--b1)) !important;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 12%, transparent) !important;
+    border-radius: 0.85rem !important;
+    box-shadow: 0 2px 12px rgba(0,0,0,.26) !important;
+    overflow: hidden;
+  }
+  .maplibregl-ctrl-group button {
+    width: 2.4rem; height: 2.4rem; background: transparent !important;
+  }
+  .maplibregl-ctrl-group button + button {
+    border-top: 1px solid color-mix(in oklch, oklch(var(--bc)) 10%, transparent) !important;
+  }
+  .maplibregl-ctrl-group button:hover {
+    background: color-mix(in oklch, oklch(var(--b1)) 90%, oklch(var(--bc))) !important;
+  }
+  /* Default control icons are dark SVGs — invert on dark backgrounds so they
+     stay legible on the dark card. */
+  :root[data-theme="dark"] .maplibregl-ctrl-group .maplibregl-ctrl-icon,
+  .dark .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+    filter: invert(1) brightness(1.7);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .maplibregl-ctrl-group .maplibregl-ctrl-icon { filter: invert(1) brightness(1.7); }
+  }
 
   /* Hide the old standalone incident toggle — folded into this control now. */
   .traffic-toggle { display: none !important; }

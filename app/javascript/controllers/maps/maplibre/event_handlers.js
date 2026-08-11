@@ -9,6 +9,40 @@ import {
   formatTimestamp,
 } from "maps_maplibre/utils/geojson_transformers"
 
+// vicquick fork: drive the animated white selection ring on the places layer
+// (feature-state, keyed on the place id via the source's promoteId). Module
+// scope so it survives the unbound `handlePlaceClick` and is reachable from the
+// place sheet's close() via window.dawarichClearPlaceSel.
+let _selPlaceId = null
+let _popTimer = null
+
+function selectPlacePin(id) {
+  const map = window.dawarichMap
+  const src = "places-source"
+  if (!map || id == null || !map.getSource(src)) return
+  if (_selPlaceId != null && _selPlaceId !== id) {
+    try { map.setFeatureState({ source: src, id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+  }
+  _selPlaceId = id
+  try {
+    map.setFeatureState({ source: src, id }, { selected: true, pop: true })
+    clearTimeout(_popTimer)
+    _popTimer = setTimeout(() => {
+      try { map.setFeatureState({ source: src, id }, { pop: false }) } catch (_) { /* noop */ }
+    }, 160)
+  } catch (_) { /* noop */ }
+}
+
+function clearPlaceSelection() {
+  const map = window.dawarichMap
+  if (map && _selPlaceId != null && map.getSource("places-source")) {
+    try { map.setFeatureState({ source: "places-source", id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+  }
+  _selPlaceId = null
+}
+
+if (typeof window !== "undefined") window.dawarichClearPlaceSel = clearPlaceSelection
+
 /**
  * Handles map interaction events (clicks, info display)
  */
@@ -208,6 +242,8 @@ export class EventHandlers {
         },
       }),
     )
+    // Ring the selected pin (animated) — cleared when the sheet closes.
+    selectPlacePin(p.id)
   }
 
   /**

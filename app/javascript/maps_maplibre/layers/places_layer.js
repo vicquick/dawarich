@@ -12,6 +12,9 @@ export class PlacesLayer extends BaseLayer {
   getSourceConfig() {
     return {
       type: "geojson",
+      // promoteId lets us drive the per-pin selection ring via feature-state
+      // (keyed on the place id) — see event_handlers#handlePlaceClick.
+      promoteId: "id",
       data: this.data || {
         type: "FeatureCollection",
         features: [],
@@ -20,45 +23,22 @@ export class PlacesLayer extends BaseLayer {
   }
 
   getLayerConfigs() {
-    // Pin radii — smaller when zoomed out, larger up close. MapLibre forbids a
-    // zoom expression nested inside arithmetic or a case, so the glow and dot
-    // each carry their own top-level interpolate (glow ≈ dot + 5).
+    // Minimal pins: flat filled dots in the tag colour, NO stroke. The white
+    // ring only appears on the SELECTED pin and animates in with a little
+    // "press" overshoot (feature-state selected/pop → stroke transitions).
     const dotRadius = [
       "interpolate", ["linear"], ["zoom"],
-      8, 3.5, 12, 5, 15, 7, 18, 9.5,
+      8, 3.5, 12, 5, 15, 6.5, 18, 8.5,
     ]
-    const glowRadius = [
+    const ringRadius = [
       "interpolate", ["linear"], ["zoom"],
-      8, 8.5, 12, 10, 15, 12, 18, 14.5,
+      8, 6, 12, 7.5, 15, 9.5, 18, 12,
     ]
-    const strokeWidth = [
-      "interpolate", ["linear"], ["zoom"],
-      8, 1.6, 15, 2.4,
-    ]
-    const isWishlist = ["==", ["get", "state"], "want_to_go"]
-    const isStarred = ["==", ["get", "state"], "starred"]
+    const selected = ["boolean", ["feature-state", "selected"], false]
+    const pop = ["boolean", ["feature-state", "pop"], false]
 
     return [
-      // Soft amber halo under starred pins only — the one place we let a pin
-      // "glow", so the eye lands on favourites first without any icon clutter.
-      {
-        id: `${this.id}-glow`,
-        type: "circle",
-        source: this.sourceId,
-        filter: ["all", ["to-boolean", ["get", "color"]], isStarred],
-        paint: {
-          "circle-radius": glowRadius,
-          "circle-color": "#eab308",
-          "circle-opacity": 0.18,
-          "circle-blur": 0.7,
-        },
-      },
-
-      // Place dots — only tagged places (untagged auto-visit places are noise).
-      // Shape language: wishlist ("Want to go") reads as a HOLLOW ring — white
-      // centre, coloured stroke — like a spot you haven't filled in yet. Every
-      // other saved state is a FILLED dot in its tag hue. Starred sits a hair
-      // larger over its glow.
+      // The dot — flat, tag-coloured, strokeless. That's the whole pin at rest.
       {
         id: this.id,
         type: "circle",
@@ -66,18 +46,26 @@ export class PlacesLayer extends BaseLayer {
         filter: ["to-boolean", ["get", "color"]],
         paint: {
           "circle-radius": dotRadius,
-          "circle-color": [
-            "case",
-            isWishlist, "#ffffff",
-            ["coalesce", ["get", "color"], "#64748b"],
-          ],
-          "circle-stroke-color": [
-            "case",
-            isWishlist, ["coalesce", ["get", "color"], "#22c55e"],
-            "#ffffff",
-          ],
-          "circle-stroke-width": strokeWidth,
+          "circle-color": ["coalesce", ["get", "color"], "#22c55e"],
           "circle-opacity": 1,
+        },
+      },
+
+      // Selection ring — invisible until its pin is selected, then the white
+      // ring springs in (0 → 4.5 overshoot → 2.5) for a tactile "button press".
+      {
+        id: `${this.id}-ring`,
+        type: "circle",
+        source: this.sourceId,
+        filter: ["to-boolean", ["get", "color"]],
+        paint: {
+          "circle-radius": ringRadius,
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": ["case", pop, 4.5, ["case", selected, 2.5, 0]],
+          "circle-stroke-opacity": ["case", selected, 1, 0],
+          "circle-stroke-width-transition": { duration: 170, delay: 0 },
+          "circle-stroke-opacity-transition": { duration: 150, delay: 0 },
         },
       },
 
@@ -111,6 +99,6 @@ export class PlacesLayer extends BaseLayer {
   }
 
   getLayerIds() {
-    return [`${this.id}-glow`, this.id, `${this.id}-labels`]
+    return [this.id, `${this.id}-ring`, `${this.id}-labels`]
   }
 }

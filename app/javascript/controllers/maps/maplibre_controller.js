@@ -531,6 +531,11 @@ export default class extends Controller {
         showUserHeading: true,
       })
       this.map.addControl(this.geolocateControl, "bottom-left")
+      // vicquick fork: locate the user automatically on arrival (best-effort —
+      // the browser may require a gesture / prior permission grant).
+      const locateNow = () => { try { this.geolocateControl.trigger() } catch (_) { /* noop */ } }
+      if (this.map.loaded()) locateNow()
+      else this.map.once("load", locateNow)
     } catch (e) {
       // non-fatal if geolocation is unavailable
     }

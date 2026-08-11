@@ -62,6 +62,10 @@ export class WeatherManager {
     }
     this.map.addSource(SRC, {
       type: "raster", tiles: conf.tiles, tileSize: 256,
+      // Radar is coarse; cap native tiles at z8 and let MapLibre overzoom
+      // (stretch) beyond that. Avoids RainViewer's "Zoom Level Not Supported"
+      // placeholder tiles at high zoom, and keeps the layer smooth.
+      maxzoom: 8,
       attribution: 'Radar © <a href="https://www.rainviewer.com/">RainViewer</a>',
     })
     this.map.addLayer({

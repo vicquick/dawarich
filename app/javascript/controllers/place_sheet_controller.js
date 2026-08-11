@@ -305,9 +305,9 @@ export default class extends Controller {
       if (d.website) links.push(`<a href="${this.esc(d.website)}" target="_blank" rel="noopener" class="btn btn-outline btn-sm gap-1">🌐 Website</a>`)
       if (links.length) html += `<div style="display:flex;gap:8px;flex-wrap:wrap">${links.join("")}</div>`
       if (d.description) {
-        // Clamp long Wikidata/Brave blurbs to 3 lines so the sheet stays tidy.
-        const desc = d.description.length > 280 ? `${d.description.slice(0, 277).trimEnd()}…` : d.description
-        html += `<p style="font-size:.8rem;opacity:.72;margin-top:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${this.esc(desc)}</p>`
+        // Keep it to a short 2-line blurb — Google shows a snippet, not an essay.
+        const desc = d.description.length > 150 ? `${d.description.slice(0, 147).trimEnd()}…` : d.description
+        html += `<p style="font-size:.8rem;opacity:.72;margin-top:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${this.esc(desc)}</p>`
       }
       if (d.cuisine) html += `<p style="font-size:.75rem;opacity:.6;margin-top:6px">${this.esc(d.cuisine.replace(/;/g, ", "))}</p>`
       this.enrichmentTarget.innerHTML = html
@@ -406,6 +406,7 @@ export default class extends Controller {
   close() {
     this.element.style.transform = "translateY(100%)"
     this.clearHighlight()
+    try { window.dawarichClearPlaceSel?.() } catch (e) { /* noop */ }
     try { window.dawarichDirections?.disable() } catch (e) { /* noop */ }
     this.backToInfo()
     // AFTER backToInfo: it calls syncPad(), which would re-add the map
