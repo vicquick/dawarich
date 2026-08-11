@@ -20,11 +20,20 @@ export class PlacesLayer extends BaseLayer {
   }
 
   getLayerConfigs() {
-    // Base pin radius — smaller when zoomed out, larger up close. Reused across
-    // the glow and the dot so they stay concentric. Starred gets a touch bigger.
-    const baseRadius = [
+    // Pin radii — smaller when zoomed out, larger up close. MapLibre forbids a
+    // zoom expression nested inside arithmetic or a case, so the glow and dot
+    // each carry their own top-level interpolate (glow ≈ dot + 5).
+    const dotRadius = [
       "interpolate", ["linear"], ["zoom"],
       8, 3.5, 12, 5, 15, 7, 18, 9.5,
+    ]
+    const glowRadius = [
+      "interpolate", ["linear"], ["zoom"],
+      8, 8.5, 12, 10, 15, 12, 18, 14.5,
+    ]
+    const strokeWidth = [
+      "interpolate", ["linear"], ["zoom"],
+      8, 1.6, 15, 2.4,
     ]
     const isWishlist = ["==", ["get", "state"], "want_to_go"]
     const isStarred = ["==", ["get", "state"], "starred"]
@@ -38,7 +47,7 @@ export class PlacesLayer extends BaseLayer {
         source: this.sourceId,
         filter: ["all", ["to-boolean", ["get", "color"]], isStarred],
         paint: {
-          "circle-radius": ["+", baseRadius, 5],
+          "circle-radius": glowRadius,
           "circle-color": "#eab308",
           "circle-opacity": 0.18,
           "circle-blur": 0.7,
@@ -56,7 +65,7 @@ export class PlacesLayer extends BaseLayer {
         source: this.sourceId,
         filter: ["to-boolean", ["get", "color"]],
         paint: {
-          "circle-radius": ["+", baseRadius, ["case", isStarred, 1.5, 0]],
+          "circle-radius": dotRadius,
           "circle-color": [
             "case",
             isWishlist, "#ffffff",
@@ -67,12 +76,7 @@ export class PlacesLayer extends BaseLayer {
             isWishlist, ["coalesce", ["get", "color"], "#22c55e"],
             "#ffffff",
           ],
-          "circle-stroke-width": [
-            "case",
-            isWishlist,
-            ["interpolate", ["linear"], ["zoom"], 8, 2, 15, 3.2],
-            ["interpolate", ["linear"], ["zoom"], 8, 1.5, 15, 2.2],
-          ],
+          "circle-stroke-width": strokeWidth,
           "circle-opacity": 1,
         },
       },
