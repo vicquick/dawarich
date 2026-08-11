@@ -19,29 +19,60 @@ export class PlacesLayer extends BaseLayer {
     }
   }
 
-  getLayerConfigs() {
+    // Base pin radius — smaller when zoomed out, larger up close. Reused across
+    // the glow and the dot so they stay concentric. Starred gets a touch bigger.
+    const baseRadius = [
+      "interpolate", ["linear"], ["zoom"],
+      8, 3.5, 12, 5, 15, 7, 18, 9.5,
+    ]
+    const isWishlist = ["==", ["get", "state"], "want_to_go"]
+    const isStarred = ["==", ["get", "state"], "starred"]
+
     return [
-      // Place circles — only tagged places (untagged auto-visit places are
-      // noise; a tagged place always has a color from its tag).
+      // Soft amber halo under starred pins only — the one place we let a pin
+      // "glow", so the eye lands on favourites first without any icon clutter.
+      {
+        id: `${this.id}-glow`,
+        type: "circle",
+        source: this.sourceId,
+        filter: ["all", ["to-boolean", ["get", "color"]], isStarred],
+        paint: {
+          "circle-radius": ["+", baseRadius, 5],
+          "circle-color": "#eab308",
+          "circle-opacity": 0.18,
+          "circle-blur": 0.7,
+        },
+      },
+
+      // Place dots — only tagged places (untagged auto-visit places are noise).
+      // Shape language: wishlist ("Want to go") reads as a HOLLOW ring — white
+      // centre, coloured stroke — like a spot you haven't filled in yet. Every
+      // other saved state is a FILLED dot in its tag hue. Starred sits a hair
+      // larger over its glow.
       {
         id: this.id,
         type: "circle",
         source: this.sourceId,
         filter: ["to-boolean", ["get", "color"]],
         paint: {
-          // Smaller dots when zoomed out, larger up close — less clutter.
-          "circle-radius": [
-            "interpolate", ["linear"], ["zoom"],
-            8, 4, 12, 6, 15, 9, 18, 12,
-          ],
+          "circle-radius": ["+", baseRadius, ["case", isStarred, 1.5, 0]],
           "circle-color": [
-            "coalesce",
-            ["get", "color"], //  Use tag color if available
-            "#6366f1", // Default indigo color
+            "case",
+            isWishlist, "#ffffff",
+            ["coalesce", ["get", "color"], "#64748b"],
           ],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": 0.9,
+          "circle-stroke-color": [
+            "case",
+            isWishlist, ["coalesce", ["get", "color"], "#22c55e"],
+            "#ffffff",
+          ],
+          "circle-stroke-width": [
+            "case",
+            isWishlist,
+            ["interpolate", ["linear"], ["zoom"], 8, 2, 15, 3.2],
+            ["interpolate", ["linear"], ["zoom"], 8, 1.5, 15, 2.2],
+          ],
+          "circle-opacity": 1,
         },
       },
 
@@ -75,6 +106,6 @@ export class PlacesLayer extends BaseLayer {
   }
 
   getLayerIds() {
-    return [this.id, `${this.id}-labels`]
+    return [`${this.id}-glow`, this.id, `${this.id}-labels`]
   }
 }
