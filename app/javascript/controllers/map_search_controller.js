@@ -149,8 +149,10 @@ export default class extends Controller {
     this.hideArea()
     try {
       const openParam = this._openNow ? "&open_now=true" : ""
+      const bbox = this.viewBbox()
+      const bboxParam = bbox ? `&bbox=${encodeURIComponent(bbox)}` : ""
       const p = cat.category ? `category=${encodeURIComponent(cat.category)}` : `q=${encodeURIComponent(q)}`
-      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&${p}&limit=12${openParam}`)
+      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&${p}&limit=24${openParam}${bboxParam}`)
       if (!res.ok) return []
       const data = await res.json()
       return (data.results || []).map((r) => ({
@@ -228,7 +230,9 @@ export default class extends Controller {
     this.renderLoading()
     try {
       const openParam = this._openNow ? "&open_now=true" : ""
-      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&category=${encodeURIComponent(cat)}&limit=20${openParam}`)
+      const bbox = this.viewBbox()
+      const bboxParam = bbox ? `&bbox=${encodeURIComponent(bbox)}` : ""
+      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&category=${encodeURIComponent(cat)}&limit=30${openParam}${bboxParam}`)
       if (!res.ok) return this.renderEmpty("Nearby unavailable")
       const data = await res.json()
       const list = (data.results || []).map((r) => ({
@@ -273,6 +277,15 @@ export default class extends Controller {
 
   showArea() { if (this.hasSearchAreaTarget) this.searchAreaTarget.hidden = false }
   hideArea() { if (this.hasSearchAreaTarget) this.searchAreaTarget.hidden = true }
+
+  // Current viewport as "south,west,north,east" for search-in-view. The backend
+  // searches the whole box (and ignores it if it's too large), so what you see
+  // is what gets searched — zoom out to widen, zoom in to focus.
+  viewBbox() {
+    if (!this.map) return null
+    const b = this.map.getBounds()
+    return `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`
+  }
 
   haversine(lat1, lon1, lat2, lon2) {
     const R = 6371000, rad = Math.PI / 180
@@ -329,7 +342,9 @@ export default class extends Controller {
     this.hideArea()
     try {
       const openParam = this._openNow ? "&open_now=true" : ""
-      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&q=${encodeURIComponent(q)}&limit=24${openParam}`)
+      const bbox = this.viewBbox()
+      const bboxParam = bbox ? `&bbox=${encodeURIComponent(bbox)}` : ""
+      const res = await fetch(`/api/v1/nearby?api_key=${encodeURIComponent(this.apiKeyValue)}&lat=${c.lat}&lon=${c.lng}&q=${encodeURIComponent(q)}&limit=30${openParam}${bboxParam}`)
       if (!res.ok) return this.renderEmpty("Nothing found nearby")
       const data = await res.json()
       const list = (data.results || []).map((r) => ({

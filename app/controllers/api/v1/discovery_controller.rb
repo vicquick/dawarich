@@ -207,6 +207,11 @@ class Api::V1::DiscoveryController < ApiController
     limit = (params[:limit] || 15).to_i.clamp(1, 50)
     radius = (params[:radius] || 1500).to_i.clamp(100, 5000)
     open_only = params[:open_now].to_s == 'true'
+    # vicquick fork: true "search in view" — when the client passes the visible
+    # viewport (bbox=s,w,n,e) we search the WHOLE box, not a fixed radius, so
+    # zooming out actually widens the search like Google's "Search this area".
+    # Falls back to the radius path when bbox is absent or unusably large.
+    bbox = parse_bbox(params[:bbox])
 
     # Resolve category key and/or free-text query into an Overpass filter.
     filter, label = resolve_filter(category, q)
@@ -214,17 +219,38 @@ class Api::V1::DiscoveryController < ApiController
 
     # Cache the raw POI list (Redis, ~111m bucket); open-now is recomputed fresh
     # below so it's never stale. Prefer Overpass, fall back to Photon.
-    key = "v2/nearby/#{label}/#{lat.round(3)}/#{lon.round(3)}/#{radius}"
-    results = Rails.cache.fetch(key, expires_in: 6.hours) do
-      overpass_nearby(lat, lon, filter, label, radius) ||
-        photon_nearby(lat, lon, category.presence || q, limit)
-    end
+    results =
+      if bbox
+        k = bbox.map { |v| v.round(3) }.join(',')
+        Rails.cache.fetch("v2/inview/#{label}/#{k}", expires_in: 6.hours) do
+          overpass_in_bbox(bbox, filter, label)
+        end
+      else
+        Rails.cache.fetch("v2/nearby/#{label}/#{lat.round(3)}/#{lon.round(3)}/#{radius}", expires_in: 6.hours) do
+          overpass_nearby(lat, lon, filter, label, radius) ||
+            photon_nearby(lat, lon, category.presence || q, limit)
+        end
+      end
     return render_error('Search engine error', :bad_gateway) if results.nil?
 
     results = results.map { |r| r.merge(open_now: r[:opening_hours] ? open_now?(r[:opening_hours]) : nil) }
     results = results.select { |r| r[:open_now] } if open_only
     results = results.sort_by { |r| r[:distance_m] }.first(limit)
-    render json: { results: results, category: label }
+    render json: { results: results, category: label, in_view: !bbox.nil? }
+  end
+
+  # Parse & sanity-check a "south,west,north,east" viewport. Returns nil unless
+  # it's a valid, sanely-sized box — an oversized bbox (whole-country zoom) would
+  # ask Overpass for the world, so we punt back to the radius path there.
+  MAX_BBOX_SPAN_DEG = 0.9 # ~100 km lat; keeps Overpass fast and results useful
+  def parse_bbox(raw)
+    parts = raw.to_s.split(',').map { |v| Float(v) rescue nil }
+    return nil unless parts.length == 4 && parts.all?
+    s, w, n, e = parts
+    return nil unless s.between?(-90, 90) && n.between?(-90, 90) && w.between?(-180, 180) && e.between?(-180, 180)
+    return nil unless n > s && e > w
+    return nil if (n - s) > MAX_BBOX_SPAN_DEG || (e - w) > MAX_BBOX_SPAN_DEG
+    [s, w, n, e]
   end
 
   # Resolve a category key and/or free-text query into an Overpass filter and a
@@ -635,6 +661,46 @@ class Api::V1::DiscoveryController < ApiController
         opening_hours: hours,
         cuisine: tags['cuisine'],
         distance_m: haversine(lat, lon, plat, plon).round
+      }
+    end
+  rescue StandardError
+    nil
+  end
+
+  # Search every matching POI inside the visible viewport (Overpass bbox filter).
+  # Distance is measured from the box centre so the list still sorts nearest-first.
+  def overpass_in_bbox(bbox, selectors, label)
+    sel = Array(selectors).compact
+    return nil if sel.empty?
+
+    s, w, n, e = bbox
+    box = "(#{s},#{w},#{n},#{e})"
+    union = sel.map { |x| "nwr#{box}#{x};" }.join
+    ql = "[out:json][timeout:25];(#{union});out center tags 120;"
+    resp = overpass_post(ql)
+    return nil unless resp&.is_a?(Net::HTTPSuccess)
+
+    clat = (s + n) / 2.0
+    clon = (w + e) / 2.0
+    els = Oj.load(resp.body)['elements'] || []
+    els.filter_map do |el|
+      tags = el['tags'] || {}
+      name = tags['name'] || tags['brand']
+      next if name.blank?
+
+      plat = el['lat'] || el.dig('center', 'lat')
+      plon = el['lon'] || el.dig('center', 'lon')
+      next if plat.nil? || plon.nil?
+
+      {
+        name: name,
+        category: tags['amenity'] || tags['shop'] || tags['tourism'] || tags['leisure'] || label,
+        address: [tags['addr:street'], tags['addr:housenumber'], tags['addr:postcode'], tags['addr:city']].compact.join(' '),
+        lat: plat, lon: plon,
+        osm_type: el['type'], osm_id: el['id'],
+        opening_hours: tags['opening_hours'],
+        cuisine: tags['cuisine'],
+        distance_m: haversine(clat, clon, plat, plon).round
       }
     end
   rescue StandardError
