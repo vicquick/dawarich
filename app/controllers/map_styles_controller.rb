@@ -21,7 +21,7 @@ class MapStylesController < ActionController::Base
       sources: { mapy: {
         type: 'raster',
         tiles: ["https://api.mapy.com/v1/maptiles/outdoor/256/{z}/{x}/{y}?apikey=#{key}"],
-        tileSize: 256, maxzoom: 20,
+        tileSize: 256, maxzoom: 19,
         attribution: '© <a href="https://mapy.com/">Seznam.cz, a.s.</a> and partners'
       } },
       layers: [
