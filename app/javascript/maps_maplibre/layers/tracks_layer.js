@@ -1,5 +1,23 @@
 import { BaseLayer } from "./base_layer"
 
+// vicquick fork: every track used to render in the SAME indigo (the serializer
+// hands out one DEFAULT_COLOR and there's no colour column), so a day with
+// several hikes was one indistinguishable tangle. Give each track its own
+// colour, picked from its id so it's stable across reloads — the OrganicMaps
+// look. Hues chosen to stay legible on both the light and dark basemaps.
+const TRACK_PALETTE = [
+  "#3b82f6", "#f97316", "#a855f7", "#10b981", "#ef4444",
+  "#eab308", "#06b6d4", "#ec4899", "#84cc16", "#f43f5e",
+]
+// NB: ["at", i, ["literal", [...]]] is rejected — MapLibre wants array<color>
+// and won't coerce a string array. A `match` over id % N is the working form.
+const TRACK_COLOR = [
+  "match",
+  ["%", ["to-number", ["get", "id"], 0], TRACK_PALETTE.length],
+  ...TRACK_PALETTE.flatMap((c, i) => [i, c]),
+  TRACK_PALETTE[0],
+]
+
 /**
  * Tracks layer for saved routes with segment visualization support
  *
@@ -50,7 +68,7 @@ export class TracksLayer extends BaseLayer {
           "line-cap": "round",
         },
         paint: {
-          "line-color": ["get", "color"],
+          "line-color": TRACK_COLOR,
           // Bolder, fully opaque line that thickens as you zoom in — a tracked
           // hike should read like a route (OrganicMaps/Komoot), not a hairline.
           "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 12, 5, 16, 7],
