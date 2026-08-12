@@ -264,13 +264,16 @@ export default class extends Controller {
 
     // vicquick fork: interactive basemap POIs (tap desktop / long-press mobile).
     this.poisManager = new POIsManager(this)
-    if (this.map.isStyleLoaded()) {
+    // Both branches must restore BOTH kinds of shared link. Previously the
+    // place restore only ran when the style happened to be loaded already —
+    // i.e. never on a cold load — so ?p= links silently did nothing.
+    const restoreShared = () => {
       this.poisManager.setup()
       this.restoreSharedRouteFromUrl()
-    this.restoreSharedPlaceFromUrl()
-    } else {
-      this.map.once("load", () => { this.poisManager.setup(); this.restoreSharedRouteFromUrl() })
+      this.restoreSharedPlaceFromUrl()
     }
+    if (this.map.isStyleLoaded()) restoreShared()
+    else this.map.once("load", restoreShared)
 
     // vicquick fork: Panoramax Street View (free open imagery, no backend).
     this.streetView = new StreetView(this)

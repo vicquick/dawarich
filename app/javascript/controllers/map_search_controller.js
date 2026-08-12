@@ -122,18 +122,29 @@ export default class extends Controller {
 
   async openSharedLink(q) {
     this.renderLoading()
+    // Resolving a short link means a server-side round trip to Google; cap it
+    // so a slow/blocked lookup shows a message instead of spinning forever.
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 15000)
     try {
-      const res = await fetch(`/api/v1/resolve_link?api_key=${encodeURIComponent(this.apiKeyValue)}&url=${encodeURIComponent(q.trim())}`)
-      if (!res.ok) return this.renderEmpty("Couldn't read that link")
+      const res = await fetch(
+        `/api/v1/resolve_link?api_key=${encodeURIComponent(this.apiKeyValue)}&url=${encodeURIComponent(q.trim())}`,
+        { signal: ctrl.signal },
+      )
+      if (!res.ok) return this.renderEmpty("Couldn't read that link — is it complete?")
       const p = await res.json()
-      if (p.lat == null) return this.renderEmpty("Couldn't read that link")
+      if (p.lat == null) return this.renderEmpty("Couldn't read that link — is it complete?")
       this.inputTarget.value = p.name || `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`
       this.close()
       this.map?.easeTo({ center: [p.lon, p.lat], zoom: 17 })
       document.dispatchEvent(new CustomEvent("place-sheet:open", {
         detail: { name: p.name || "Shared place", address: "", lat: p.lat, lon: p.lon, type: "", tags: [] },
       }))
-    } catch (e) { this.renderEmpty("Couldn't read that link") }
+    } catch (e) {
+      this.renderEmpty(e.name === "AbortError" ? "Link lookup timed out" : "Couldn't read that link")
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async search(q) {

@@ -28,7 +28,11 @@ class GoogleMapsLink
     def resolve(url)
       return nil unless supported?(url)
 
-      parse(follow_redirects(url))
+      final_url, body = follow_redirects(url)
+      # Short links usually 302 to the long URL, but Google sometimes answers
+      # with an HTML interstitial instead — then the real maps URL is only in
+      # the markup (og:url / a canonical link), so fall back to scraping it.
+      parse(final_url) || parse(maps_url_in(body))
     rescue StandardError
       nil
     end
@@ -36,25 +40,43 @@ class GoogleMapsLink
     private
 
     def follow_redirects(url, hops = 5)
+      body = nil
       hops.times do
         uri = URI(url)
         http = Net::HTTP.new(uri.host, uri.port)
         http.use_ssl = uri.scheme == 'https'
         http.open_timeout = 4
-        http.read_timeout = 8
+        http.read_timeout = 6
         req = Net::HTTP::Get.new(uri)
-        req['User-Agent'] = 'Mozilla/5.0'
+        # A browser UA matters: Google serves a different (redirect-less) page
+        # to unknown clients.
+        req['User-Agent'] =
+          'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Mobile Safari/537.36'
+        req['Accept-Language'] = 'en'
         resp = http.request(req)
-        return url unless resp.is_a?(Net::HTTPRedirection) && resp['location'].present?
+        unless resp.is_a?(Net::HTTPRedirection) && resp['location'].present?
+          body = resp.body.to_s
+          return [url, body]
+        end
 
         url = URI.join(url, resp['location']).to_s
       end
-      url
+      [url, body]
+    end
+
+    # Dig the real maps URL out of an HTML interstitial.
+    def maps_url_in(html)
+      return nil if html.blank?
+
+      html[%r{<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']}i, 1] ||
+        html[%r{https://www\.google\.[\w.]+/maps/[^"'\\ <]+}i]
     end
 
     # Google encodes the authoritative place coords as !3d<lat>!4d<lon>; the
     # @lat,lon in the path is only the camera, so prefer the former.
     def parse(url)
+      return nil if url.blank?
+
       decoded = CGI.unescape(url.to_s)
       lat = lon = nil
       if (m = decoded.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/))
