@@ -3,6 +3,7 @@
 require 'resolv'
 require 'digest'
 require 'cgi'
+require 'ipaddr'
 
 # Google-Maps-style discovery (vicquick fork) — fully self-hosted where possible.
 # `nearby`     → category POIs around a point via self-hosted Photon (private).
@@ -496,14 +497,55 @@ class Api::V1::DiscoveryController < ApiController
     return commons.first(12) if tags['wikimedia_commons'].present? || tags['wikidata'].present?
 
     place = [name, tags['addr:city'] || tags['addr:suburb']].compact_blank.join(' ')
-    brave = brave_images(place)
-    return commons.first(12) if brave.empty?
+    # Private + unmetered first (self-hosted SearXNG); fall back to Brave only
+    # when SearXNG finds nothing, so a flaky engine never costs us the photos.
+    web = searxng_images(place)
+    web = brave_images(place) if web.empty?
+    return commons.first(12) if web.empty?
 
-    # Ordinary place: lead with Brave's by-name photos (what it actually looks
-    # like) and interleave the geotagged Commons shots (where it sits).
-    brave.zip(commons).flatten.compact.uniq { |p| p[:thumb] }.first(12)
+    # Ordinary place: lead with the by-name photos (what it actually looks like)
+    # and interleave the geotagged Commons shots (where it sits).
+    web.zip(commons).flatten.compact.uniq { |p| p[:thumb] }.first(12)
   rescue StandardError
     []
+  end
+
+  # Self-hosted SearXNG image search — the private, unmetered path for place
+  # photos. Aggregates several engines on our own box, so the place names you
+  # look up never leave the VPN. Thumbnails come back as raw engine URLs (the
+  # JSON API skips SearXNG's image_proxy), so we re-point them at our own signed
+  # proxy — otherwise the browser would fetch straight from Bing & co.
+  def searxng_images(query, limit = 6)
+    base = ENV['SEARXNG_URL'].presence
+    return [] if base.blank? || query.blank?
+
+    Rails.cache.fetch("v1/sx_img/#{Digest::MD5.hexdigest(query)}", expires_in: 30.days) do
+      uri = URI("#{base.chomp('/')}/search")
+      uri.query = URI.encode_www_form(q: query, categories: 'images', format: 'json', safesearch: 1)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = uri.scheme == 'https'
+      http.open_timeout = 3
+      http.read_timeout = 12
+      resp = http.request(Net::HTTP::Get.new(uri))
+      next [] unless resp.is_a?(Net::HTTPSuccess)
+
+      Array(Oj.load(resp.body)['results']).filter_map do |r|
+        raw = r['thumbnail_src'].presence || r['img_src'].presence
+        next if raw.blank?
+
+        { thumb: proxied_photo_url(raw), full: r['url'].presence || raw,
+          title: r['title'].to_s, credit: r['engine'].presence }
+      end.first(limit)
+    end
+  rescue StandardError
+    []
+  end
+
+  # Sign a remote image URL for our own proxy. Signing (rather than allowlisting
+  # hosts) means only URLs WE produced can be fetched — no open proxy / SSRF.
+  def proxied_photo_url(url)
+    token = Rails.application.message_verifier(:place_photo).generate(url, expires_in: 30.days)
+    "/api/v1/photo_proxy?t=#{CGI.escape(token)}"
   end
 
   # Brave Images by place name — broad coverage for shops/restaurants that have
@@ -583,6 +625,68 @@ class Api::V1::DiscoveryController < ApiController
     (Oj.load(resp.body).dig('query', 'pages') || {}).values
   rescue StandardError
     []
+  end
+
+  public
+
+  # Stream a place photo through the server so the browser never talks to the
+  # image host (Bing/Yelp/etc). Only URLs this app signed are fetchable.
+  MAX_PHOTO_BYTES = 3_000_000
+  def photo_proxy
+    url = Rails.application.message_verifier(:place_photo).verified(params[:t].to_s)
+    return head :forbidden if url.blank?
+
+    data, type = fetch_image(url)
+    return head :bad_gateway if data.nil?
+
+    response.set_header('Cache-Control', 'private, max-age=604800')
+    send_data data, type: type, disposition: 'inline'
+  rescue StandardError
+    head :bad_gateway
+  end
+
+  private
+
+  def fetch_image(url, redirects = 3)
+    uri = URI(url)
+    return [nil, nil] unless %w[http https].include?(uri.scheme)
+    # Never let a signed URL point back into our own network.
+    return [nil, nil] if private_host?(uri.host)
+
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = uri.scheme == 'https'
+    http.open_timeout = 4
+    http.read_timeout = 10
+    req = Net::HTTP::Get.new(uri)
+    req['User-Agent'] = 'Mozilla/5.0'
+    resp = http.request(req)
+
+    if resp.is_a?(Net::HTTPRedirection) && redirects.positive? && resp['location'].present?
+      return fetch_image(URI.join(url, resp['location']).to_s, redirects - 1)
+    end
+    return [nil, nil] unless resp.is_a?(Net::HTTPSuccess)
+
+    type = resp['content-type'].to_s
+    return [nil, nil] unless type.start_with?('image/')
+    return [nil, nil] if resp.body.bytesize > MAX_PHOTO_BYTES
+
+    [resp.body, type]
+  rescue StandardError
+    [nil, nil]
+  end
+
+  def private_host?(host)
+    addrs = Resolv.getaddresses(host.to_s)
+    return true if addrs.empty?
+
+    addrs.any? do |a|
+      ip = IPAddr.new(a)
+      ip.loopback? || ip.private? || ip.link_local? || a.start_with?('10.10.10.')
+    rescue StandardError
+      true
+    end
+  rescue StandardError
+    true
   end
 
   # OSM tags for a place, by OSM id (Overpass→OSM API) or by coords+name

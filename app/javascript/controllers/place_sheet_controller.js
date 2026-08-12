@@ -296,6 +296,13 @@ export default class extends Controller {
       if (Array.isArray(d.images)) {
         for (const im of d.images) if (im && im.thumb) photos.push(im)
       }
+      // Photos routed through our own proxy (SearXNG results) are an authed
+      // API endpoint — carry the key like every other /api/v1 asset URL.
+      for (const p of photos) {
+        if (typeof p.thumb === "string" && p.thumb.startsWith("/api/v1/photo_proxy")) {
+          p.thumb += `&api_key=${encodeURIComponent(this.apiKeyValue)}`
+        }
+      }
       if (photos.length === 1) {
         const p = photos[0]
         html += `<a href="${this.esc(p.full || p.thumb)}" target="_blank" rel="noopener" style="display:block"><img src="${this.esc(p.thumb)}" alt="" loading="lazy" style="width:100%;max-height:170px;object-fit:cover;border-radius:12px;margin-bottom:10px" onerror="this.parentElement.remove()"></a>`

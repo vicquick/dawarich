@@ -272,6 +272,7 @@ Rails.application.routes.draw do
       # Discovery: nearby POIs (Photon) + place info (OSM tags) — vicquick fork
       get   'nearby',     to: 'discovery#nearby'
       get   'place_info', to: 'discovery#place_info'
+      get   'photo_proxy', to: 'discovery#photo_proxy'
       patch 'settings', to: 'settings#update'
       get   'settings', to: 'settings#index'
       get   'settings/transportation_recalculation_status', to: 'settings#transportation_recalculation_status'
