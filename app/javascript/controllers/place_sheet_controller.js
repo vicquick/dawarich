@@ -816,15 +816,6 @@ export default class extends Controller {
   shareLink()   { this._pickShareMode("link", "🔗") }
   shareOsm()    { this._pickShareMode("osm", "🌍") }
 
-  // Hand the current place off to Google Maps (for Street View, reviews, or
-  // sending to someone who doesn't have this map).
-  openGoogle() {
-    if (!this.place) return
-    const q = `${this.place.lat},${this.place.lon}`
-    const name = this.place.name ? `&query_place_id=&query=${encodeURIComponent(this.place.name + " " + q)}` : `&query=${q}`
-    window.open(`https://www.google.com/maps/search/?api=1${name}`, "_blank", "noopener")
-  }
-
   _pickShareMode(mode, emoji) {
     this._shareMode = mode
     const em = this.element.querySelector("[data-share-emoji]")

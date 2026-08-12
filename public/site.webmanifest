@@ -1,6 +1,9 @@
 {
   "name": "Dawarich",
   "short_name": "Dawarich",
+  "id": "/map",
+  "start_url": "/map",
+  "scope": "/",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -27,5 +30,14 @@
   ],
   "theme_color": "#ffffff",
   "background_color": "#ffffff",
-  "display": "standalone"
+  "display": "standalone",
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }

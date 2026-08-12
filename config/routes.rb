@@ -257,6 +257,8 @@ Rails.application.routes.draw do
   # vicquick fork: /map renders the MapLibre map directly (no redirect) — it's
   # the engine we're standardising on. Explicit /map/v1 still serves Leaflet.
   get '/map', to: 'map/maplibre#index', as: :map_v2
+  # PWA share target — Android "share to Dawarich" lands here (vicquick fork).
+  get '/share', to: 'share#receive', as: :share_target
   get '/maps/v2', to: redirect('/map')
 
   namespace :api do
