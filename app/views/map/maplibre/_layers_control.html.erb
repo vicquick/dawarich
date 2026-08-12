@@ -256,14 +256,9 @@
      the image entirely and draw the glyph with a mask so it's a clean "i" in
      the theme's foreground colour, perfectly centred in the chip. */
   .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
-    position: static !important;
-    inset: auto !important;
     order: -1; flex: 0 0 auto;
-    /* Fill the chip's CONTENT box exactly. A fixed 2rem here overflowed the
-       30px content area (2rem chip − 2×1px border) and got pinned to the
-       top-left, pushing the glyph 1px off-centre. */
     box-sizing: border-box;
-    width: 100%; height: 100%; margin: 0 !important; padding: 0;
+    margin: 0 !important; padding: 0;
     border-radius: 999px;
     background-color: transparent !important;
     background-image: none !important;
@@ -271,17 +266,29 @@
     filter: none !important;
     display: block;
   }
+  /* COLLAPSED: pin the button to the chip's padding box with inset:0. A
+     percentage height can't resolve here (the grid row is content-sized, which
+     collapsed the button to 30x15), and a fixed 2rem overflowed the 30px
+     content box — both pushed the glyph off-centre. inset:0 is exact. */
+  .maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-button {
+    position: absolute !important;
+    inset: 0 !important;
+    width: auto !important; height: auto !important;
+  }
   .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button::before {
     content: "";
-    display: block; width: 100%; height: 100%;
+    position: absolute; inset: 0;
     background-color: oklch(var(--bc));
-    opacity: .78;
+    opacity: .8;
     -webkit-mask: var(--dw-info) center / 1.05rem 1.05rem no-repeat;
     mask: var(--dw-info) center / 1.05rem 1.05rem no-repeat;
   }
   .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button:hover::before { opacity: 1; }
-  /* Expanded: keep the toggle a fixed square so the text flows beside it. */
-  .maplibregl-compact-show .maplibregl-ctrl-attrib-button { width: 1.9rem; height: 1.9rem; }
+  /* EXPANDED: back in flow as a fixed square so the credits text flows beside it. */
+  .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+    position: relative !important; inset: auto !important;
+    width: 1.9rem !important; height: 1.9rem !important;
+  }
   .maplibregl-ctrl-attrib, .maplibregl-ctrl-attrib a { color: oklch(var(--bc)) !important; }
   .maplibregl-ctrl-attrib a { opacity: .7; text-decoration: none; }
   .maplibregl-ctrl-attrib a:hover { opacity: 1; text-decoration: underline; }
