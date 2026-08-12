@@ -489,16 +489,19 @@ class Api::V1::DiscoveryController < ApiController
     name = (tags['name'] || fallback_name).to_s.strip
     return commons if name.blank?
 
+    # A place with its OWN Commons category (or a Wikidata entry) is a landmark
+    # that's genuinely depicted there — those curated photos beat web-image
+    # search, which drifts to stock/unrelated shots for famous names. Skip Brave
+    # entirely in that case.
+    return commons.first(12) if tags['wikimedia_commons'].present? || tags['wikidata'].present?
+
     place = [name, tags['addr:city'] || tags['addr:suburb']].compact_blank.join(' ')
     brave = brave_images(place)
     return commons.first(12) if brave.empty?
 
-    # Interleave so the strip always mixes both: Commons proves WHERE, Brave
-    # shows WHAT the place looks like. A place tagged with its own Commons
-    # category is genuinely depicted there, so that leads; otherwise Brave's
-    # by-name photos lead (geosearch shots are just the surrounding street).
-    lead, other = tags['wikimedia_commons'].present? ? [commons, brave] : [brave, commons]
-    lead.zip(other).flatten.compact.uniq { |p| p[:thumb] }.first(12)
+    # Ordinary place: lead with Brave's by-name photos (what it actually looks
+    # like) and interleave the geotagged Commons shots (where it sits).
+    brave.zip(commons).flatten.compact.uniq { |p| p[:thumb] }.first(12)
   rescue StandardError
     []
   end
