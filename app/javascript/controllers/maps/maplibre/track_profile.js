@@ -108,13 +108,29 @@ export class TrackProfileManager {
       prof.hasEle ? stat("Range", `${Math.round(prof.minE)}–${Math.round(prof.maxE)} m`) : "",
       prof.maxV != null ? stat("Top speed", `${Math.round(prof.maxV)} km/h`) : "",
     ].join("")
+    // Speed is off by default: on a hike it's mostly GPS jitter and it fights
+    // the elevation curve for attention (OrganicMaps shows elevation alone).
+    let showSpeed = false
+    try { showSpeed = localStorage.getItem("dawarichTrackSpeed") === "1" } catch (_) { /* noop */ }
     this._body.innerHTML = `
       <div class="tp__head">
         <div class="tp__stats">${stats}</div>
-        <button type="button" class="tp__close" aria-label="Close">✕</button>
+        <div class="tp__head-actions">
+          ${prof.maxV != null ? `<button type="button" class="tp__chip${showSpeed ? " tp__chip--on" : ""}" data-speed-toggle>Speed</button>` : ""}
+          <button type="button" class="tp__close" aria-label="Close">✕</button>
+        </div>
       </div>
-      <div class="tp__chart"></div>`
+      <div class="tp__chart${showSpeed ? "" : " tp--nospeed"}"></div>`
     this._body.querySelector(".tp__close").addEventListener("click", () => this.close())
+    const speedBtn = this._body.querySelector("[data-speed-toggle]")
+    if (speedBtn) {
+      speedBtn.addEventListener("click", () => {
+        const chart = this._body.querySelector(".tp__chart")
+        const on = chart.classList.toggle("tp--nospeed") === false
+        speedBtn.classList.toggle("tp__chip--on", on)
+        try { localStorage.setItem("dawarichTrackSpeed", on ? "1" : "0") } catch (_) { /* noop */ }
+      })
+    }
     this._drawChart(this._body.querySelector(".tp__chart"), prof)
   }
 
@@ -176,12 +192,12 @@ export class TrackProfileManager {
         </defs>
         ${prof.hasEle ? `<path d="${eArea}" fill="url(#tpEleGrad)"></path>` : ""}
         ${gradeSegs}
-        ${prof.maxV != null ? `<path d="${vLine}" fill="none" stroke="#60a5fa" stroke-width="1.1" stroke-opacity="0.55" stroke-linejoin="round"/>` : ""}
+        ${prof.maxV != null ? `<path class="tp__speed" d="${vLine}" fill="none" stroke="#60a5fa" stroke-width="1.1" stroke-opacity="0.55" stroke-linejoin="round"/>` : ""}
         <line class="tp__cursor" x1="0" y1="0" x2="0" y2="${H}" stroke="#e5e7eb" stroke-width="1" opacity="0"/>
       </svg>
       <div class="tp__legend">
         ${prof.hasEle ? `<span class="tp__legend-grade"><i style="background:#16a34a"></i><i style="background:#84cc16"></i><i style="background:#f59e0b"></i><i style="background:#dc2626"></i>Steepness</span>` : ""}
-        ${prof.maxV != null ? `<span><i style="background:#60a5fa"></i>Speed</span>` : ""}
+        ${prof.maxV != null ? `<span class="tp__speed-legend"><i style="background:#60a5fa"></i>Speed</span>` : ""}
       </div>
       <div class="tp__tip" hidden></div>`
     const svg = host.querySelector(".tp__svg")
@@ -239,8 +255,13 @@ export class TrackProfileManager {
         body.routing-active .tp-panel{display:none;}
         .tp__loading{padding:1.2rem;text-align:center;opacity:.65;font-size:.85rem;}
         .tp__head{display:flex;align-items:flex-start;gap:.6rem;}
-        .tp__stats{display:flex;gap:1rem;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding-right:.4rem;}
-        .tp__stats::-webkit-scrollbar{display:none;}
+        /* Wrap onto a second row rather than clipping a stat mid-word. */
+        .tp__stats{display:flex;gap:.55rem 1.1rem;flex:1;min-width:0;flex-wrap:wrap;}
+        .tp__head-actions{display:flex;align-items:center;gap:.4rem;flex:0 0 auto;}
+        .tp__chip{border:1px solid color-mix(in oklch,oklch(var(--bc)) 22%,transparent);background:transparent;
+          color:inherit;border-radius:999px;padding:.14rem .5rem;font-size:.68rem;font-weight:600;opacity:.6;cursor:pointer;}
+        .tp__chip--on{background:#3b82f6;border-color:#3b82f6;color:#fff;opacity:1;}
+        .tp--nospeed .tp__speed,.tp--nospeed .tp__speed-legend{display:none;}
         .tp__legend-grade i{margin-right:0;border-radius:0;}
         .tp__legend-grade i:first-of-type{border-radius:2px 0 0 2px;}
         .tp__legend-grade i:nth-of-type(4){border-radius:0 2px 2px 0;margin-right:.25rem;}
