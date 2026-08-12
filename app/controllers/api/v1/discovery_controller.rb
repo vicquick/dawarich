@@ -473,11 +473,58 @@ class Api::V1::DiscoveryController < ApiController
       # OSM has no photos, so pull free Wikimedia Commons shots — the place's
       # own `wikimedia_commons` category when tagged (photos OF it), else
       # geotagged photos near the coords. Rich for landmarks, thin for shops.
-      images: commons_photos(params[:lat], params[:lon], tags['wikimedia_commons']),
+      images: place_photos(params[:lat], params[:lon], tags, params[:name]),
       cuisine: tags['cuisine'],
       brand: tags['brand'],
       wheelchair: tags['wheelchair']
     }
+  end
+
+  # Photo strip for a place: geotagged Wikimedia Commons shots first (they're
+  # provably AT the coordinates), then Brave Images by name — which is what
+  # actually covers ordinary businesses, where Commons only has ambient street
+  # photos. Named places only for Brave (a nameless POI would return noise).
+  def place_photos(lat, lon, tags, fallback_name)
+    commons = commons_photos(lat, lon, tags['wikimedia_commons'])
+    name = (tags['name'] || fallback_name).to_s.strip
+    return commons if name.blank?
+
+    place = [name, tags['addr:city'] || tags['addr:suburb']].compact_blank.join(' ')
+    (commons + brave_images(place)).uniq { |p| p[:thumb] }.first(12)
+  rescue StandardError
+    []
+  end
+
+  # Brave Images by place name — broad coverage for shops/restaurants that have
+  # no Commons presence. Key is server-side; thumbnails are Brave-hosted so the
+  # browser never talks to the origin sites. Cached 30 days.
+  def brave_images(query, limit = 6)
+    key = ENV['BRAVE_API_KEY'].presence
+    return [] if key.blank? || query.blank?
+
+    Rails.cache.fetch("v1/brave_img/#{Digest::MD5.hexdigest(query)}", expires_in: 30.days) do
+      uri = URI('https://api.search.brave.com/res/v1/images/search')
+      uri.query = URI.encode_www_form(q: query, count: limit, safesearch: 'strict')
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 3
+      http.read_timeout = 8
+      req = Net::HTTP::Get.new(uri)
+      req['Accept'] = 'application/json'
+      req['X-Subscription-Token'] = key
+      resp = http.request(req)
+      next [] unless resp.is_a?(Net::HTTPSuccess)
+
+      Array(Oj.load(resp.body)['results']).filter_map do |r|
+        thumb = r.dig('thumbnail', 'src')
+        next unless thumb
+
+        { thumb: thumb, full: r.dig('properties', 'url') || r['url'], title: r['title'].to_s,
+          credit: r['source'].presence }
+      end.first(limit)
+    end
+  rescue StandardError
+    []
   end
 
   # Wikimedia Commons photos for a place (free, no key). Cached 30d per place.

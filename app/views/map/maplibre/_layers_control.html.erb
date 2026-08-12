@@ -212,22 +212,43 @@
     :root:not([data-theme="light"]) .maplibregl-ctrl-group .maplibregl-ctrl-icon { filter: invert(1) brightness(1.7); }
   }
 
-  /* Theme the attribution "credits" pill to match — translucent dark card,
-     muted links, themed (i) toggle. */
-  .maplibregl-ctrl-attrib {
-    background: color-mix(in oklch, oklch(var(--b1)) 82%, transparent) !important;
-    color: oklch(var(--bc)) !important;
-    border-radius: 0.7rem !important;
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-    font-size: .68rem;
-  }
-  .maplibregl-ctrl-attrib a { color: oklch(var(--bc)) !important; opacity: .68; }
-  .maplibregl-ctrl-attrib a:hover { opacity: 1; }
-  .maplibregl-ctrl-attrib.maplibregl-compact {
+  /* Attribution credits — COLLAPSED it's a clean circular (i) chip that matches
+     the other map controls; EXPANDED it becomes a rounded pill of text. MapLibre's
+     compact mode nests a round button inside the bar, so both must share the
+     same radius/size or you get a pill-inside-a-circle silhouette. */
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib.maplibregl-compact {
+    position: relative;
+    min-height: 2rem; min-width: 2rem;
+    height: 2rem; margin: 0 10px 10px 0; padding: 0;
+    border-radius: 999px !important;
     background: oklch(var(--b1)) !important;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 12%, transparent);
     box-shadow: 0 2px 12px rgba(0,0,0,.26);
-    min-height: 1.9rem; min-width: 1.9rem; border-radius: 0.85rem !important;
+    display: flex; align-items: center;
+    overflow: hidden;
+    transition: none;
   }
+  /* Collapsed: hide the text entirely so only the (i) circle shows. */
+  .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner {
+    display: none;
+    padding: 0 0.7rem 0 0.55rem;
+    font-size: .66rem; line-height: 2rem; white-space: nowrap;
+  }
+  /* Expanded (MapLibre sets -show): pill grows to fit the credits text. */
+  .maplibregl-ctrl-attrib.maplibregl-compact-show { height: auto; min-height: 2rem; }
+  .maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
+    display: block; max-width: min(74vw, 30rem);
+    white-space: normal; line-height: 1.35; padding: .45rem .75rem .45rem .5rem;
+  }
+  /* The (i) toggle — a flat circle, no extra ring/box of its own. */
+  .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
+    position: static; order: -1; flex: 0 0 auto;
+    width: 2rem; height: 2rem; margin: 0; border-radius: 999px;
+    background-color: transparent !important; box-shadow: none !important; border: none !important;
+  }
+  .maplibregl-ctrl-attrib, .maplibregl-ctrl-attrib a { color: oklch(var(--bc)) !important; }
+  .maplibregl-ctrl-attrib a { opacity: .7; text-decoration: none; }
+  .maplibregl-ctrl-attrib a:hover { opacity: 1; text-decoration: underline; }
   :root[data-theme="dark"] .maplibregl-ctrl-attrib-button,
   .dark .maplibregl-ctrl-attrib-button { filter: invert(1) brightness(1.7); }
   @media (prefers-color-scheme: dark) {
