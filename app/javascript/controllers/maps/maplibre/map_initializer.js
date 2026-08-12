@@ -69,6 +69,14 @@ export class MapInitializer {
       new maplibregl.AttributionControl({ compact: true }),
       "bottom-right",
     )
+    // vicquick fork: compact mode still renders EXPANDED on first load, which
+    // puts a wide credits bar over the map. Collapse it to the (i) chip once —
+    // tapping it opens the full attribution.
+    map.once("idle", () => {
+      document
+        .querySelectorAll(".maplibregl-ctrl-attrib.maplibregl-compact-show")
+        .forEach((el) => el.classList.remove("maplibregl-compact-show"))
+    })
 
     return map
   }
