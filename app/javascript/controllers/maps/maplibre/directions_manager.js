@@ -37,13 +37,27 @@ export class DirectionsManager {
     this.voiceOn = (() => { try { return localStorage.getItem("dawarichNavVoice") !== "off" } catch (e) { return true } })()
     this._spoken = {}            // dedupe spoken cues, keyed by maneuver+phase
     this.boundPanStart = () => {
-      if (this.tracking && !this.manualStart) { this.userPanned = true; this.showRecenter(true) }
+      if (!this.tracking || this.manualStart) return
+      this.userPanned = true
+      this.showRecenter(true)
+      // Panning pauses the follow-camera so you can look ahead — but it used to
+      // pause it FOREVER (until you found the Re-center button), which reads as
+      // "the map stopped following me". Resume by itself once you stop touching
+      // it, like Google does.
+      clearTimeout(this._resumeTimer)
+      this._resumeTimer = setTimeout(() => {
+        if (!this.tracking || this.manualStart) return
+        this.userPanned = false
+        this.showRecenter(false)
+        this.updateGuidance(true)
+      }, DirectionsManager.RESUME_FOLLOW_MS)
     }
   }
 
   // Recompute throttle: don't hammer Valhalla on every GPS tick.
   static MOVE_THRESHOLD_M = 25      // ignore jitter below this
   static RECOMPUTE_INTERVAL_MS = 4000
+  static RESUME_FOLLOW_MS = 12000   // auto-resume follow-cam after a manual pan
 
   get map() {
     return this.controller.map
@@ -622,6 +636,7 @@ export class DirectionsManager {
     this.watchId = null
     this.tracking = false
     if (this.recomputeTimer) { clearTimeout(this.recomputeTimer); this.recomputeTimer = null }
+    if (this._resumeTimer) { clearTimeout(this._resumeTimer); this._resumeTimer = null }
   }
 
   // New GPS fix: move the puck and (throttled) recompute the route.
@@ -698,16 +713,25 @@ export class DirectionsManager {
       this.routes = Array.isArray(data.routes) ? data.routes : (data.type === "Feature" ? [data] : [])
       if (!this.routes.length) { this.setStatus("No route found"); return }
       this.selectedRouteIdx = 0
-      this.applySelectedRoute()
-      this.drawRoutes()
-      this.renderRouteChoices()
+      // Render steps are isolated: a hiccup in one (a stale layer/source after
+      // a basemap swap, say) used to abort the whole method — which left the
+      // error text on screen AND skipped updateGuidance, so the follow-camera
+      // silently stopped for the rest of the drive. Never again.
+      const step = (name, fn) => {
+        try { fn() } catch (e) { console.error(`[Directions] ${name} failed:`, e) }
+      }
+      step("applySelectedRoute", () => this.applySelectedRoute())
+      step("drawRoutes", () => this.drawRoutes())
+      step("renderRouteChoices", () => this.renderRouteChoices())
       this.setStatus("")
       this.lastRouteFrom = this.start ? { ...this.start } : null
       this.lastRouteAt = (typeof performance !== "undefined" ? performance.now() : Date.now())
       // Camera: nav follow-cam when tracking live; whole-route fit otherwise.
-      if (fit && this.tracking) this.updateGuidance(true)
-      else if (fit) { this.fitRoute(this.routeCoords); this.updateGuidance(false) }
-      else this.updateGuidance(false)
+      step("camera", () => {
+        if (fit && this.tracking) this.updateGuidance(true)
+        else if (fit) { this.fitRoute(this.routeCoords); this.updateGuidance(false) }
+        else this.updateGuidance(false)
+      })
     } catch (e) {
       this.setStatus(`Routing failed: ${e.message}`)
     }

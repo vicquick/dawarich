@@ -214,6 +214,20 @@ class Api::V1::DiscoveryController < ApiController
     # Falls back to the radius path when bbox is absent or unusably large.
     bbox = parse_bbox(params[:bbox])
 
+    # vicquick fork: a BRAND is a name, not a category. "mcdonalds" used to fall
+    # through to the semantic resolver, which matched it to food/shopping tags
+    # and returned Lidl, Aldi and Kaufland — never a McDonald's. Try the brand
+    # name first and only fall back to categories when nothing matches.
+    if category.blank? && brandish?(q)
+      brand = brand_results(lat, lon, radius, bbox, q)
+      if brand.present?
+        brand = brand.map { |r| r.merge(open_now: r[:opening_hours] ? open_now?(r[:opening_hours]) : nil) }
+        brand = brand.select { |r| r[:open_now] } if open_only
+        return render json: { results: brand.sort_by { |r| r[:distance_m] }.first(limit),
+                              category: "brand:#{q.downcase}", in_view: !bbox.nil? }
+      end
+    end
+
     # Resolve category key and/or free-text query into an Overpass filter.
     filter, label = resolve_filter(category, q)
     return render_error('Nothing to search for') if filter.nil?
@@ -317,6 +331,37 @@ class Api::V1::DiscoveryController < ApiController
     return [[name_filter(q)], "name:#{term}"] if q.length >= 3
 
     [nil, nil]
+  end
+
+  # Is this free text likely a business/brand name rather than a category? True
+  # when it matches none of our category vocabularies.
+  def brandish?(q)
+    term = q.to_s.downcase.strip
+    return false if term.length < 3
+
+    sing = term.sub(/s\z/, '')
+    return false if OVERPASS_FILTERS.key?(term) || OVERPASS_FILTERS.key?(sing)
+    return false if ALIASES.key?(term) || ALIASES.key?(sing)
+    return false if PRODUCT_TAGS.key?(term) || PRODUCT_TAGS.key?(sing)
+    return false if CUISINES.include?(term) || CUISINES.include?(sing)
+
+    true
+  end
+
+  # Search name AND brand for the term. Matching is done on a stem with all
+  # punctuation stripped and any trailing "s" dropped, so a typed "mcdonalds"
+  # still finds OSM's "McDonald's" (and "burgerking" finds "Burger King").
+  def brand_results(lat, lon, radius, bbox, q)
+    stem = q.to_s.downcase.gsub(/[^a-z0-9äöüß]/, '').sub(/s\z/, '')
+    return [] if stem.length < 3
+
+    sel = ["[~\"^(name|brand|operator)$\"~\"#{stem}\",i]"]
+    Rails.cache.fetch("v2/brand/#{stem}/#{bbox ? bbox.map { |v| v.round(3) }.join(',') : "#{lat.round(3)}/#{lon.round(3)}/#{radius}"}",
+                      expires_in: 6.hours) do
+      (bbox ? overpass_in_bbox(bbox, sel, "brand:#{stem}") : overpass_nearby(lat, lon, sel, "brand:#{stem}", radius)) || []
+    end
+  rescue StandardError
+    []
   end
 
   # Overpass name-substring filter (case-insensitive), regex-escaped.
