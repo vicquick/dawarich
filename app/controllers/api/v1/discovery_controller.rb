@@ -279,16 +279,37 @@ class Api::V1::DiscoveryController < ApiController
       return [prod, "product:#{term}"]
     end
 
-    # Semantic match against the curated OSM catalog via the always-on embedding
-    # model (~50ms, no GPU-chat contention, always-valid OSM tags). Handles any
-    # phrasing: "duvet cover", "somewhere to buy a sofa", "place to fix my bike".
-    if term.length >= 3 && (sel = embed_resolve(term)).present?
-      return [sel, "ai:#{term}"]
+    # vicquick fork: pull a known category out of a MODIFIER-heavy phrase
+    # ("cozy cafe with wifi", "cheap italian restaurant", "nice bar near me") —
+    # scan the individual words so we don't hand the whole noisy phrase to the
+    # embedding model, which latches onto adjectives ("cozy" → apartments).
+    words = term.split(/[^a-zà-ÿ0-9]+/i).reject(&:empty?)
+    if words.length > 1
+      if (cw = words.find { |w| CUISINES.include?(w) || CUISINES.include?(w.sub(/s\z/, '')) })
+        cc = CUISINES.include?(cw) ? cw : cw.sub(/s\z/, '')
+        base = cc.match?(/burger|kebab|doner|döner|falafel/) ? 'restaurant|fast_food' : 'restaurant'
+        return [["[amenity~\"^(#{base})$\"][cuisine~\"#{cc.sub(/s\z/, '')}\",i]"], "cuisine:#{cc}"]
+      end
+      # Head noun wins ("cozy CAFE") — scan right-to-left.
+      words.reverse_each do |w|
+        ws = w.sub(/s\z/, '')
+        key = (OVERPASS_FILTERS.key?(w) ? w : nil) || ALIASES[w] ||
+              (OVERPASS_FILTERS.key?(ws) ? ws : nil) || ALIASES[ws]
+        return [[OVERPASS_FILTERS[key]], "word:#{key}"] if key
+      end
     end
 
-    # Legacy LLM fallback (gated off — see llm_selectors; slow + imprecise).
-    if term.length >= 3 && (sel = llm_selectors(term)).present?
-      return [sel, "ai:#{term}"]
+    # Novel phrasing → resolve with AI (self-hosted, private). For a MULTI-word
+    # intent the local LLM parses structure best ("place to walk my dog" →
+    # leisure=dog_park), with the embedding catalog as fallback; for a bare word
+    # the embedding match is faster and sufficient, with the LLM as fallback.
+    if term.length >= 3
+      sel = if words.length > 1
+              llm_selectors(term).presence || embed_resolve(term)
+            else
+              embed_resolve(term).presence || llm_selectors(term)
+            end
+      return [sel, "ai:#{term}"] if sel.present?
     end
 
     # Last resort: fuzzy name substring (matches place names carrying the term).
