@@ -90,6 +90,10 @@
 </div>
 
 <style>
+  /* Info glyph (ringed "i") used as a mask so it takes the theme colour. */
+  :root {
+    --dw-info: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v2h-2zm0 4h2v6h-2z'/%3E%3C/svg%3E");
+  }
   .layers-control { position: absolute; right: 0.75rem; bottom: 7.5rem; z-index: 556; }
   /* Trigger button — rounded square, like Google's layer chip. */
   .layers-button {
@@ -218,15 +222,22 @@
      same radius/size or you get a pill-inside-a-circle silhouette. */
   .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib.maplibregl-compact {
     position: relative;
+    box-sizing: border-box;
     min-height: 2rem; min-width: 2rem;
-    height: 2rem; margin: 0 10px 10px 0; padding: 0;
+    width: 2rem; height: 2rem; margin: 0 10px 10px 0; padding: 0;
     border-radius: 999px !important;
     background: oklch(var(--b1)) !important;
     border: 1px solid color-mix(in oklch, oklch(var(--bc)) 12%, transparent);
     box-shadow: 0 2px 12px rgba(0,0,0,.26);
-    display: flex; align-items: center;
+    display: grid; place-items: center;
     overflow: hidden;
     transition: none;
+  }
+  /* Expanded pill is content-sized, not a fixed circle. */
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib.maplibregl-compact.maplibregl-compact-show {
+    width: auto; height: auto;
+    border-radius: 1rem !important;
+    display: flex; align-items: center;
   }
   /* Collapsed: hide the text entirely so only the (i) circle shows. */
   .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner {
@@ -240,20 +251,36 @@
     display: block; max-width: min(74vw, 30rem);
     white-space: normal; line-height: 1.35; padding: .45rem .75rem .45rem .5rem;
   }
-  /* The (i) toggle — a flat circle, no extra ring/box of its own. */
+  /* The (i) toggle. MapLibre ships a WHITE DISC image and absolutely-positions
+     the button, which left an off-centre white blob inside our dark chip. Drop
+     the image entirely and draw the glyph with a mask so it's a clean "i" in
+     the theme's foreground colour, perfectly centred in the chip. */
   .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
-    position: static; order: -1; flex: 0 0 auto;
-    width: 2rem; height: 2rem; margin: 0; border-radius: 999px;
-    background-color: transparent !important; box-shadow: none !important; border: none !important;
+    position: static !important;
+    inset: auto !important;
+    order: -1; flex: 0 0 auto;
+    width: 2rem; height: 2rem; margin: 0 !important; padding: 0;
+    border-radius: 999px;
+    background-color: transparent !important;
+    background-image: none !important;
+    box-shadow: none !important; border: none !important;
+    filter: none !important;
+    display: block;
   }
+  .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button::before {
+    content: "";
+    display: block; width: 100%; height: 100%;
+    background-color: oklch(var(--bc));
+    opacity: .78;
+    -webkit-mask: var(--dw-info) center / 1.05rem 1.05rem no-repeat;
+    mask: var(--dw-info) center / 1.05rem 1.05rem no-repeat;
+  }
+  .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button:hover::before { opacity: 1; }
+  /* Expanded: keep the toggle a fixed square so the text flows beside it. */
+  .maplibregl-compact-show .maplibregl-ctrl-attrib-button { width: 1.9rem; height: 1.9rem; }
   .maplibregl-ctrl-attrib, .maplibregl-ctrl-attrib a { color: oklch(var(--bc)) !important; }
   .maplibregl-ctrl-attrib a { opacity: .7; text-decoration: none; }
   .maplibregl-ctrl-attrib a:hover { opacity: 1; text-decoration: underline; }
-  :root[data-theme="dark"] .maplibregl-ctrl-attrib-button,
-  .dark .maplibregl-ctrl-attrib-button { filter: invert(1) brightness(1.7); }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .maplibregl-ctrl-attrib-button { filter: invert(1) brightness(1.7); }
-  }
 
   /* Hide the old standalone incident toggle — folded into this control now. */
   .traffic-toggle { display: none !important; }
