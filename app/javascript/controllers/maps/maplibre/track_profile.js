@@ -64,18 +64,20 @@ export class TrackProfileManager {
       P.push({ lat, lon, d: dist, ele, t, spd: null })
       prev = { lat, lon }
     }
-    // Derive speed from distance/time — reliable and unit-safe (km/h). Light
-    // 3-sample smoothing so GPS jitter doesn't make the line spiky.
-    for (let i = 1; i < P.length; i++) {
-      if (P[i].t && P[i - 1].t) {
-        const dt = P[i].t - P[i - 1].t
-        if (dt > 0) P[i].spd = ((P[i].d - P[i - 1].d) / dt) * 3.6
-      }
-    }
+    // Speed over a WINDOW, not point-to-point: 1-second GPS samples make
+    // consecutive-pair speeds pure noise (the line looked like a barcode).
+    // Measure across ±k samples so it reads like a real pace curve.
+    const k = Math.max(4, Math.round(P.length / 150))
     for (let i = 0; i < P.length; i++) {
-      const a = P[Math.max(0, i - 1)].spd, b = P[i].spd, c = P[Math.min(P.length - 1, i + 1)].spd
-      const vals = [a, b, c].filter((v) => v != null)
-      P[i].spdS = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null
+      const a = P[Math.max(0, i - k)], b = P[Math.min(P.length - 1, i + k)]
+      const dt = (b.t || 0) - (a.t || 0)
+      P[i].spdS = dt > 0 ? ((b.d - a.d) / dt) * 3.6 : null
+    }
+    // Grade (%) over the same window — drives the Komoot-style colouring.
+    for (let i = 0; i < P.length; i++) {
+      const a = P[Math.max(0, i - k)], b = P[Math.min(P.length - 1, i + k)]
+      const dd = b.d - a.d
+      P[i].grade = dd > 1 && a.ele != null && b.ele != null ? ((b.ele - a.ele) / dd) * 100 : 0
     }
     let asc = 0, desc = 0
     for (let i = 1; i < P.length; i++) {
@@ -125,19 +127,41 @@ export class TrackProfileManager {
     const x = (d) => (d / total) * W
     const yE = (e) => H - padB - ((e - eMin) / eSpan) * (H - padB - padT)
     const yV = (v) => H - padB - (v / vMax) * (H - padB - padT)
+    // Downsample to roughly one sample per horizontal pixel — 3k+ points drawn
+    // into a 300px-wide chart is just noise (and a huge DOM).
+    const step = Math.max(1, Math.floor(prof.P.length / W))
+    const S = prof.P.filter((_, i) => i % step === 0 || i === prof.P.length - 1)
+
     // elevation line + area
     let eLine = "", ePrev = false
-    for (const p of prof.P) {
+    for (const p of S) {
       if (p.ele == null) { ePrev = false; continue }
       eLine += `${ePrev ? "L" : "M"}${x(p.d).toFixed(1)},${yE(p.ele).toFixed(1)} `
       ePrev = true
     }
-    const first = prof.P.find((p) => p.ele != null), last = [...prof.P].reverse().find((p) => p.ele != null)
+    const first = S.find((p) => p.ele != null), last = [...S].reverse().find((p) => p.ele != null)
     const eArea = prof.hasEle
       ? `M${x(first.d).toFixed(1)},${(H - padB).toFixed(1)} ${eLine.replace(/^M/, "L")} L${x(last.d).toFixed(1)},${(H - padB).toFixed(1)} Z`
       : ""
+    // Komoot-style grade colouring: flat → green, steeper → amber → red, drawn
+    // as short coloured segments over the area.
+    const gradeColor = (g) => {
+      const a = Math.abs(g)
+      if (a < 4) return "#16a34a"
+      if (a < 8) return "#84cc16"
+      if (a < 12) return "#f59e0b"
+      return "#dc2626"
+    }
+    let gradeSegs = ""
+    if (prof.hasEle) {
+      for (let i = 1; i < S.length; i++) {
+        const a = S[i - 1], b = S[i]
+        if (a.ele == null || b.ele == null) continue
+        gradeSegs += `<path d="M${x(a.d).toFixed(1)},${yE(a.ele).toFixed(1)} L${x(b.d).toFixed(1)},${yE(b.ele).toFixed(1)}" stroke="${gradeColor(b.grade)}" stroke-width="2" fill="none" stroke-linecap="round"/>`
+      }
+    }
     let vLine = "", vPrev = false
-    for (const p of prof.P) {
+    for (const p of S) {
       if (p.spdS == null) { vPrev = false; continue }
       vLine += `${vPrev ? "L" : "M"}${x(p.d).toFixed(1)},${yV(p.spdS).toFixed(1)} `
       vPrev = true
@@ -151,13 +175,13 @@ export class TrackProfileManager {
           </linearGradient>
         </defs>
         ${prof.hasEle ? `<path d="${eArea}" fill="url(#tpEleGrad)"></path>` : ""}
-        ${prof.hasEle ? `<path d="${eLine}" fill="none" stroke="#16a34a" stroke-width="1.6" stroke-linejoin="round"/>` : ""}
-        ${prof.maxV != null ? `<path d="${vLine}" fill="none" stroke="#3b82f6" stroke-width="1.2" stroke-opacity="0.75" stroke-dasharray="1 0"/>` : ""}
+        ${gradeSegs}
+        ${prof.maxV != null ? `<path d="${vLine}" fill="none" stroke="#60a5fa" stroke-width="1.1" stroke-opacity="0.55" stroke-linejoin="round"/>` : ""}
         <line class="tp__cursor" x1="0" y1="0" x2="0" y2="${H}" stroke="#e5e7eb" stroke-width="1" opacity="0"/>
       </svg>
       <div class="tp__legend">
-        ${prof.hasEle ? `<span><i style="background:#16a34a"></i>Elevation</span>` : ""}
-        ${prof.maxV != null ? `<span><i style="background:#3b82f6"></i>Speed</span>` : ""}
+        ${prof.hasEle ? `<span class="tp__legend-grade"><i style="background:#16a34a"></i><i style="background:#84cc16"></i><i style="background:#f59e0b"></i><i style="background:#dc2626"></i>Steepness</span>` : ""}
+        ${prof.maxV != null ? `<span><i style="background:#60a5fa"></i>Speed</span>` : ""}
       </div>
       <div class="tp__tip" hidden></div>`
     const svg = host.querySelector(".tp__svg")
@@ -215,8 +239,11 @@ export class TrackProfileManager {
         body.routing-active .tp-panel{display:none;}
         .tp__loading{padding:1.2rem;text-align:center;opacity:.65;font-size:.85rem;}
         .tp__head{display:flex;align-items:flex-start;gap:.6rem;}
-        .tp__stats{display:flex;gap:1rem;flex:1;overflow-x:auto;scrollbar-width:none;}
+        .tp__stats{display:flex;gap:1rem;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none;padding-right:.4rem;}
         .tp__stats::-webkit-scrollbar{display:none;}
+        .tp__legend-grade i{margin-right:0;border-radius:0;}
+        .tp__legend-grade i:first-of-type{border-radius:2px 0 0 2px;}
+        .tp__legend-grade i:nth-of-type(4){border-radius:0 2px 2px 0;margin-right:.25rem;}
         .tp__stat{display:flex;flex-direction:column;line-height:1.15;white-space:nowrap;}
         .tp__stat span{font-weight:700;font-size:.92rem;}
         .tp__stat label{font-size:.66rem;letter-spacing:.03em;text-transform:uppercase;opacity:.55;}

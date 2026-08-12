@@ -51,8 +51,10 @@ export class TracksLayer extends BaseLayer {
         },
         paint: {
           "line-color": ["get", "color"],
-          "line-width": 4,
-          "line-opacity": 0.7,
+          // Bolder, fully opaque line that thickens as you zoom in — a tracked
+          // hike should read like a route (OrganicMaps/Komoot), not a hairline.
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 12, 5, 16, 7],
+          "line-opacity": 0.95,
         },
       },
       // Selection Layer 1: White border (widest, bottom of selection stack)
