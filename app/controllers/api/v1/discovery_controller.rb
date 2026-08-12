@@ -490,7 +490,15 @@ class Api::V1::DiscoveryController < ApiController
     return commons if name.blank?
 
     place = [name, tags['addr:city'] || tags['addr:suburb']].compact_blank.join(' ')
-    (commons + brave_images(place)).uniq { |p| p[:thumb] }.first(12)
+    brave = brave_images(place)
+    return commons.first(12) if brave.empty?
+
+    # Interleave so the strip always mixes both: Commons proves WHERE, Brave
+    # shows WHAT the place looks like. A place tagged with its own Commons
+    # category is genuinely depicted there, so that leads; otherwise Brave's
+    # by-name photos lead (geosearch shots are just the surrounding street).
+    lead, other = tags['wikimedia_commons'].present? ? [commons, brave] : [brave, commons]
+    lead.zip(other).flatten.compact.uniq { |p| p[:thumb] }.first(12)
   rescue StandardError
     []
   end
