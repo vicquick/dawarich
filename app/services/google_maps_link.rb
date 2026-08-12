@@ -32,7 +32,14 @@ class GoogleMapsLink
       # Short links usually 302 to the long URL, but Google sometimes answers
       # with an HTML interstitial instead — then the real maps URL is only in
       # the markup (og:url / a canonical link), so fall back to scraping it.
-      parse(final_url) || parse(maps_url_in(body))
+      scraped = maps_url_in(body)
+      coords = parse(final_url) || parse(scraped)
+      return coords if coords
+
+      # Links shared from the Google Maps MOBILE app don't carry coordinates at
+      # all — they resolve to ?q=<place name, street, city>. Geocode that text
+      # with our own Photon so the lookup stays self-hosted.
+      geocode(query_text(final_url) || query_text(scraped))
     rescue StandardError
       nil
     end
@@ -62,6 +69,45 @@ class GoogleMapsLink
         url = URI.join(url, resp['location']).to_s
       end
       [url, body]
+    end
+
+    # The ?q= value when it's descriptive text rather than coordinates.
+    def query_text(url)
+      raw = url.to_s[/[?&](?:q|query|daddr)=([^&]+)/, 1]
+      return nil if raw.blank?
+
+      text = CGI.unescape(raw).strip
+      return nil if text.blank? || text.match?(/\A-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?\z/)
+
+      text
+    end
+
+    # Resolve "Beach Lounge, Werftstraße 998, 21502 Geesthacht" → coordinates
+    # using the self-hosted Photon geocoder (no third party involved).
+    def geocode(text)
+      return nil if text.blank?
+
+      host = ENV['PHOTON_API_HOST'].presence
+      return nil if host.blank?
+
+      scheme = ENV['PHOTON_API_USE_HTTPS'] == 'true' ? 'https' : 'http'
+      base = host.include?('://') ? host : "#{scheme}://#{host}"
+      uri = URI("#{base.chomp('/')}/api")
+      uri.query = URI.encode_www_form(q: text, limit: 1)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = uri.scheme == 'https'
+      http.open_timeout = 3
+      http.read_timeout = 8
+      resp = http.request(Net::HTTP::Get.new(uri))
+      return nil unless resp.is_a?(Net::HTTPSuccess)
+
+      feature = (JSON.parse(resp.body)['features'] || []).first
+      lon, lat = feature&.dig('geometry', 'coordinates')
+      return nil if lat.nil? || lon.nil?
+
+      # Google puts the place name first: "Name, street, postcode city".
+      { lat: lat.to_f, lon: lon.to_f,
+        name: text.split(',').first.to_s.strip.presence || feature.dig('properties', 'name') }
     end
 
     # Dig the real maps URL out of an HTML interstitial.
