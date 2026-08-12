@@ -289,8 +289,22 @@ export default class extends Controller {
         parts.push(`<span style="opacity:.7">${this.esc(short)}</span>`)
       }
       let html = ""
-      // Photo (Wikidata / Brave / Wikimedia Commons) when available.
-      if (d.image) html += `<img src="${this.esc(d.image)}" alt="" loading="lazy" style="width:100%;max-height:160px;object-fit:cover;border-radius:12px;margin-bottom:10px" onerror="this.remove()">`
+      // Photo strip — lead with the Wikidata image, then Wikimedia Commons
+      // shots near the place. Horizontal scroll, tap to open full-size.
+      const photos = []
+      if (d.image) photos.push({ thumb: d.image, full: d.image })
+      if (Array.isArray(d.images)) {
+        for (const im of d.images) if (im && im.thumb) photos.push(im)
+      }
+      if (photos.length === 1) {
+        const p = photos[0]
+        html += `<a href="${this.esc(p.full || p.thumb)}" target="_blank" rel="noopener" style="display:block"><img src="${this.esc(p.thumb)}" alt="" loading="lazy" style="width:100%;max-height:170px;object-fit:cover;border-radius:12px;margin-bottom:10px" onerror="this.parentElement.remove()"></a>`
+      } else if (photos.length > 1) {
+        const cells = photos.slice(0, 12).map((p) =>
+          `<a href="${this.esc(p.full || p.thumb)}" target="_blank" rel="noopener" title="${this.esc(p.credit || "")}" style="flex:0 0 auto;display:block"><img src="${this.esc(p.thumb)}" alt="" loading="lazy" style="height:112px;width:auto;max-width:170px;object-fit:cover;border-radius:11px;display:block" onerror="this.parentElement.remove()"></a>`,
+        ).join("")
+        html += `<div style="display:flex;gap:7px;overflow-x:auto;margin-bottom:11px;scrollbar-width:none;-webkit-overflow-scrolling:touch">${cells}</div>`
+      }
       if (d.rating) html += `<div style="font-size:.85rem;margin-bottom:6px">⭐ <strong>${this.esc(String(d.rating))}</strong></div>`
       if (parts.length) html += `<div style="font-size:.85rem;margin-bottom:8px">${parts.join(" · ")}</div>`
       // Full week hours (Mon-first), hidden until the toggle is tapped.

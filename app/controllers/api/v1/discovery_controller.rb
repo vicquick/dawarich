@@ -448,10 +448,62 @@ class Api::V1::DiscoveryController < ApiController
       website: tags['website'] || tags['contact:website'] || wd&.dig(:website),
       description: wd&.dig(:description),
       image: wd&.dig(:image),
+      # vicquick fork: a photo strip for the place sheet (Google-Maps-like).
+      # OSM has no photos, so pull free Wikimedia Commons shots — the place's
+      # own `wikimedia_commons` category when tagged (photos OF it), else
+      # geotagged photos near the coords. Rich for landmarks, thin for shops.
+      images: commons_photos(params[:lat], params[:lon], tags['wikimedia_commons']),
       cuisine: tags['cuisine'],
       brand: tags['brand'],
       wheelchair: tags['wheelchair']
     }
+  end
+
+  # Wikimedia Commons photos for a place (free, no key). Cached 30d per place.
+  def commons_photos(lat, lon, commons_tag, limit = 8)
+    ck = "v2/commons_photos/#{commons_tag.presence || "#{lat.to_f.round(5)}/#{lon.to_f.round(5)}"}"
+    Rails.cache.fetch(ck, expires_in: 30.days) do
+      pages = []
+      if commons_tag.to_s.start_with?('Category:')
+        pages = commons_query(generator: 'categorymembers', gcmtitle: commons_tag, gcmtype: 'file', gcmlimit: 20)
+      end
+      if pages.blank? && lat.present? && lon.present?
+        pages = commons_query(generator: 'geosearch', ggscoord: "#{lat.to_f}|#{lon.to_f}",
+                              ggsradius: 150, ggslimit: 16, ggsnamespace: 6)
+      end
+      Array(pages).filter_map do |p|
+        info = p.dig('imageinfo', 0) || {}
+        thumb = info['thumburl']
+        title = p['title'].to_s
+        next unless thumb && title.match?(/\.(jpe?g|png|webp)\z/i)
+
+        credit = info.dig('extmetadata', 'Artist', 'value').to_s.gsub(/<[^>]+>/, '').strip
+        { thumb: thumb, full: info['url'], title: title.sub(/\AFile:/, ''), credit: credit.presence }
+      end.first(limit)
+    end
+  rescue StandardError
+    []
+  end
+
+  # One Commons API query → array of page hashes (with imageinfo). Wikimedia
+  # requires a descriptive User-Agent or it 403s.
+  def commons_query(extra)
+    base = { action: 'query', format: 'json', prop: 'imageinfo',
+             iiprop: 'url|extmetadata', iiurlwidth: 360 }.merge(extra)
+    uri = URI('https://commons.wikimedia.org/w/api.php')
+    uri.query = URI.encode_www_form(base)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = true
+    http.open_timeout = 4
+    http.read_timeout = 8
+    req = Net::HTTP::Get.new(uri)
+    req['User-Agent'] = 'Dawarich/1.0 (https://maps.budinic.art; self-hosted personal map)'
+    resp = http.request(req)
+    return [] unless resp.is_a?(Net::HTTPSuccess)
+
+    (Oj.load(resp.body).dig('query', 'pages') || {}).values
+  rescue StandardError
+    []
   end
 
   # OSM tags for a place, by OSM id (Overpass→OSM API) or by coords+name
