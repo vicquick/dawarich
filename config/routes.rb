@@ -273,6 +273,7 @@ Rails.application.routes.draw do
       get   'nearby',     to: 'discovery#nearby'
       get   'place_info', to: 'discovery#place_info'
       get   'photo_proxy', to: 'discovery#photo_proxy'
+      get   'resolve_link', to: 'discovery#resolve_link'
       patch 'settings', to: 'settings#update'
       get   'settings', to: 'settings#index'
       get   'settings/transportation_recalculation_status', to: 'settings#transportation_recalculation_status'

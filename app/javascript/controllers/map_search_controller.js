@@ -113,8 +113,32 @@ export default class extends Controller {
     this._debounce = setTimeout(() => this.search(q), 220)
   }
 
+  // Someone shared you a Google Maps link? Paste it here and it opens as a
+  // place on this map. Resolution happens server-side, so Google sees our
+  // server rather than your browser.
+  looksLikeGoogleLink(q) {
+    return /^https?:\/\/[\w.-]*(google\.[\w.]+|goo\.gl)\//i.test(q.trim())
+  }
+
+  async openSharedLink(q) {
+    this.renderLoading()
+    try {
+      const res = await fetch(`/api/v1/resolve_link?api_key=${encodeURIComponent(this.apiKeyValue)}&url=${encodeURIComponent(q.trim())}`)
+      if (!res.ok) return this.renderEmpty("Couldn't read that link")
+      const p = await res.json()
+      if (p.lat == null) return this.renderEmpty("Couldn't read that link")
+      this.inputTarget.value = p.name || `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`
+      this.close()
+      this.map?.easeTo({ center: [p.lon, p.lat], zoom: 17 })
+      document.dispatchEvent(new CustomEvent("place-sheet:open", {
+        detail: { name: p.name || "Shared place", address: "", lat: p.lat, lon: p.lon, type: "", tags: [] },
+      }))
+    } catch (e) { this.renderEmpty("Couldn't read that link") }
+  }
+
   async search(q) {
     if (this.inputTarget.value.trim() !== q) return // stale
+    if (this.looksLikeGoogleLink(q)) return this.openSharedLink(q)
     // If the query reads like a category/keyword ("pizza", "gym", "hospital"),
     // also fetch nearby POIs and show them first — Google-style keyword search.
     const cat = this.looksCategorical(q)

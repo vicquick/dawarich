@@ -267,14 +267,28 @@ export default class extends Controller {
     const hasOsm = this.place.osmType && this.place.osmId
     const hasCoords = this.place.lat != null && this.place.lon != null
     if (!hasOsm && !hasCoords) return
+    // Photo lookup can take a couple of seconds (SearXNG + Commons), so show a
+    // skeleton in the shape of the strip rather than an empty gap. Tagged with
+    // the place id so a slow response for a PREVIOUS place can't overwrite it.
+    const token = `${this.place.lat},${this.place.lon},${this.place.name || ""}`
+    this._enrichToken = token
+    this.enrichmentTarget.innerHTML = `
+      <div class="ps-skeleton" aria-busy="true" aria-label="Loading place details">
+        <div class="ps-skeleton__strip">
+          <span class="ps-shimmer"></span><span class="ps-shimmer"></span><span class="ps-shimmer"></span>
+        </div>
+        <div class="ps-shimmer ps-shimmer--line"></div>
+      </div>`
     try {
       const params = new URLSearchParams({ api_key: this.apiKeyValue })
       if (hasOsm) { params.set("osm_type", this.place.osmType); params.set("osm_id", this.place.osmId) }
       if (hasCoords) { params.set("lat", this.place.lat); params.set("lon", this.place.lon) }
       if (this.place.name) params.set("name", this.place.name)
       const res = await fetch(`/api/v1/place_info?${params.toString()}`)
-      if (!res.ok) return
+      if (this._enrichToken !== token) return // a newer place won the race
+      if (!res.ok) { this.enrichmentTarget.innerHTML = ""; return }
       const d = await res.json()
+      if (this._enrichToken !== token) return
       const parts = []
       if (d.open_now === true) parts.push(`<span style="color:#16a34a;font-weight:600">Open now</span>`)
       else if (d.open_now === false) parts.push(`<span style="color:#dc2626;font-weight:600">Closed now</span>`)
@@ -335,7 +349,10 @@ export default class extends Controller {
       const toggle = this.enrichmentTarget.querySelector(".ps-hours-toggle")
       const week = this.enrichmentTarget.querySelector(".ps-week")
       if (toggle && week) toggle.addEventListener("click", () => { week.hidden = !week.hidden })
-    } catch (e) { /* enrichment is best-effort */ }
+    } catch (e) {
+      // Enrichment is best-effort — but never leave the skeleton spinning.
+      if (this._enrichToken === token) this.enrichmentTarget.innerHTML = ""
+    }
   }
 
   esc(s) {
@@ -798,6 +815,15 @@ export default class extends Controller {
   shareCoords() { this._pickShareMode("coords", "📍") }
   shareLink()   { this._pickShareMode("link", "🔗") }
   shareOsm()    { this._pickShareMode("osm", "🌍") }
+
+  // Hand the current place off to Google Maps (for Street View, reviews, or
+  // sending to someone who doesn't have this map).
+  openGoogle() {
+    if (!this.place) return
+    const q = `${this.place.lat},${this.place.lon}`
+    const name = this.place.name ? `&query_place_id=&query=${encodeURIComponent(this.place.name + " " + q)}` : `&query=${q}`
+    window.open(`https://www.google.com/maps/search/?api=1${name}`, "_blank", "noopener")
+  }
 
   _pickShareMode(mode, emoji) {
     this._shareMode = mode

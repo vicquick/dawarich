@@ -629,6 +629,63 @@ class Api::V1::DiscoveryController < ApiController
 
   public
 
+  # Resolve a shared Google Maps link into {lat, lon, name} so a link someone
+  # sends you opens as a place in YOUR map. Short links (maps.app.goo.gl) are
+  # followed server-side — which also means Google sees our server, not your
+  # browser (no cookies, no client IP).
+  def resolve_link
+    url = params[:url].to_s.strip
+    return render_error('url required') if url.blank?
+    return render_error('unsupported link') unless url.match?(%r{\Ahttps?://[\w.-]*(google\.[\w.]+|goo\.gl)/}i)
+
+    final = follow_redirects(url)
+    place = parse_google_maps_url(final)
+    return render_error('could not read that link', :unprocessable_content) if place.nil?
+
+    render json: place
+  rescue StandardError
+    render_error('could not read that link', :unprocessable_content)
+  end
+
+  private
+
+  def follow_redirects(url, hops = 5)
+    hops.times do
+      uri = URI(url)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = uri.scheme == 'https'
+      http.open_timeout = 4
+      http.read_timeout = 8
+      req = Net::HTTP::Get.new(uri)
+      req['User-Agent'] = 'Mozilla/5.0'
+      resp = http.request(req)
+      return url unless resp.is_a?(Net::HTTPRedirection) && resp['location'].present?
+
+      url = URI.join(url, resp['location']).to_s
+    end
+    url
+  end
+
+  # Google encodes the authoritative place coords as !3d<lat>!4d<lon>; the
+  # @lat,lon in the path is just the camera, so prefer the former.
+  def parse_google_maps_url(url)
+    decoded = CGI.unescape(url)
+    lat = lon = nil
+    if (m = decoded.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/))
+      lat, lon = m[1], m[2]
+    elsif (m = decoded.match(/[?&](?:q|query|daddr)=(-?\d+\.\d+),\s*(-?\d+\.\d+)/))
+      lat, lon = m[1], m[2]
+    elsif (m = decoded.match(%r{/@(-?\d+\.\d+),(-?\d+\.\d+)}))
+      lat, lon = m[1], m[2]
+    end
+    return nil if lat.nil?
+
+    name = decoded[%r{/place/([^/@]+)}, 1].to_s.tr('+', ' ').strip.presence
+    { lat: lat.to_f, lon: lon.to_f, name: name }
+  end
+
+  public
+
   # Stream a place photo through the server so the browser never talks to the
   # image host (Bing/Yelp/etc). Only URLs this app signed are fetchable.
   MAX_PHOTO_BYTES = 3_000_000
