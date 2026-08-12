@@ -348,12 +348,16 @@ class Api::V1::DiscoveryController < ApiController
     true
   end
 
-  # Search name AND brand for the term. Matching is done on a stem with all
-  # punctuation stripped and any trailing "s" dropped, so a typed "mcdonalds"
-  # still finds OSM's "McDonald's" (and "burgerking" finds "Burger King").
+  # Search name AND brand for the term. The pattern tolerates whatever
+  # punctuation/spacing OSM uses between the words, and drops a trailing "s",
+  # so "mcdonalds" matches "McDonald's" and "burger king" matches "Burger King".
   def brand_results(lat, lon, radius, bbox, q)
-    stem = q.to_s.downcase.gsub(/[^a-z0-9äöüß]/, '').sub(/s\z/, '')
-    return [] if stem.length < 3
+    tokens = q.to_s.downcase.split(/[^a-z0-9äöüß]+/).reject(&:blank?)
+    return [] if tokens.empty?
+
+    tokens[-1] = tokens[-1].sub(/s\z/, '') if tokens[-1].length > 3
+    stem = tokens.join('[^a-z0-9]*')
+    return [] if tokens.join.length < 3
 
     sel = ["[~\"^(name|brand|operator)$\"~\"#{stem}\",i]"]
     Rails.cache.fetch("v2/brand/#{stem}/#{bbox ? bbox.map { |v| v.round(3) }.join(',') : "#{lat.round(3)}/#{lon.round(3)}/#{radius}"}",
