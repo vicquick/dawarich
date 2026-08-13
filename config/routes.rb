@@ -276,6 +276,10 @@ Rails.application.routes.draw do
       get   'place_info', to: 'discovery#place_info'
       get   'photo_proxy', to: 'discovery#photo_proxy'
       get   'resolve_link', to: 'discovery#resolve_link'
+      # Rain radar timeline — proxied so radar CDNs never see the viewer's IP
+      # alongside the tile coords they asked for. vicquick fork.
+      get   'weather/frames', to: 'weather#frames'
+      get   'weather/tile',   to: 'weather#tile'
       patch 'settings', to: 'settings#update'
       get   'settings', to: 'settings#index'
       get   'settings/transportation_recalculation_status', to: 'settings#transportation_recalculation_status'
