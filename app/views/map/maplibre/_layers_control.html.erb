@@ -74,6 +74,16 @@
       <span class="layers-overlay__label">Trails</span>
       <span class="layers-overlay__switch" aria-hidden="true"></span>
     </button>
+
+    <div class="layers-panel__divider"></div>
+    <%# Your own data layers, moved here from the old native "Layers" tab so
+        there's one menu instead of two. %>
+    <%= render 'map/maplibre/layer_toggles' %>
+
+    <%# The long tail of numeric config (fog radius, detection thresholds,
+        route splitting…) stays in the settings panel — rare, deliberate. %>
+    <button type="button" class="layers-more"
+            data-action="click->maps--maplibre#toggleSettings">More settings →</button>
   </div>
 
   <%# The trigger button (bottom-right) %>
@@ -119,6 +129,32 @@
     transition: opacity .16s ease, transform .16s cubic-bezier(.2,.7,.2,1);
   }
   .layers-panel--open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  /* Holds the full layer list now, so it scrolls inside the viewport instead
+     of running off the top of the screen. */
+  .layers-panel {
+    max-height: min(72vh, 40rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+  /* DaisyUI form rows inherited from the old panel — tighten them to the
+     card's rhythm so moved toggles don't look pasted in. */
+  .layers-panel .form-control .label { padding: 0.2rem 0; }
+  .layers-panel .form-control .label-text { font-size: 0.9rem; }
+  .layers-panel .form-control p { font-size: 0.72rem; line-height: 1.25; }
+  .layers-panel .space-y-4 > * + * { margin-top: 0.55rem; }
+  .layers-panel .divider { margin: 0.4rem 0; }
+  .layers-advanced__summary { cursor: pointer; list-style: none; user-select: none; }
+  .layers-advanced__summary::-webkit-details-marker { display: none; }
+  .layers-advanced__summary::after { content: " ▾"; opacity: .6; }
+  .layers-advanced[open] .layers-advanced__summary::after { content: " ▴"; }
+  .layers-advanced__body { margin-top: .5rem; }
+  .layers-more {
+    display: block; width: 100%; margin-top: .7rem; padding: .45rem 0;
+    background: none; border: none; cursor: pointer; text-align: left;
+    font-size: .8rem; font-weight: 600; opacity: .7; color: inherit;
+  }
+  .layers-more:hover { opacity: 1; }
 
   .layers-panel__section-title {
     font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;

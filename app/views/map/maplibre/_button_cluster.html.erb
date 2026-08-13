@@ -12,16 +12,9 @@
         still generate and live in the Timeline tab; this just drops the nag count. %>
   </button>
 
-  <button type="button"
-          class="map-button-cluster__btn"
-          data-action="click->map-panel#openTab"
-          data-tab="layers"
-          data-testid="map-button-layers"
-          aria-label="Layers"
-          aria-keyshortcuts="L"
-          title="Layers (L)">
-    <%= icon 'layer' %>
-  </button>
+  <%# The Layers button is gone: layers now live in the floating Layers control
+      (bottom-right), which owns basemaps, overlays AND the data toggles. Two
+      menus for one job was the confusion. %>
 
   <button type="button"
           class="map-button-cluster__btn map-button-cluster__btn--create"

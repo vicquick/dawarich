@@ -72,11 +72,17 @@ export default class extends Controller {
       // Ctrl+L (address bar), etc. must stay with the browser.
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
 
+      // "L" no longer opens a panel tab — layers live in the floating Layers
+      // control now, so the shortcut opens that instead.
+      if (e.key === "l" || e.key === "L") {
+        e.preventDefault()
+        document.querySelector('[data-action*="layers-control#toggleOpen"]')?.click()
+        return
+      }
+
       const keyToTab = {
         t: "timeline-feed",
         T: "timeline-feed",
-        l: "layers",
-        L: "layers",
         "/": "search",
         c: "tools",
         C: "tools",
