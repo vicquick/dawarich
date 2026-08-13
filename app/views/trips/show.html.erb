@@ -63,8 +63,12 @@
       <% if @photo_previews.any? %>
         <div class="grid grid-cols-3 gap-3 mb-6">
           <% @photo_previews.each do |photo| %>
-            <div class="aspect-square overflow-hidden rounded-xl transition-transform duration-200 hover:scale-105 hover:shadow-lg">
+            <div class="relative aspect-square overflow-hidden rounded-xl transition-transform duration-200 hover:scale-105 hover:shadow-lg">
               <img src="<%= photo[:url] %>" loading="lazy" class="h-full w-full object-cover">
+              <%# Videos show their poster frame — badge them so it's clear. %>
+              <% if photo[:type].to_s.casecmp('video').zero? %>
+                <span class="absolute bottom-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-[0.7rem] text-white backdrop-blur-sm">▶</span>
+              <% end %>
             </div>
           <% end %>
         </div>

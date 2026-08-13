@@ -37,7 +37,9 @@ class Trips::Photos
       id: asset[:id],
       url: "/api/v1/photos/#{asset[:id]}/thumbnail.jpg?api_key=#{user.api_key}&source=#{asset[:source]}",
       source: asset[:source],
-      orientation: asset[:orientation]
+      orientation: asset[:orientation],
+      # Videos ride along as their poster frame; the view badges them.
+      type: asset[:type]
     }
   end
 end

@@ -46,10 +46,11 @@ class Photos::Search
     ).call.map { |asset| transform_asset(asset, 'photoprism') }.compact
   end
 
+  # vicquick fork: videos are kept. They used to be dropped outright, which
+  # silently shrank a trip's gallery (the Sweden trip showed 201 of 202 assets).
+  # Immich serves a poster frame for a video on the same thumbnail endpoint, so
+  # it renders like any other tile — the view marks it with a play badge.
   def transform_asset(asset, source)
-    asset_type = asset['type'] || asset['Type']
-    return if asset_type.downcase == 'video'
-
     asset.merge(source: source)
   end
 end
