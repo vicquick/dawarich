@@ -165,7 +165,14 @@
     background: color-mix(in oklch, oklch(var(--bc)) 10%, transparent);
   }
 
-  .layers-chips { display: flex; gap: .55rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  /* The scroll container clips overflow, and the active chip paints OUTSIDE
+     its box — a blue ring, a drop glow, and a ✓ badge hanging off the corner.
+     Pad on every side so none of that gets cut, then pull the padding back
+     with a matching negative margin so the visual spacing is unchanged. */
+  .layers-chips {
+    display: flex; gap: .55rem; overflow-x: auto; scrollbar-width: none;
+    padding: .45rem .45rem .6rem; margin: -.45rem -.45rem -.45rem;
+  }
   .layers-chips::-webkit-scrollbar { display: none; }
   .layers-chip {
     flex: 0 0 auto; width: 4.1rem; background: none; border: none; padding: 0;
