@@ -564,9 +564,11 @@ export default class extends Controller {
     try {
       this._themeObserver = new MutationObserver(() => {
         // vicquick fork: if the user manually picked a non-theme basemap
-        // (Transit/Topo/Aerial) from the Layers control, don't yank it back
-        // to a light/dark vector style when the UI theme toggles.
-        const RASTER = ["transit", "topo", "aerial"]
+        // (Topo/Satellite/Outdoor) from the Layers control, don't yank it back
+        // to a light/dark vector style when the UI theme toggles. "mapy" was
+        // missing here, so picking Outdoor and then hitting a theme change
+        // silently threw you back to the default map.
+        const RASTER = ["topo", "aerial", "mapy"]
         if (RASTER.includes(this._userBasemap)) return
         const want = this.themeBasemap()
         if (want === this._currentBasemap) return

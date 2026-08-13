@@ -48,6 +48,9 @@ export default class extends Controller {
     let saved = null
     try { saved = localStorage.getItem("dawarichBasemap") } catch (_) { /* noop */ }
     if (saved === "light") saved = "white"
+    // "transit" (CyclOSM) was removed — anyone still holding it in localStorage
+    // would otherwise be stuck on a basemap that no longer has a chip.
+    if (saved === "transit") saved = null
     if (saved) return saved
     const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
       document.documentElement.classList.contains("dark")

@@ -9,14 +9,14 @@
       <% chips = [
         ["white",   "Light",     "https://a.basemaps.cartocdn.com/light_all/11/1083/665.png"],
         ["dark",    "Dark",      "https://a.basemaps.cartocdn.com/dark_all/11/1083/665.png"],
-        ["transit", "Cycle",     "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/11/1083/665.png"],
         ["aerial",  "Satellite", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/11/665/1083"]
       ]
       # vicquick fork: the "Outdoor" (Mapy.com) chip appears only once a free
       # MAPY_API_KEY is configured — until then we don't show a topo option
       # (OpenTopoMap was dropped).
       if ENV['MAPY_API_KEY'].present?
-        chips.insert(3, ["mapy", "Outdoor", "https://api.mapy.com/v1/maptiles/outdoor/256/11/1083/665?apikey=#{ENV['MAPY_API_KEY']}"])
+        # Keep drawn map styles together, imagery last.
+        chips.insert(2, ["mapy", "Outdoor", "https://api.mapy.com/v1/maptiles/outdoor/256/11/1083/665?apikey=#{ENV['MAPY_API_KEY']}"])
       end
       chips.each do |val, label, thumb| %>
         <button type="button" class="layers-chip" data-basemap="<%= val %>"
