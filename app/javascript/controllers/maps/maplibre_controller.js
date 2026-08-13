@@ -23,6 +23,7 @@ import { ImmichManager } from "./maplibre/immich_manager"
 import { WeatherManager } from "./maplibre/weather_manager"
 import { TrackProfileManager } from "./maplibre/track_profile"
 import { TrailsManager } from "./maplibre/trails_manager"
+import { DopManager } from "./maplibre/dop_manager"
 import { PlacesManager } from "./maplibre/places_manager"
 import { POIsManager } from "./maplibre/pois_manager"
 import { StreetView } from "./maplibre/street_view"
@@ -294,6 +295,15 @@ export default class extends Controller {
     // vicquick fork: Waymarked Trails hiking overlay (Layers → Trails).
     this.trailsManager = new TrailsManager(this)
     window.dawarichTrails = this.trailsManager
+
+    // vicquick fork: German DOP20 (20cm) over the satellite basemap, mounted
+    // per-viewport. "idle" also covers basemap swaps, which wipe custom layers.
+    this.dopManager = new DopManager(this)
+    window.dawarichDop = this.dopManager
+    const refreshDop = () => { this.dopManager.refresh().catch(() => {}) }
+    this.map.on("moveend", refreshDop)
+    this.map.on("idle", refreshDop)
+    refreshDop()
 
     // Listen for tab changes to trigger timeline feed loading via Turbo Frame
     this.boundHandleTabChanged = this.handleTabChanged.bind(this)
