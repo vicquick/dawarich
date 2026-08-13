@@ -42,11 +42,15 @@
         <button type="button" data-place-sheet-target="categoryBtn"
                 data-action="click->place-sheet#toggleTagPicker"
                 class="btn btn-sm gap-1">⭐ Save</button>
-        <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
-          <span data-share-emoji>🔗</span> <span data-share-label>Share</span>
-        </button>
-        <button type="button" data-action="click->place-sheet#shareOptions" class="btn btn-outline btn-sm px-2"
-                aria-label="More share options">▾</button>
+        <%# Share + its ▾ are one unit: joined as a split button so the arrow can
+            never wrap onto a line of its own. %>
+        <span class="ps-share-split">
+          <button type="button" data-action="click->place-sheet#share" class="btn btn-outline btn-sm gap-1">
+            <span data-share-emoji>🔗</span> <span data-share-label>Share</span>
+          </button>
+          <button type="button" data-action="click->place-sheet#shareOptions" class="btn btn-outline btn-sm px-2"
+                  aria-label="More share options">▾</button>
+        </span>
       </div>
       <%# share chooser: coordinates / clean link / OSM (hidden until Share is tapped) %>
       <div data-share-options style="display:none; gap:8px; margin-top:10px; flex-wrap:wrap;">
@@ -267,6 +271,17 @@
   .dir-mode.btn-active {
     background: #1a73e8 !important; border-color: #1a73e8 !important; color: #fff !important; opacity: 1;
   }
+  /* Share + ▾ as a joined split button — they stay together on wrap and read as
+     one control rather than two adjacent pills. */
+  .ps-share-split { display: inline-flex; flex: 0 0 auto; }
+  .ps-share-split > .btn:first-child {
+    border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important;
+  }
+  .ps-share-split > .btn:last-child {
+    border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important;
+    border-left-width: 0 !important; min-width: 2rem;
+  }
+
   /* Loading skeleton for the place photo strip + info line. Mirrors the real
      layout (112px tiles) so the sheet doesn't jump when photos land. */
   .ps-skeleton__strip { display: flex; gap: 7px; overflow: hidden; margin-bottom: 11px; }
