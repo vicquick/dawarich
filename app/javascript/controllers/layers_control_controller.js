@@ -45,6 +45,15 @@ export default class extends Controller {
 
   // Which base is active right now (saved choice, else theme default).
   currentBase() {
+    // The map itself is the authority — ask it first. Re-deriving this locally
+    // got it wrong whenever nothing was saved: the theme check below only knew
+    // the literal name "dark", but our themes are "dawarich-dark"/"dawarich-light",
+    // so it fell through to "white" and highlighted Light over a dark map.
+    try {
+      const live = window.dawarichActiveBasemap?.()
+      if (live) return live === "light" ? "white" : live
+    } catch (_) { /* noop */ }
+
     let saved = null
     try { saved = localStorage.getItem("dawarichBasemap") } catch (_) { /* noop */ }
     if (saved === "light") saved = "white"
@@ -52,7 +61,9 @@ export default class extends Controller {
     // would otherwise be stuck on a basemap that no longer has a chip.
     if (saved === "transit") saved = null
     if (saved) return saved
-    const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
+    // `includes`, not `===` — matches getCurrentTheme() in popup_theme.js, which
+    // is what the map actually uses ("dawarich-dark" must count as dark).
+    const dark = !!document.documentElement.getAttribute("data-theme")?.includes("dark") ||
       document.documentElement.classList.contains("dark")
     return dark ? "dark" : "white"
   }

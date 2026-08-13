@@ -527,6 +527,12 @@ export default class extends Controller {
     // we no longer auto-restore a raster base (it flashed, and the user wants
     // dark/light by default). The Layers control still lets you switch live.
     this._currentBasemap = this.themeBasemap()
+    // Single source of truth for "which basemap is actually showing", so the
+    // Layers control highlights the real one. It used to re-derive this with
+    // its own theme check (`data-theme === "dark"`), which never matched our
+    // actual theme name ("dawarich-dark") — so it lit up "Light" while the map
+    // rendered Dark.
+    window.dawarichActiveBasemap = () => this._userBasemap || this._currentBasemap
     this.observeThemeForBasemap()
     window.dawarichSelectBasemap = (name) => this.settingsController?.selectBasemap(name)
 
