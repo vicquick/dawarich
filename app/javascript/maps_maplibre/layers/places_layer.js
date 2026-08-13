@@ -32,7 +32,7 @@ export class PlacesLayer extends BaseLayer {
     ]
     const ringRadius = [
       "interpolate", ["linear"], ["zoom"],
-      8, 6, 12, 7.5, 15, 9.5, 18, 12,
+      8, 5, 12, 6.5, 15, 8, 18, 10,
     ]
     const selected = ["boolean", ["feature-state", "selected"], false]
     const pop = ["boolean", ["feature-state", "pop"], false]
@@ -51,8 +51,10 @@ export class PlacesLayer extends BaseLayer {
         },
       },
 
-      // Selection ring — invisible until its pin is selected, then the white
+      // Selection ring — invisible until its pin is selected, then the BLUE
       // ring springs in (0 → 4.5 overshoot → 2.5) for a tactile "button press".
+      // Blue is the selection signal, so the sheet's separate highlight circle
+      // is suppressed for saved pins (it made a three-ring bullseye).
       {
         id: `${this.id}-ring`,
         type: "circle",
@@ -61,7 +63,7 @@ export class PlacesLayer extends BaseLayer {
         paint: {
           "circle-radius": ringRadius,
           "circle-color": "rgba(0,0,0,0)",
-          "circle-stroke-color": "#ffffff",
+          "circle-stroke-color": "#1a73e8",
           "circle-stroke-width": ["case", pop, 4.5, ["case", selected, 2.5, 0]],
           "circle-stroke-opacity": ["case", selected, 1, 0],
           "circle-stroke-width-transition": { duration: 170, delay: 0 },

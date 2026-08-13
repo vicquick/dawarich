@@ -138,9 +138,13 @@ export default class extends Controller {
   }
 
   // Blue selection ring on the map for the active place (Google-style).
+  // Saved places draw their OWN ring on the places layer (feature-state), so
+  // adding this on top produced a three-ring bullseye — dot, ring, halo. Only
+  // POIs and search hits, which have no pin of their own, need it.
   highlightOnMap() {
     const map = window.dawarichMap
     if (!map || this.place.lat == null || this.place.lon == null) return
+    if (this.place.savedPlaceId != null) { this.clearHighlight(); return }
     const data = {
       type: "FeatureCollection",
       features: [{ type: "Feature", geometry: { type: "Point", coordinates: [this.place.lon, this.place.lat] }, properties: {} }],
