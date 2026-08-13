@@ -69,25 +69,36 @@ export class PlacesLayer extends BaseLayer {
         },
       },
 
-      // Place labels (tagged only) — only from street zoom, with collision
-      // declutter so a zoomed-out view shows dots, not a wall of text.
+      // Place labels (tagged only). Deliberately LATE and sparse: with hundreds
+      // of saved places, labelling every one from city zoom turned the map into
+      // a wall of text. Dots carry the information until you're close enough
+      // for names to matter, and generous padding means crowded names drop out
+      // rather than stack — the Google behaviour.
       {
         id: `${this.id}-labels`,
         type: "symbol",
         source: this.sourceId,
         filter: ["to-boolean", ["get", "color"]],
-        minzoom: 13,
+        minzoom: 15,
         layout: {
           "text-field": ["get", "name"],
           // Basemap glyph source only serves Noto Sans — using a font it lacks
           // renders boxes/garbage. Match it.
           "text-font": ["Noto Sans Regular"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 13, 10, 17, 13],
-          "text-offset": [0, 1.2],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 15, 10, 18, 12.5],
+          "text-offset": [0, 1.1],
           "text-anchor": "top",
           "text-optional": true,
           "text-allow-overlap": false,
-          "text-max-width": 8,
+          "text-padding": 8,
+          "text-max-width": 7,
+          // Anchors first, then starred/favourite — so when labels collide the
+          // meaningful ones survive.
+          "symbol-sort-key": [
+            "match", ["get", "state"],
+            "home", 0, "work", 1, "favourite", 2, "starred", 3, "want_to_go", 4,
+            5,
+          ],
         },
         paint: {
           "text-color": "#111827",
