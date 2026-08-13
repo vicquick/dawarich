@@ -26,10 +26,24 @@ export class TrackProfileManager {
     this._prof = null
   }
 
+  // The map SHRINKS to make room rather than being covered — the profile is
+  // part of the view (OrganicMaps/Komoot), not a modal on top of it.
+  _dock(on) {
+    const container = document.querySelector(".maps-maplibre-container")
+    if (!container) return
+    container.classList.toggle("tp-docked", on)
+    // Let the CSS height transition run, then tell MapLibre its canvas moved.
+    const resize = () => { try { this.map?.resize() } catch (_) { /* noop */ } }
+    resize()
+    clearTimeout(this._resizeT)
+    this._resizeT = setTimeout(resize, 280)
+  }
+
   async open(trackId) {
     if (trackId == null) return
     this._ensureDom()
     this._el.classList.add("tp--open")
+    this._dock(true)
     this._body.innerHTML = `<div class="tp__loading">Loading elevation…</div>`
     let pts = []
     try {
@@ -47,6 +61,7 @@ export class TrackProfileManager {
 
   close() {
     if (this._el) this._el.classList.remove("tp--open")
+    this._dock(false)
     this._removeMarker()
     this._prof = null
   }
@@ -135,7 +150,7 @@ export class TrackProfileManager {
   }
 
   _drawChart(host, prof) {
-    const W = Math.max(280, host.clientWidth || 320), H = 116, padB = 4, padT = 8
+    const W = Math.max(280, host.clientWidth || 320), H = 104, padB = 4, padT = 8
     const total = prof.distM || 1
     const eMin = prof.hasEle ? prof.minE : 0
     const eSpan = prof.hasEle ? Math.max(1, prof.maxE - prof.minE) : 1
@@ -246,12 +261,19 @@ export class TrackProfileManager {
       const s = document.createElement("style")
       s.id = "tp-style"
       s.textContent = `
-        .tp-panel{position:absolute;left:50%;bottom:0;transform:translate(-50%,110%);
-          width:min(94vw,44rem);z-index:557;background:oklch(var(--b1));color:oklch(var(--bc));
-          border:1px solid color-mix(in oklch,oklch(var(--bc)) 12%,transparent);border-bottom:none;
-          border-radius:1rem 1rem 0 0;box-shadow:0 -8px 28px rgba(0,0,0,.32);
-          padding:.7rem .9rem 1rem;transition:transform .24s cubic-bezier(.2,.7,.2,1);}
-        .tp-panel.tp--open{transform:translate(-50%,0);}
+        /* Docked strip under the map, full width — the map resizes above it. */
+        :root{--tp-h:14rem;}
+        @media (max-width:768px){:root{--tp-h:13rem;}}
+        .tp-panel{position:absolute;left:0;right:0;bottom:0;height:var(--tp-h);
+          transform:translateY(100%);box-sizing:border-box;
+          z-index:557;background:oklch(var(--b1));color:oklch(var(--bc));
+          border-top:1px solid color-mix(in oklch,oklch(var(--bc)) 12%,transparent);
+          box-shadow:0 -8px 28px rgba(0,0,0,.32);
+          padding:.7rem .9rem .8rem;transition:transform .24s cubic-bezier(.2,.7,.2,1);}
+        .tp-panel.tp--open{transform:translateY(0);}
+        /* The map gives up its bottom rows instead of being covered. */
+        .maps-maplibre-container.tp-docked{height:calc(100% - var(--tp-h)) !important;
+          transition:height .24s cubic-bezier(.2,.7,.2,1);}
         body.routing-active .tp-panel{display:none;}
         .tp__loading{padding:1.2rem;text-align:center;opacity:.65;font-size:.85rem;}
         .tp__head{display:flex;align-items:flex-start;gap:.6rem;}
@@ -284,7 +306,10 @@ export class TrackProfileManager {
     const el = document.createElement("div")
     el.className = "tp-panel"
     el.innerHTML = `<div class="tp__inner"></div>`
-    document.body.appendChild(el)
+    // Mount inside the map wrapper (position:relative) so "bottom:0" means the
+    // bottom of the MAP, and the docked height maths lines up.
+    const host = document.getElementById("maps-maplibre-container") || document.body
+    host.appendChild(el)
     this._el = el
     this._body = el.querySelector(".tp__inner")
   }
