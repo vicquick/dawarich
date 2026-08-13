@@ -277,7 +277,7 @@ export class WeatherManager {
         border-radius: 999px;
         box-shadow: 0 2px 14px rgba(0,0,0,.32);
         backdrop-filter: blur(10px);
-        font: 500 .78rem/1 system-ui, sans-serif;
+        font: 500 .78rem/1 "Space Grotesk", system-ui, sans-serif;
       }
       @media (prefers-color-scheme: light) {
         .wx { background: rgba(255,255,255,.94); color: #202124; }

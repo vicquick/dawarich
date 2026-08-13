@@ -161,7 +161,7 @@ html.dark .map-progress-badge-dot {
 
 /* Popup Styles */
 .point-popup {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: "Space Grotesk", system-ui, -apple-system, sans-serif;
 }
 
 .popup-header {

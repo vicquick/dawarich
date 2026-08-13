@@ -1,15 +1,31 @@
 <!-- Date Navigation Controls - Native Page Element -->
-<div class="w-full px-4 bg-base-100 border-b border-base-300" data-controller="map-controls">
-  <!-- Mobile: Compact Toggle Button -->
-  <div class="lg:hidden flex justify-center">
+<div class="w-full px-4 bg-base-100 border-b border-base-300"
+     data-controller="map-controls"
+     data-map-controls-date-value="<%= end_at.to_date.iso8601 %>">
+  <!-- Mobile: ‹ [date pill] › — the arrows step one day WITHOUT opening the
+       panel (SPA via timeline-feed#navigateToDay, so the map refetches and
+       fits bounds to that day's data). Tapping the pill opens the panel. -->
+  <div class="lg:hidden flex justify-center items-center gap-2">
+    <button type="button"
+            data-action="click->map-controls#prevDay"
+            aria-label="Previous day"
+            class="btn btn-sm btn-circle border border-base-300 bg-base-100 shadow-sm">
+      <%= icon 'chevron-left', class: 'w-4 h-4' %>
+    </button>
     <button
       type="button"
       data-action="click->map-controls#toggle"
-      class="btn btn-primary btn-sm w-auto px-5 rounded-full shadow">
+      class="btn btn-primary btn-sm w-auto px-5 rounded-full shadow map-date-pill">
       <span data-map-controls-target="toggleIcon">
         <%= icon 'chevron-down' %>
       </span>
-      <span class="ml-2"><%= human_date(start_at) %></span>
+      <span class="ml-2" data-map-controls-target="label"><%= human_date(start_at) %></span>
+    </button>
+    <button type="button"
+            data-action="click->map-controls#nextDay"
+            aria-label="Next day"
+            class="btn btn-sm btn-circle border border-base-300 bg-base-100 shadow-sm">
+      <%= icon 'chevron-right', class: 'w-4 h-4' %>
     </button>
   </div>
 
@@ -23,8 +39,10 @@
           panel must ride along as a hidden field. The panel reads the new
           range's end date as its day via timeline_feed#hydrateFromUrl. %>
       <% if params[:panel].present? %><%= f.hidden_field :panel, value: params[:panel] %><% end %>
-      <div class="flex flex-col space-y-4 lg:flex-row lg:space-y-0 lg:space-x-4 lg:items-end">
-        <div class="w-full lg:w-1/12">
+      <div class="flex flex-col space-y-3 lg:flex-row lg:space-y-0 lg:space-x-4 lg:items-end">
+        <%# Desktop-only range arrows — on mobile the pill row above owns
+            day-stepping, so the big stacked buttons are gone. %>
+        <div class="hidden lg:block w-full lg:w-1/12">
           <div class="flex flex-col space-y-2">
             <span class="tooltip tooltip-bottom" data-tip="<%= human_date(start_at - 1.day) %>">
               <%= link_to map_v2_path(start_at: (start_at - 1.day).iso8601, end_at: (end_at - 1.day).iso8601, import_id: params[:import_id], panel: params[:panel]), class: "btn btn-sm border border-base-300 hover:btn-ghost w-full" do %>
@@ -33,13 +51,16 @@
             </span>
           </div>
         </div>
-        <div class="w-full lg:w-2/12 tooltip tooltip-bottom" data-tip="Start date and time">
-          <%= f.datetime_local_field :start_at, include_seconds: false, max: "9999-12-31T23:59", class: "input input-sm input-bordered hover:cursor-pointer hover:input-primary w-full", value: start_at %>
+        <%# Start + end share a row on mobile — half the vertical footprint. %>
+        <div class="grid grid-cols-2 gap-2 lg:contents">
+          <div class="w-full lg:w-2/12 tooltip tooltip-bottom" data-tip="Start date and time">
+            <%= f.datetime_local_field :start_at, include_seconds: false, max: "9999-12-31T23:59", class: "input input-sm input-bordered hover:cursor-pointer hover:input-primary w-full", value: start_at %>
+          </div>
+          <div class="w-full lg:w-2/12 tooltip tooltip-bottom" data-tip="End date and time">
+            <%= f.datetime_local_field :end_at, include_seconds: false, max: "9999-12-31T23:59", class: "input input-sm input-bordered hover:cursor-pointer hover:input-primary w-full", value: end_at %>
+          </div>
         </div>
-        <div class="w-full lg:w-2/12 tooltip tooltip-bottom" data-tip="End date and time">
-          <%= f.datetime_local_field :end_at, include_seconds: false, max: "9999-12-31T23:59", class: "input input-sm input-bordered hover:cursor-pointer hover:input-primary w-full", value: end_at %>
-        </div>
-        <div class="w-full lg:w-1/12">
+        <div class="hidden lg:block w-full lg:w-1/12">
           <div class="flex flex-col space-y-2">
             <span class="tooltip tooltip-bottom" data-tip="<%= human_date(start_at + 1.day) %>">
               <%= link_to map_v2_path(start_at: (start_at + 1.day).iso8601, end_at: (end_at + 1.day).iso8601, import_id: params[:import_id], panel: params[:panel]), class: "btn btn-sm border border-base-300 hover:btn-ghost w-full" do %>
@@ -53,21 +74,31 @@
             <%= f.submit "Search", class: "btn btn-sm btn-primary hover:btn-info w-full" %>
           </div>
         </div>
-        <div class="w-full lg:w-1/12">
-          <div class="flex flex-col space-y-2 text-center">
-            <%= link_to "Today",
-              map_v2_path(start_at: Time.current.beginning_of_day.iso8601, end_at: Time.current.end_of_day.iso8601, import_id: params[:import_id], panel: params[:panel]),
-              class: "btn btn-sm border border-base-300 hover:btn-ghost w-full" %>
+        <%# Presets: one compact chip row on mobile (Today / 7 days / Month),
+            regular buttons on desktop. Today is a single day, so it goes SPA
+            through the same navigateToDay path as the arrows and zooms to the
+            day's data; the range presets stay as full navigations. %>
+        <div class="grid grid-cols-3 gap-2 lg:contents">
+          <div class="w-full lg:w-1/12">
+            <div class="flex flex-col space-y-2 text-center">
+              <button type="button"
+                      data-action="click->map-controls#goToday"
+                      class="btn btn-xs lg:btn-sm border border-base-300 hover:btn-ghost w-full">Today</button>
+            </div>
           </div>
-        </div>
-        <div class="w-full lg:w-2/12">
-          <div class="flex flex-col space-y-2 text-center">
-            <%= link_to "Last 7 days", map_v2_path(start_at: 1.week.ago.beginning_of_day.iso8601, end_at: Time.current.end_of_day.iso8601, import_id: params[:import_id], panel: params[:panel]), class: "btn btn-sm border border-base-300 hover:btn-ghost w-full" %>
+          <div class="w-full lg:w-2/12">
+            <div class="flex flex-col space-y-2 text-center">
+              <%= link_to map_v2_path(start_at: 1.week.ago.beginning_of_day.iso8601, end_at: Time.current.end_of_day.iso8601, import_id: params[:import_id], panel: params[:panel]), class: "btn btn-xs lg:btn-sm border border-base-300 hover:btn-ghost w-full" do %>
+                <span class="lg:hidden">7 days</span><span class="hidden lg:inline">Last 7 days</span>
+              <% end %>
+            </div>
           </div>
-        </div>
-        <div class="w-full lg:w-2/12">
-          <div class="flex flex-col space-y-2 text-center">
-            <%= link_to "Last month", map_v2_path(start_at: 1.month.ago.beginning_of_day.iso8601, end_at: Time.current.end_of_day.iso8601, import_id: params[:import_id], panel: params[:panel]), class: "btn btn-sm border border-base-300 hover:btn-ghost w-full" %>
+          <div class="w-full lg:w-2/12">
+            <div class="flex flex-col space-y-2 text-center">
+              <%= link_to map_v2_path(start_at: 1.month.ago.beginning_of_day.iso8601, end_at: Time.current.end_of_day.iso8601, import_id: params[:import_id], panel: params[:panel]), class: "btn btn-xs lg:btn-sm border border-base-300 hover:btn-ghost w-full" do %>
+                <span class="lg:hidden">Month</span><span class="hidden lg:inline">Last month</span>
+              <% end %>
+            </div>
           </div>
         </div>
       </div>
