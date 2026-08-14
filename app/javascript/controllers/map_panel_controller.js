@@ -166,7 +166,12 @@ export default class extends Controller {
    * The layers-control Stimulus scope lives on its own element, so we go
    * through its trigger button rather than reaching into the controller.
    */
-  toggleLayers() {
+  toggleLayers(event) {
+    // Stop the ORIGINAL click here: the synthetic .click() below stops its
+    // own propagation, but this cluster tap would still bubble to the
+    // layers-control's outside-click listener and close the panel in the
+    // same instant it opened.
+    event?.stopPropagation()
     document.querySelector('[data-action*="layers-control#toggleOpen"]')?.click()
   }
 
