@@ -51,18 +51,18 @@
       transition: background 0.15s ease;
     }
     .map-date-pill__arrow {
-      padding: 0.45rem 0.65rem;
+      padding: 0.4rem 0.55rem;
+      opacity: 0.85;
     }
-    .map-date-pill__arrow:first-child { padding-left: 0.8rem; }
-    .map-date-pill__arrow:last-child { padding-right: 0.8rem; }
+    .map-date-pill__arrow:first-child { padding-left: 0.75rem; }
+    .map-date-pill__arrow:last-child { padding-right: 0.75rem; }
     .map-date-pill__date {
-      padding: 0.45rem 0.55rem;
-      font-weight: 700;
-      font-size: 0.9rem;
+      padding: 0.4rem 0.35rem;
+      font-weight: 600;
+      font-size: 0.875rem;
       letter-spacing: 0.01em;
-      /* Hairline separators so the three hit-areas read inside one capsule. */
-      border-left: 1px solid rgba(255, 255, 255, 0.28);
-      border-right: 1px solid rgba(255, 255, 255, 0.28);
+      /* Never two lines — large system font scales were wrapping the date. */
+      white-space: nowrap;
     }
     .map-date-pill__arrow:active,
     .map-date-pill__date:active {
