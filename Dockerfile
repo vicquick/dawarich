@@ -86,9 +86,15 @@ RUN chmod +x /usr/local/bin/web-entrypoint.sh
 COPY ./docker/sidekiq-entrypoint.sh /usr/local/bin/sidekiq-entrypoint.sh
 RUN chmod +x /usr/local/bin/sidekiq-entrypoint.sh
 
+COPY ./docker/app-entrypoint.sh /usr/local/bin/app-entrypoint.sh
+RUN chmod +x /usr/local/bin/app-entrypoint.sh
+
 EXPOSE $RAILS_PORT
 
 STOPSIGNAL SIGINT
 
-ENTRYPOINT ["web-entrypoint.sh"]
+# vicquick fork: role dispatcher — CONTAINER_ROLE=sidekiq starts the worker,
+# anything else the web server. Lets dawarich-app and dawarich-sidekiq share
+# one build definition instead of the worker wrapping the upstream image.
+ENTRYPOINT ["app-entrypoint.sh"]
 CMD ["bin/rails", "server", "-p", "3000", "-b", "::"]
