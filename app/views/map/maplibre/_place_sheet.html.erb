@@ -302,6 +302,20 @@
     padding-left: 0.45rem; padding-right: 0.45rem; min-width: 1.6rem;
   }
 
+  /* Touch screens: a tap leaves the button in a STICKY :hover state, and
+     DaisyUI's btn-outline hover fill is base-content — i.e. WHITE in dark
+     mode. The caret (and any outline action) stayed white after tapping.
+     No hover fill on coarse pointers; a brief :active flash still gives
+     tap feedback. */
+  @media (hover: none), (pointer: coarse) {
+    .ps-actions-row .btn-outline:hover,
+    .ps-share-split .btn-outline:hover {
+      background: transparent;
+      color: inherit;
+      border-color: oklch(var(--bc) / 0.2);
+    }
+  }
+
   .ps-share-split { display: inline-flex; flex: 0 0 auto; }
   .ps-share-split > .btn:first-child {
     border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important;
