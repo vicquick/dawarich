@@ -15,10 +15,24 @@ class Public::StoriesController < ApplicationController
 
   def show
     response.set_header('X-Robots-Tag', 'noindex, nofollow')
+    return render :gate, status: :unauthorized unless password_ok?
+
     @bundle = Rails.cache.fetch(bundle_cache_key, expires_in: 10.minutes) do
       Stories::BundleBuilder.new(@story).call
     end
     @owner = owner?
+  end
+
+  # Password gate (Immich-style): correct password sets a signed cookie so
+  # the friend only types it once per device.
+  def unlock
+    if @story.password_digest.present? && @story.authenticate(params[:password].to_s)
+      cookies.signed[cookie_key] = { value: '1', expires: 30.days, httponly: true, same_site: :lax }
+      redirect_to story_public_path(@story.token)
+    else
+      @error = true
+      render :gate, status: :unauthorized
+    end
   end
 
   # Photo proxy: only URLs this app signed (per asset) are fetchable, streamed
@@ -52,6 +66,16 @@ class Public::StoriesController < ApplicationController
 
   def owner?
     current_user.present? && current_user.id == @story.user_id
+  end
+
+  def password_ok?
+    return true if @story.password_digest.blank? || owner?
+
+    cookies.signed[cookie_key] == '1'
+  end
+
+  def cookie_key
+    :"story_auth_#{@story.id}"
   end
 
   def bundle_cache_key

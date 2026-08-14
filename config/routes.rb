@@ -136,6 +136,7 @@ Rails.application.routes.draw do
   resources :stories, only: %i[index update destroy]
   # vicquick fork: public cinematic story page — tokened, publish-gated
   get 's/:token', to: 'public/stories#show', as: :story_public
+  post 's/:token/unlock', to: 'public/stories#unlock', as: :story_unlock
   get 's/:token/photo/:sig', to: 'public/stories#photo', as: :story_photo, sig: %r{[^/]+}
   resources :tags, except: [:show]
 

@@ -6,8 +6,8 @@
 class StoriesController < ApplicationController
   before_action :authenticate_user!
 
-  CONFIG_KEYS = %w[theme accent camera duration line_style photo_size
-                   show_elevation show_photos subtitle].freeze
+  CONFIG_KEYS = %w[theme accent camera duration line_style photo_mode photo_size
+                   show_elevation show_photos subtitle day_night].freeze
 
   def index
     @stories = current_user.stories.includes(:trip).order(updated_at: :desc)
@@ -23,12 +23,14 @@ class StoriesController < ApplicationController
 
   def update
     story = current_user.stories.find(params[:id])
-    attrs = params.require(:story).permit(:title, :published, :audio, :remove_audio, config: CONFIG_KEYS)
+    attrs = params.require(:story).permit(:title, :published, :audio, :remove_audio, :password, :remove_password, config: CONFIG_KEYS)
 
     story.audio.attach(attrs[:audio]) if attrs[:audio].present?
     story.audio.purge if attrs[:remove_audio] == 'true' && story.audio.attached?
+    story.update!(password_digest: nil) if attrs[:remove_password] == 'true'
 
-    updates = attrs.except(:audio, :remove_audio, :config)
+    updates = attrs.except(:audio, :remove_audio, :remove_password, :config)
+    updates.delete(:password) if updates[:password].blank?
     updates[:config] = (story.config || {}).merge(attrs[:config].to_h) if attrs[:config].present?
     story.update!(updates) if updates.present?
     story.touch if updates.blank? # bust the bundle cache after audio-only changes

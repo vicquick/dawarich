@@ -5,6 +5,10 @@
 # the owner flips it; the owner always sees a preview. Audio is an optional
 # soundtrack played in sync with the animation.
 class Story < ApplicationRecord
+  # Optional password on top of the token (Immich-style protected share).
+  # validations: false → password stays optional; blank means open link.
+  has_secure_password validations: false
+
   belongs_to :user
   belongs_to :trip
 

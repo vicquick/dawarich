@@ -1,19 +1,9 @@
-// Public story player (vicquick fork) — the cinematic trip animation.
+// Public story player v2 (vicquick fork) — the cinematic trip animation.
 //
-// Standalone importmap entry: imports MapLibre + the app's style builder and
-// nothing else (no Stimulus, no app bundle). One requestAnimationFrame clock
-// drives everything — camera, line draw-on, photo pops, elevation cursor,
-// stat counters and the soundtrack — all keyed off ONE downsampled point
-// array shipped in the page bundle, so nothing can drift out of sync.
-//
-// The owner's builder drawer edits `config`; every knob lands here:
-//   theme        midnight | paper | satellite
-//   accent       hex colour for line/UI
-//   camera       follow | drone | overview
-//   duration     seconds (or "auto")
-//   line_style   solid | glow
-//   photo_size   small | large   + show_photos on/off
-//   show_elevation on/off
+// One requestAnimationFrame clock drives everything — camera, day-coloured
+// line draw-on, the pack-horse caravan, photo slideshow, day/night cycle,
+// grade-coloured elevation cursor and the soundtrack — all keyed off ONE
+// stitched point array from the bundle, so nothing can drift.
 import maplibregl from "maplibre-gl"
 import { getMapStyle } from "maps_maplibre/utils/style_manager"
 
@@ -24,20 +14,19 @@ const el = (id) => document.getElementById(id)
 const ACCENT = /^#[0-9a-fA-F]{6}$/.test(cfg.accent || "") ? cfg.accent : "#f97316"
 document.documentElement.style.setProperty("--story-accent", ACCENT)
 
-const AUTO_DURATION = Math.min(180, Math.max(45, bundle.points.length / 18))
+const AUTO_DURATION = Math.min(200, Math.max(60, bundle.points.length / 14))
 const DURATION_S = Number(cfg.duration) > 0 ? Number(cfg.duration) : AUTO_DURATION
 const CAMERA = ["follow", "drone", "overview"].includes(cfg.camera) ? cfg.camera : "follow"
-const SHOW_PHOTOS = cfg.show_photos !== "off"
+const PHOTO_MODE = ["split", "full", "off"].includes(cfg.photo_mode) ? cfg.photo_mode : "split"
 const SHOW_ELEV = cfg.show_elevation !== "off"
+const DAY_NIGHT = cfg.day_night !== "off"
+const TZ = Number(bundle.tz_offset) || 7200
 
-const state = {
-  playing: false, progress: 0, speed: 1, started: false,
-  raf: 0, lastTs: 0,
-}
+const state = { playing: false, progress: 0, speed: 1, started: false, raf: 0, lastTs: 0, photoIdx: -1 }
 
-// ---------- helpers over the point array ----------
 const P = bundle.points // [lon, lat, ele, t]
 const D = bundle.dist_km
+const DAYS = bundle.days || []
 const N = P.length
 const totalKm = D[N - 1] || 0
 
@@ -56,19 +45,24 @@ function bearingBetween(a, b) {
     Math.sin(a[1] * toRad) * Math.cos(b[1] * toRad) * Math.cos((b[0] - a[0]) * toRad)
   return (Math.atan2(y, x) / toRad + 360) % 360
 }
+function hexToRgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+}
+function dayColorAt(i) {
+  let c = DAYS[0]?.color || ACCENT
+  for (const d of DAYS) { if (d.i <= i) c = d.color; else break }
+  return c
+}
 
-// ---------- map style per theme ----------
+// ---------- map ----------
 async function themeStyle() {
   if (cfg.theme === "satellite") {
     return {
       version: 8,
-      sources: {
-        esri: {
-          type: "raster", tileSize: 256, maxzoom: 19,
-          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-          attribution: "© Esri",
-        },
-      },
+      sources: { esri: { type: "raster", tileSize: 256, maxzoom: 19,
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+        attribution: "© Esri" } },
       layers: [{ id: "esri", type: "raster", source: "esri" }],
     }
   }
@@ -90,17 +84,32 @@ const map = new maplibregl.Map({
 })
 await new Promise((resolve) => map.once("load", resolve))
 
-const line = {
-  type: "Feature",
-  geometry: { type: "LineString", coordinates: P.map((p) => [p[0], p[1]]) },
+// In split mode the photo panel owns one side — pad every camera move so the
+// caravan stays centred in the VISIBLE map, not under the panel.
+function applySplitPadding() {
+  if (PHOTO_MODE !== "split") return
+  const portrait = window.matchMedia("(max-aspect-ratio: 1/1)").matches
+  map.setPadding(portrait ? { top: Math.round(innerHeight * 0.34) } : { right: Math.round(innerWidth * 0.38) })
 }
+applySplitPadding()
+window.addEventListener("resize", applySplitPadding)
+
+const line = { type: "Feature", geometry: { type: "LineString", coordinates: P.map((p) => [p[0], p[1]]) } }
 map.addSource("story-line", { type: "geojson", data: line, lineMetrics: true })
 map.addLayer({
   id: "story-line-dim", type: "line", source: "story-line",
   layout: { "line-cap": "round", "line-join": "round" },
+  paint: { "line-color": cfg.theme === "satellite" ? "#ffffff" : "#94a3b8", "line-width": 3, "line-opacity": 0.4 },
+})
+// White casing under the coloured line — visibility on any basemap.
+map.addLayer({
+  id: "story-line-casing", type: "line", source: "story-line",
+  layout: { "line-cap": "round", "line-join": "round" },
   paint: {
-    "line-color": cfg.theme === "satellite" ? "#ffffff" : "#94a3b8",
-    "line-width": 3, "line-opacity": 0.35,
+    "line-color": "#ffffff",
+    "line-width": ["interpolate", ["linear"], ["zoom"], 8, 9, 14, 13],
+    "line-opacity": 0.9,
+    "line-gradient": casingGradientAt(0),
   },
 })
 if (cfg.line_style === "glow") {
@@ -108,8 +117,8 @@ if (cfg.line_style === "glow") {
     id: "story-line-glow", type: "line", source: "story-line",
     layout: { "line-cap": "round", "line-join": "round" },
     paint: {
-      "line-width": ["interpolate", ["linear"], ["zoom"], 8, 12, 14, 18],
-      "line-blur": 10, "line-gradient": gradientAt(0, 0.5),
+      "line-width": ["interpolate", ["linear"], ["zoom"], 8, 16, 14, 24],
+      "line-blur": 12, "line-gradient": dayGradientAt(0, 0.5),
     },
   })
 }
@@ -117,21 +126,39 @@ map.addLayer({
   id: "story-line-live", type: "line", source: "story-line",
   layout: { "line-cap": "round", "line-join": "round" },
   paint: {
-    "line-width": ["interpolate", ["linear"], ["zoom"], 8, 4, 14, 6],
-    "line-gradient": gradientAt(0),
+    "line-width": ["interpolate", ["linear"], ["zoom"], 8, 6, 14, 9],
+    "line-gradient": dayGradientAt(0),
   },
 })
 
-function hexToRgba(hex, a) {
-  const n = parseInt(hex.slice(1), 16)
-  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`
+// Day-rainbow gradient up to the playhead, transparent beyond. Stops are the
+// day boundaries — the drawn line replays the journey day by day in colour.
+function dayGradientAt(prog, alpha = 1) {
+  const t = Math.max(0.0002, Math.min(0.9998, prog))
+  const stops = []
+  let last = 0
+  for (let d = 0; d < DAYS.length; d++) {
+    const from = DAYS[d].i / (N - 1)
+    if (from >= t) break
+    if (from > last) stops.push([from, DAYS[d].color])
+    else if (d === 0) stops.push([0, DAYS[0].color])
+    last = from
+  }
+  if (!stops.length) stops.push([0, DAYS[0]?.color || ACCENT])
+  const expr = ["step", ["line-progress"]]
+  expr.push(alpha === 1 ? stops[0][1] : hexToRgba(stops[0][1], alpha))
+  for (let k = 1; k < stops.length; k++) {
+    expr.push(stops[k][0], alpha === 1 ? stops[k][1] : hexToRgba(stops[k][1], alpha))
+  }
+  expr.push(t, "rgba(0,0,0,0)")
+  return expr
 }
-function gradientAt(prog, alpha = 1) {
-  const t = Math.max(0.0001, Math.min(0.9999, prog))
-  return ["step", ["line-progress"], alpha === 1 ? ACCENT : hexToRgba(ACCENT, alpha), t, "rgba(0,0,0,0)"]
+function casingGradientAt(prog) {
+  const t = Math.max(0.0002, Math.min(0.9998, prog))
+  return ["step", ["line-progress"], "rgba(255,255,255,0.9)", t, "rgba(0,0,0,0)"]
 }
 
-// Start / finish flags
+// ---------- flags + caravan ----------
 function flag(iconText, coords, cls) {
   const d = document.createElement("div")
   d.className = `story-flag ${cls}`
@@ -141,33 +168,92 @@ function flag(iconText, coords, cls) {
 flag("🚩", [P[0][0], P[0][1]], "story-flag--start")
 flag("🏁", [P[N - 1][0], P[N - 1][1]], "story-flag--end")
 
-const puckEl = document.createElement("div")
-puckEl.className = "story-puck"
-const puck = new maplibregl.Marker({ element: puckEl }).setLngLat([P[0][0], P[0][1]]).addTo(map)
+// Four pack horses, walking. Legs swing, bodies bob, luggage sways; the whole
+// caravan flips to face the direction of travel.
+const HORSE = `
+<svg viewBox="0 0 64 44" width="52" height="36" class="horse">
+  <g class="horse-body">
+    <rect x="30" y="6" width="16" height="8" rx="3" fill="#7c4a1e" class="luggage"/>
+    <rect x="33" y="3" width="10" height="5" rx="2" fill="#a16b34" class="luggage"/>
+    <path d="M14 18 q2 -8 12 -8 h22 q9 0 10 8 q1 7 -5 8 l-2 0 q-6 2 -30 0 q-8 0 -7 -8" fill="#5b3a21"/>
+    <path d="M13 16 q-6 -1 -8 -8 q-1 -4 3 -4 q5 0 7 5 l2 5 z" fill="#5b3a21"/>
+    <path d="M8 4 l-2 -4 3 1 2 -1 z" fill="#3f2917"/>
+    <path d="M56 20 q5 2 4 9" stroke="#3f2917" stroke-width="2.5" fill="none" class="tail"/>
+  </g>
+  <rect x="18" y="24" width="3.6" height="15" rx="1.8" fill="#4a2f1b" class="leg leg-a"/>
+  <rect x="26" y="24" width="3.6" height="15" rx="1.8" fill="#3f2917" class="leg leg-b"/>
+  <rect x="42" y="24" width="3.6" height="15" rx="1.8" fill="#4a2f1b" class="leg leg-b"/>
+  <rect x="50" y="24" width="3.6" height="15" rx="1.8" fill="#3f2917" class="leg leg-a"/>
+</svg>`
+const caravanEl = document.createElement("div")
+caravanEl.className = "story-caravan"
+caravanEl.innerHTML = HORSE + HORSE + HORSE + HORSE
+const caravan = new maplibregl.Marker({ element: caravanEl, anchor: "center" })
+  .setLngLat([P[0][0], P[0][1]]).addTo(map)
 
-// ---------- photos ----------
-const photoMarkers = []
-if (SHOW_PHOTOS) {
-  for (const ph of bundle.photos) {
-    const w = document.createElement("div")
-    w.className = `story-photo${cfg.photo_size === "large" ? " story-photo--lg" : ""}`
-    w.innerHTML = `<img loading="lazy" src="${ph.url}" alt="">${ph.type === "VIDEO" ? '<span class="story-photo__play">▶</span>' : ""}`
-    w.addEventListener("click", () => openLightbox(ph.url))
-    const m = new maplibregl.Marker({ element: w, anchor: "bottom" })
-      .setLngLat([P[ph.idx][0], P[ph.idx][1]])
-    photoMarkers.push({ ph, marker: m, added: false })
+function updateCaravanFacing(prog) {
+  const b = bearingBetween(posAt(Math.max(0, prog - 0.002)), posAt(Math.min(1, prog + 0.002)))
+  // heading west-ish → flip so the horses walk forward
+  caravanEl.classList.toggle("flip", b > 180)
+  caravanEl.classList.toggle("walking", state.playing)
+}
+
+// ---------- photo slideshow (split / full) ----------
+const photoPanel = el("story-photos")
+if (PHOTO_MODE === "off") photoPanel.remove()
+else photoPanel.classList.add(`mode-${PHOTO_MODE}`)
+let slideA = el("slide-a")
+let slideB = el("slide-b")
+function updatePhotos(prog) {
+  if (PHOTO_MODE === "off" || !bundle.photos.length) return
+  const i = idxAt(prog)
+  // latest photo at or before the playhead
+  let k = -1
+  for (let j = 0; j < bundle.photos.length; j++) {
+    if (bundle.photos[j].idx <= i) k = j
+    else break
+  }
+  if (k === state.photoIdx) return
+  state.photoIdx = k
+  if (k < 0) { photoPanel.classList.remove("active"); return }
+  photoPanel.classList.add("active")
+  // crossfade: load into the hidden slide, then swap opacity
+  const incoming = slideB
+  incoming.src = bundle.photos[k].url
+  incoming.onload = () => {
+    incoming.classList.add("show")
+    slideA.classList.remove("show")
+    const t = slideA
+    slideA = incoming
+    slideB = t
   }
 }
-function openLightbox(url) {
-  el("story-lightbox").innerHTML = `<img src="${url}" alt="">`
-  el("story-lightbox").classList.add("open")
-}
-el("story-lightbox").addEventListener("click", () => el("story-lightbox").classList.remove("open"))
 
-// ---------- elevation canvas ----------
+// ---------- day/night ----------
+const skyEl = el("story-sky")
+function updateSky(prog) {
+  if (!DAY_NIGHT) return
+  const t = P[idxAt(prog)][3] + TZ
+  const h = (t / 3600) % 24
+  // darkness 0 at 13:00, 1 at 01:00 — smooth cosine day curve
+  const darkness = Math.min(1, Math.max(0, (1 - Math.cos(((h - 1 + 24) % 24) / 24 * Math.PI * 2)) / 2) * 1.25 - 0.25)
+  const dusk = Math.max(0, 1 - Math.abs(h - 20.5) / 1.6) + Math.max(0, 1 - Math.abs(h - 5.5) / 1.6)
+  skyEl.style.background = `linear-gradient(rgba(8,10,26,${(darkness * 0.55).toFixed(3)}), rgba(8,10,26,${(darkness * 0.35).toFixed(3)}))`
+  skyEl.style.boxShadow = dusk > 0.05 ? `inset 0 0 30vmax rgba(249,115,22,${(dusk * 0.28).toFixed(3)})` : "none"
+  el("story-stars").style.opacity = String(Math.max(0, darkness - 0.45) * 1.6)
+}
+
+// ---------- elevation: grade-coloured, like the map's profile ----------
 const canvas = el("story-elev")
 if (!SHOW_ELEV) canvas.style.display = "none"
 const ctx = canvas.getContext("2d")
+function gradeColor(g) {
+  const a = Math.abs(g)
+  if (a < 4) return "#16a34a"
+  if (a < 8) return "#84cc16"
+  if (a < 12) return "#f59e0b"
+  return "#dc2626"
+}
 function drawElevation(prog) {
   if (!SHOW_ELEV) return
   const w = canvas.width = canvas.clientWidth * devicePixelRatio
@@ -177,19 +263,29 @@ function drawElevation(prog) {
   const max = Math.max(...eles, min + 10)
   ctx.clearRect(0, 0, w, h)
   const x = (i) => (D[i] / totalKm) * w
-  const y = (e) => h - ((e - min) / (max - min)) * (h * 0.82) - h * 0.06
+  const y = (e) => h - ((e - min) / (max - min)) * (h * 0.8) - h * 0.08
+  const win = Math.max(3, Math.round(N / 220))
+  // grade-coloured strokes segment by segment (Komoot-style, same as /map)
+  for (let i = 0; i < N - 1; i += 1) {
+    const j = Math.min(N - 1, i + win)
+    const dKm = D[j] - D[i]
+    const g = dKm > 0.005 ? ((eles[j] - eles[i]) / (dKm * 1000)) * 100 : 0
+    ctx.beginPath()
+    ctx.moveTo(x(i), y(eles[i]))
+    ctx.lineTo(x(i + 1), y(eles[i + 1]))
+    ctx.strokeStyle = gradeColor(g)
+    ctx.lineWidth = 2.2 * devicePixelRatio
+    ctx.stroke()
+  }
+  // soft fill under the line
   ctx.beginPath()
   ctx.moveTo(0, h)
   for (let i = 0; i < N; i++) ctx.lineTo(x(i), y(eles[i]))
   ctx.lineTo(w, h)
   ctx.closePath()
-  ctx.fillStyle = hexToRgba(ACCENT, 0.18)
+  ctx.fillStyle = "rgba(148,163,184,0.12)"
   ctx.fill()
-  ctx.beginPath()
-  for (let i = 0; i < N; i++) i ? ctx.lineTo(x(i), y(eles[i])) : ctx.moveTo(x(i), y(eles[i]))
-  ctx.strokeStyle = ACCENT
-  ctx.lineWidth = 2 * devicePixelRatio
-  ctx.stroke()
+  // cursor
   const i = idxAt(prog)
   ctx.beginPath()
   ctx.moveTo(x(i), 0); ctx.lineTo(x(i), h)
@@ -197,7 +293,7 @@ function drawElevation(prog) {
   ctx.lineWidth = devicePixelRatio
   ctx.stroke()
   ctx.beginPath()
-  ctx.arc(x(i), y(eles[i]), 4 * devicePixelRatio, 0, Math.PI * 2)
+  ctx.arc(x(i), y(eles[i]), 4.5 * devicePixelRatio, 0, Math.PI * 2)
   ctx.fillStyle = "#fff"
   ctx.fill()
 }
@@ -206,7 +302,7 @@ function drawElevation(prog) {
 const audio = bundle.audio_url ? new Audio(bundle.audio_url) : null
 if (audio) { audio.loop = true; audio.preload = "auto" }
 
-// ---------- HUD ----------
+// ---------- HUD / camera / timeline ----------
 function fmtClock(ts) {
   return new Date(ts * 1000).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })
 }
@@ -215,10 +311,10 @@ function updateHud(prog) {
   el("hud-dist").textContent = `${D[i].toFixed(1)} km`
   el("hud-ele").textContent = `${P[i][2]} m`
   el("hud-date").textContent = fmtClock(P[i][3])
+  el("hud-date").style.color = dayColorAt(i)
   el("story-scrub").value = String(Math.round(prog * 1000))
 }
 
-// ---------- camera modes ----------
 let camBearing = 0
 function updateCamera(prog) {
   if (CAMERA === "overview") return
@@ -235,27 +331,18 @@ function updateCamera(prog) {
   map.jumpTo({ center: pos, zoom: Math.max(map.getZoom(), 12.8), bearing: camBearing, pitch: 48 })
 }
 
-// ---------- timeline ----------
 function applyProgress(prog, { moveCamera = true } = {}) {
   state.progress = Math.max(0, Math.min(1, prog))
-  map.setPaintProperty("story-line-live", "line-gradient", gradientAt(state.progress))
+  map.setPaintProperty("story-line-live", "line-gradient", dayGradientAt(state.progress))
+  map.setPaintProperty("story-line-casing", "line-gradient", casingGradientAt(state.progress))
   if (cfg.line_style === "glow" && map.getLayer("story-line-glow")) {
-    map.setPaintProperty("story-line-glow", "line-gradient", gradientAt(state.progress, 0.5))
+    map.setPaintProperty("story-line-glow", "line-gradient", dayGradientAt(state.progress, 0.5))
   }
-  puck.setLngLat(posAt(state.progress))
+  caravan.setLngLat(posAt(state.progress))
+  updateCaravanFacing(state.progress)
   if (moveCamera && state.playing) updateCamera(state.progress)
-  for (const pm of photoMarkers) {
-    const at = pm.ph.idx / (N - 1)
-    if (!pm.added && at <= state.progress) {
-      pm.marker.addTo(map)
-      pm.added = true
-      requestAnimationFrame(() => pm.marker.getElement().classList.add("pop"))
-    } else if (pm.added && at > state.progress) {
-      pm.marker.remove()
-      pm.marker.getElement().classList.remove("pop")
-      pm.added = false
-    }
-  }
+  updatePhotos(state.progress)
+  updateSky(state.progress)
   drawElevation(state.progress)
   updateHud(state.progress)
   if (state.progress >= 1) pause(true)
@@ -275,17 +362,14 @@ function play() {
   state.lastTs = 0
   el("story-title-card").classList.add("dismissed")
   el("btn-play").classList.add("playing")
+  caravanEl.classList.add("walking")
   if (!state.started) {
     state.started = true
     if (CAMERA !== "overview") {
       map.easeTo({ center: posAt(0), zoom: 13, pitch: CAMERA === "drone" ? 60 : 48, bearing: 0, duration: 2200 })
       setTimeout(() => { state.raf = requestAnimationFrame(tick) }, 2100)
-    } else {
-      state.raf = requestAnimationFrame(tick)
-    }
-  } else {
-    state.raf = requestAnimationFrame(tick)
-  }
+    } else { state.raf = requestAnimationFrame(tick) }
+  } else { state.raf = requestAnimationFrame(tick) }
   audio?.play?.().catch(() => {})
 }
 
@@ -293,6 +377,7 @@ function pause(finished = false) {
   state.playing = false
   cancelAnimationFrame(state.raf)
   el("btn-play").classList.remove("playing")
+  caravanEl.classList.remove("walking")
   audio?.pause?.()
   if (finished) map.fitBounds(bounds, { padding: 80, pitch: 0, bearing: 0, duration: 2500 })
 }
@@ -320,6 +405,6 @@ if (audio) {
 
 el("hud-total").textContent =
   `${totalKm.toFixed(0)} km · ${bundle.stats.days} days · ↑${bundle.stats.elevation_gain_m} m` +
-  (SHOW_PHOTOS ? ` · ${bundle.photos.length} photos` : "")
+  (PHOTO_MODE !== "off" ? ` · ${bundle.photos.length} photos` : "")
 applyProgress(0, { moveCamera: false })
 window.addEventListener("resize", () => drawElevation(state.progress))

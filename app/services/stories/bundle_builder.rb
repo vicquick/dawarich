@@ -4,13 +4,21 @@
 # static JSON bundle — no API access from the public page, so a story leaks
 # exactly its own data and nothing else.
 #
-# One array is the single source of truth for the whole timeline: the
-# downsampled point polyline. Line drawing, camera path, elevation profile,
-# photo placement and the scrubber all key off indexes into it, so they can
-# never drift apart.
+# SOURCE STITCHING: when GPX-type imports overlap the trip window, the story
+# rides on THEM (Garmin activities, OrganicMaps recordings) instead of the
+# raw phone-point soup. Where several recordings overlap in time (the same
+# hike captured by two devices), each hour of the journey is taken from the
+# source with the densest coverage in that hour — one coherent line, no
+# double-drawn trails.
+#
+# One array remains the single source of truth for the whole timeline: line,
+# camera, elevation, photo placement, day colours and the scrubber all key
+# off indexes into it.
 module Stories
   class BundleBuilder
     MAX_POINTS = 2_500
+    GPX_SOURCES = %w[gpx kml kmz tcx fit].freeze
+    DAY_PALETTE = %w[#f97316 #3b82f6 #10b981 #ec4899 #eab308 #a855f7 #06b6d4 #ef4444 #84cc16 #f43f5e].freeze
 
     def initialize(story)
       @story = story
@@ -29,10 +37,10 @@ module Stories
         started_at: @trip.started_at.to_i,
         ended_at: @trip.ended_at.to_i,
         date_label: date_label,
-        # [ [lon, lat, ele_m, unix_ts], ... ]
+        tz_offset: 7200, # journey-local clock for the day/night cycle
         points: pts.map { |p| [p[:lon].round(6), p[:lat].round(6), p[:ele].to_i, p[:t]] },
-        # cumulative km, same indexing as points
         dist_km: dist.map { |d| d.round(3) },
+        days: day_segments(pts),
         photos: photo_entries(pts),
         stats: stats(pts, dist),
         audio_url: audio_url,
@@ -43,22 +51,60 @@ module Stories
     private
 
     def empty_bundle
-      { title: @story.display_title, points: [], dist_km: [], photos: [],
-        stats: {}, audio_url: nil, config: @story.config || {} }
+      { title: @story.display_title, points: [], dist_km: [], days: [], photos: [],
+        stats: {}, audio_url: nil, tz_offset: 7200, config: @story.config || {} }
     end
 
+    # ---- source selection + stitching ----
+
     def timeline_points
-      rows = @user.points
-                  .where(timestamp: @trip.started_at.to_i..@trip.ended_at.to_i)
-                  .order(:timestamp)
-                  .pluck(:lonlat, :altitude, :timestamp)
+      rows = gpx_rows.presence || all_rows
       return [] if rows.empty?
 
+      rows = stitch(rows)
+      downsample(rows).map { |ll, ele, t, _src| { lon: ll.x, lat: ll.y, ele: ele, t: t } }
+    end
+
+    def gpx_import_ids
+      @gpx_import_ids ||= @user.imports.where(source: GPX_SOURCES).pluck(:id)
+    end
+
+    def gpx_rows
+      return [] if gpx_import_ids.empty?
+
+      @user.points
+           .where(import_id: gpx_import_ids)
+           .where(timestamp: @trip.started_at.to_i..@trip.ended_at.to_i)
+           .order(:timestamp)
+           .pluck(:lonlat, :altitude, :timestamp, :import_id)
+    end
+
+    def all_rows
+      @user.points
+           .where(timestamp: @trip.started_at.to_i..@trip.ended_at.to_i)
+           .order(:timestamp)
+           .pluck(:lonlat, :altitude, :timestamp, Arel.sql('0'))
+    end
+
+    # Per hour-bucket, keep only the densest source — overlapping recordings
+    # of the same hike collapse into one clean line.
+    def stitch(rows)
+      buckets = rows.group_by { |r| r[2] / 3600 }
+      buckets.keys.sort.flat_map do |hour|
+        in_bucket = buckets[hour]
+        best_src = in_bucket.group_by(&:last).max_by { |_, v| v.length }.first
+        in_bucket.select { |r| r.last == best_src }
+      end
+    end
+
+    def downsample(rows)
       step = [(rows.length.to_f / MAX_POINTS).ceil, 1].max
       sampled = rows.each_slice(step).map(&:first)
       sampled << rows.last if sampled.last != rows.last
-      sampled.map { |ll, ele, t| { lon: ll.x, lat: ll.y, ele: ele, t: t } }
+      sampled
     end
+
+    # ---- derived data ----
 
     def cumulative_distance(pts)
       total = 0.0
@@ -77,6 +123,25 @@ module Stories
       h = Math.sin(dlat / 2)**2 +
           Math.cos(a[:lat] * rad) * Math.cos(b[:lat] * rad) * Math.sin(dlon / 2)**2
       2 * 6371.0 * Math.asin(Math.sqrt(h))
+    end
+
+    # Day boundaries (journey-local) with a colour each — the line renders as
+    # a vivid per-day rainbow, matching how the map colours imported tracks.
+    def day_segments(pts)
+      segs = []
+      last_day = nil
+      pts.each_with_index do |p, i|
+        day = (p[:t] + 7200) / 86_400
+        next if day == last_day
+
+        last_day = day
+        segs << {
+          i: i,
+          color: DAY_PALETTE[segs.length % DAY_PALETTE.length],
+          label: Time.at(p[:t]).utc.strftime('%a %-d %b')
+        }
+      end
+      segs
     end
 
     def photo_entries(pts)
@@ -101,10 +166,9 @@ module Stories
           orientation: a[:orientation],
           url: "/s/#{@story.token}/photo/#{CGI.escape(verifier.generate([a[:id], a[:source]]))}"
         }
-      end.sort_by { |p| p[:t] }.first(120)
+      end.sort_by { |p| p[:t] }.first(160)
     end
 
-    # Binary search for the point closest in time.
     def nearest_index(pts, t)
       lo = 0
       hi = pts.length - 1
@@ -119,13 +183,12 @@ module Stories
       gain = 0
       pts.each_cons(2) do |a, b|
         d = b[:ele].to_i - a[:ele].to_i
-        gain += d if d.positive? && d < 50 # spike guard
+        gain += d if d.positive? && d < 50
       end
       {
         distance_km: dist.last.round(1),
         days: ((@trip.ended_at - @trip.started_at) / 86_400).ceil,
-        elevation_gain_m: gain,
-        photos: nil # filled client-side from photos.length
+        elevation_gain_m: gain
       }
     end
 
