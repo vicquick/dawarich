@@ -312,7 +312,9 @@
     .ps-share-split .btn-outline:hover {
       background: transparent;
       color: inherit;
-      border-color: oklch(var(--bc) / 0.2);
+      /* Same border as the resting outline — a faded border here made the
+         button look like it LOST its outline after a tap. */
+      border-color: currentColor;
     }
   }
 
