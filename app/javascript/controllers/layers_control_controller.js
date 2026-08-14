@@ -7,7 +7,7 @@ import { Controller } from "@hotwired/stimulus"
 // basemap swap + incident layer are driven through window hooks exposed by the
 // maplibre controller, so this stays a thin, self-contained UI.
 export default class extends Controller {
-  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle", "immichToggle", "weatherToggle", "trailsToggle"]
+  static targets = ["panel", "button", "chip", "trafficToggle", "streetToggle", "immichToggle", "weatherToggle", "trailsToggle", "importsList"]
 
   connect() {
     this.open = false
@@ -141,6 +141,46 @@ export default class extends Controller {
     try { on = !!(await window.dawarichWeather?.toggle?.()) } catch (_) { /* noop */ }
     this.weatherToggleTarget.classList.toggle("layers-overlay--on", on)
     this.weatherToggleTarget.setAttribute("aria-pressed", on ? "true" : "false")
+  }
+
+  // Imported files (GPX/KML/Takeout) as individual overlays — rows are built
+  // lazily the first time the section is expanded.
+  async loadImports(e) {
+    if (!e.target.open || this._importsLoaded || !this.hasImportsListTarget) return
+    this._importsLoaded = true
+    const mgr = window.dawarichImportLayers
+    const list = this.importsListTarget
+    try {
+      const imports = (await mgr.listImports()).filter((i) => i.id != null)
+      if (!imports.length) {
+        list.innerHTML = '<div class="layers-imports__hint">No imports yet</div>'
+        return
+      }
+      list.innerHTML = imports.map((i) => `
+        <button type="button" class="layers-imports__row${mgr.isOn(i.id) ? " layers-imports__row--on" : ""}"
+                data-import-id="${i.id}" aria-pressed="${mgr.isOn(i.id)}">
+          <span class="layers-imports__dot" style="background:${mgr.colorFor(i.id)}"></span>
+          <span class="layers-imports__name">${this.esc(i.name || `Import ${i.id}`)}</span>
+          <span class="layers-imports__switch" aria-hidden="true"></span>
+        </button>`).join("")
+      list.querySelectorAll(".layers-imports__row").forEach((row) =>
+        row.addEventListener("click", async (ev) => {
+          ev.stopPropagation()
+          let on = false
+          try { on = await mgr.toggle(Number(row.dataset.importId)) } catch (_) { /* noop */ }
+          row.classList.toggle("layers-imports__row--on", on)
+          row.setAttribute("aria-pressed", String(on))
+        }))
+    } catch (_) {
+      this._importsLoaded = false
+      list.innerHTML = '<div class="layers-imports__hint">Couldn’t load imports</div>'
+    }
+  }
+
+  esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[c])
   }
 
   // Waymarked Trails hiking overlay.

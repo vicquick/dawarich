@@ -8,6 +8,41 @@ class Api::V1::ImportsController < ApiController
   before_action :validate_points_limit, only: %i[create]
   before_action :validate_file_type, only: %i[create]
 
+  # vicquick fork: one import (a GPX file, a Takeout, …) as line geometry for
+  # the map's "Imported files" layer. Consecutive points join into a
+  # LineString; a gap of 30+ minutes starts a new segment so unrelated
+  # recordings in one file don't get a straight connector. Cached until the
+  # import's points change.
+  def geojson
+    import = current_api_user.imports.find(params[:id])
+
+    payload = Rails.cache.fetch("v1/import_geojson/#{import.id}/#{import.points.count}", expires_in: 1.week) do
+      rows = import.points.order(:timestamp).pluck(:lonlat, :timestamp)
+      segments = []
+      current = []
+      prev_t = nil
+      rows.each do |lonlat, t|
+        if prev_t && (t.to_i - prev_t.to_i) > 30.minutes.to_i && current.any?
+          segments << current
+          current = []
+        end
+        current << [lonlat.x.round(6), lonlat.y.round(6)]
+        prev_t = t
+      end
+      segments << current
+      segments = segments.select { |s| s.length > 1 }
+
+      {
+        type: 'Feature',
+        geometry: { type: 'MultiLineString', coordinates: segments },
+        properties: { id: import.id, name: import.name, points: rows.length,
+                      start_at: rows.first&.last, end_at: rows.last&.last }
+      }
+    end
+
+    render json: payload
+  end
+
   def index
     imports = current_api_user
               .imports
