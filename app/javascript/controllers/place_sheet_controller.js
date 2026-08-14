@@ -77,7 +77,7 @@ export default class extends Controller {
       // Full tag set [{id,name,color,icon}] (server-ordered by priority).
       tags: Array.isArray(loc.tags) ? loc.tags : (loc.tag ? [{ name: loc.tag, color: loc.tagColor }] : []),
     }
-    if (this.hasTagPickerTarget) this.tagPickerTarget.hidden = true
+    if (this.hasTagPickerTarget) this.hideTagPicker()
     this.editableName = !!loc.editableName
     if (this.hasTitleTarget) {
       this.titleTarget.textContent = this.place.name
@@ -105,7 +105,7 @@ export default class extends Controller {
     // Reset transient button states from a previous place.
     const shareLabel = this.element.querySelector("[data-share-label]")
     if (shareLabel) shareLabel.textContent = "Share"
-    if (this.hasTagPickerTarget) this.tagPickerTarget.hidden = true
+    if (this.hasTagPickerTarget) this.hideTagPicker()
     this.element.style.height = "34vh"
     this.element.style.transform = "translateY(0)"
     this.expanded = false
@@ -228,6 +228,7 @@ export default class extends Controller {
     if (!this.hasCategoryBtnTarget) return
     const primary = this.place.tags[0] // server-ordered by priority
     const btn = this.categoryBtnTarget
+    const caret = this.element.querySelector('[data-place-sheet-target="categoryCaret"]')
     if (primary && primary.name) {
       // Saved: category icon + the word "Saved" — the icon says which list.
       btn.className = "btn btn-sm gap-1"
@@ -236,6 +237,15 @@ export default class extends Controller {
       btn.style.background = primary.color || "#6366f1"
       btn.style.color = "#fff"
       btn.style.border = "0"
+      // Caret wears the same paint so the split reads as ONE control —
+      // unpainted it sat as a dark stub next to a green button.
+      if (caret) {
+        caret.className = "btn btn-sm px-2"
+        caret.style.background = primary.color || "#6366f1"
+        caret.style.color = "#fff"
+        caret.style.border = "0"
+        caret.style.borderLeft = "1px solid rgba(255,255,255,.3)"
+      }
     } else {
       // Unsaved: show the REMEMBERED category's icon so one tap is predictable.
       const next = this.lastSaveTag()
@@ -245,22 +255,35 @@ export default class extends Controller {
       btn.style.background = ""
       btn.style.color = ""
       btn.style.border = ""
+      if (caret) {
+        caret.className = "btn btn-outline btn-sm px-2"
+        caret.style.background = ""
+        caret.style.color = ""
+        caret.style.border = ""
+        caret.style.borderLeft = ""
+      }
     }
   }
 
   toggleTagPicker() {
     if (!this.hasTagPickerTarget) return
-    const show = this.tagPickerTarget.hidden
+    const show = this.tagPickerTarget.style.display === "none"
     if (show) this.renderTagChips()
-    this.tagPickerTarget.hidden = !show
+    this.tagPickerTarget.style.display = show ? "flex" : "none"
+  }
+
+  hideTagPicker() {
+    if (this.hasTagPickerTarget) this.tagPickerTarget.style.display = "none"
   }
 
   renderTagChips() {
     const active = new Set(this.currentTagIds())
+    // Sized like the share-options row (btn-ghost btn-xs) so both dropdowns
+    // read as the same component family.
     const chip = (id, label, color, on) =>
       `<button type="button" class="ps-tag-chip" data-tag-id="${id}"
         style="border:1px solid ${color};color:${on ? "#fff" : color};background:${on ? color : "transparent"};
-        border-radius:999px;padding:5px 11px;font-size:.8rem;font-weight:600;cursor:pointer">${this.esc(label)}</button>`
+        border-radius:999px;padding:4px 10px;font-size:.75rem;font-weight:600;cursor:pointer;line-height:1.2">${this.esc(label)}</button>`
     let html = this.pickerTags()
       .map((t) => chip(t.id, (t.icon ? t.icon + " " : "") + t.name, t.color || "#9ca3af", active.has(t.id)))
       .join("")

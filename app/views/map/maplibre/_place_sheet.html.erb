@@ -37,21 +37,23 @@
 
     <%# INFO mode: actions + enrichment %>
     <div data-place-sheet-target="info">
-      <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+      <%# ONE row: Directions · Save · Share — never wraps. Tight paddings via
+          .ps-actions-row so all three (plus both carets) fit a 390px phone. %>
+      <div class="ps-actions-row">
         <button type="button" data-action="click->place-sheet#directions" class="btn btn-primary btn-sm gap-1">
           <%= icon 'route' %> Directions
         </button>
         <%# Save is a split button like Share: the main half saves with the
             LAST-USED category one tap (remembered across places), the ▾ half
-            opens the category chips. Label is just "Save"/"Saved" + the
+            toggles the category chips. Label is just "Save"/"Saved" + the
             category's icon — the icon carries the meaning. %>
         <span class="ps-share-split">
           <button type="button" data-place-sheet-target="categoryBtn"
                   data-action="click->place-sheet#quickSave"
-                  class="btn btn-sm gap-1">⭐ Save</button>
+                  class="btn btn-outline btn-sm gap-1">⭐ Save</button>
           <button type="button" data-action="click->place-sheet#toggleTagPicker"
                   data-place-sheet-target="categoryCaret"
-                  class="btn btn-sm px-2" aria-label="Choose category" title="Choose category">▾</button>
+                  class="btn btn-outline btn-sm px-2" aria-label="Choose category" title="Choose category">▾</button>
         </span>
         <%# Share + its ▾ are one unit: joined as a split button so the arrow can
             never wrap onto a line of its own. %>
@@ -74,8 +76,11 @@
       </div>
 
       <%# Category picker (chips) — opens from the category button %>
-      <div data-place-sheet-target="tagPicker" hidden
-           style="display:flex; gap:6px; flex-wrap:wrap; margin-top:12px;"></div>
+      <%# Category chips — collapsed by default. display lives on the STYLE
+          (not the `hidden` attribute): the old inline display:flex beat the
+          UA's [hidden] rule, so the picker could never actually close. %>
+      <div data-place-sheet-target="tagPicker"
+           style="display:none; gap:6px; flex-wrap:wrap; margin-top:10px;"></div>
 
       <div data-place-sheet-target="enrichment" style="margin-top:14px;"></div>
     </div>
@@ -284,6 +289,19 @@
   }
   /* Share + ▾ as a joined split button — they stay together on wrap and read as
      one control rather than two adjacent pills. */
+  /* Primary action row — Directions · Save · Share on ONE line, always. */
+  .ps-actions-row {
+    display: flex; gap: 6px; margin-top: 14px;
+    flex-wrap: nowrap; align-items: stretch; min-width: 0;
+  }
+  .ps-actions-row .btn {
+    padding-left: 0.6rem; padding-right: 0.6rem;
+    font-size: 0.8rem; white-space: nowrap;
+  }
+  .ps-actions-row .ps-share-split .btn:last-child {
+    padding-left: 0.45rem; padding-right: 0.45rem; min-width: 1.6rem;
+  }
+
   .ps-share-split { display: inline-flex; flex: 0 0 auto; }
   .ps-share-split > .btn:first-child {
     border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important;
