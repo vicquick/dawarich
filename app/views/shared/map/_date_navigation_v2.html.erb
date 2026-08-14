@@ -2,32 +2,73 @@
 <div class="w-full px-4 bg-base-100 border-b border-base-300"
      data-controller="map-controls"
      data-map-controls-date-value="<%= end_at.to_date.iso8601 %>">
-  <!-- Mobile: ‹ [date pill] › — the arrows step one day WITHOUT opening the
-       panel (SPA via timeline-feed#navigateToDay, so the map refetches and
-       fits bounds to that day's data). Tapping the pill opens the panel. -->
-  <div class="lg:hidden flex justify-center items-center gap-2">
-    <button type="button"
-            data-action="click->map-controls#prevDay"
-            aria-label="Previous day"
-            class="btn btn-sm btn-circle border border-base-300 bg-base-100 shadow-sm">
-      <%= icon 'chevron-left', class: 'w-4 h-4' %>
-    </button>
-    <button
-      type="button"
-      data-action="click->map-controls#toggle"
-      class="btn btn-primary btn-sm w-auto px-5 rounded-full shadow map-date-pill">
-      <span data-map-controls-target="toggleIcon">
-        <%= icon 'chevron-down' %>
-      </span>
-      <span class="ml-2" data-map-controls-target="label"><%= human_date(start_at) %></span>
-    </button>
-    <button type="button"
-            data-action="click->map-controls#nextDay"
-            aria-label="Next day"
-            class="btn btn-sm btn-circle border border-base-300 bg-base-100 shadow-sm">
-      <%= icon 'chevron-right', class: 'w-4 h-4' %>
-    </button>
+  <!-- Mobile: one blue capsule — ‹ date › with the arrows INSIDE the chip.
+       Arrows step one day (SPA via timeline-feed#navigateToDay: layers
+       refetch, map fits the day's data). Tapping the date opens the Timeline
+       sheet, which owns the calendar + presets — so no chevron-down. -->
+  <div class="lg:hidden flex justify-center">
+    <div class="map-date-pill shadow" role="group" aria-label="Date navigation">
+      <button type="button"
+              data-action="click->map-controls#prevDay"
+              aria-label="Previous day"
+              class="map-date-pill__arrow">
+        <%= icon 'chevron-left', class: 'w-4 h-4' %>
+      </button>
+      <button type="button"
+              data-action="click->map-controls#openTimeline"
+              class="map-date-pill__date"
+              aria-label="Open timeline">
+        <span data-map-controls-target="label"><%= human_date(start_at) %></span>
+      </button>
+      <button type="button"
+              data-action="click->map-controls#nextDay"
+              aria-label="Next day"
+              class="map-date-pill__arrow">
+        <%= icon 'chevron-right', class: 'w-4 h-4' %>
+      </button>
+    </div>
   </div>
+
+  <style>
+    .map-date-pill {
+      display: inline-flex;
+      align-items: stretch;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #1a73e8;
+      color: #fff;
+    }
+    .map-date-pill__arrow,
+    .map-date-pill__date {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s ease;
+    }
+    .map-date-pill__arrow {
+      padding: 0.45rem 0.65rem;
+    }
+    .map-date-pill__arrow:first-child { padding-left: 0.8rem; }
+    .map-date-pill__arrow:last-child { padding-right: 0.8rem; }
+    .map-date-pill__date {
+      padding: 0.45rem 0.55rem;
+      font-weight: 700;
+      font-size: 0.9rem;
+      letter-spacing: 0.01em;
+      /* Hairline separators so the three hit-areas read inside one capsule. */
+      border-left: 1px solid rgba(255, 255, 255, 0.28);
+      border-right: 1px solid rgba(255, 255, 255, 0.28);
+    }
+    .map-date-pill__arrow:active,
+    .map-date-pill__date:active {
+      background: rgba(255, 255, 255, 0.16);
+    }
+  </style>
 
   <!-- Expandable Panel (hidden on mobile by default, always visible on desktop) -->
   <div

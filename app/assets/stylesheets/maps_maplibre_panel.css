@@ -290,13 +290,42 @@
   .map-control-panel .panel-drag-handle {
     display: flex;
   }
-  /* Inner layout fills the sheet and scrolls within it. */
+  /* Pin the grab bar + header: the sheet is a flex column where ONLY the
+     body scrolls. Before this, an overflow anywhere in the chain could put
+     the whole sheet content in one scroll region — the user scrolls the
+     calendar and the X rides off the top with it (reported on mobile). */
+  .map-control-panel,
+  .map-control-panel.timeline-expanded {
+    display: flex;
+    flex-direction: column;
+  }
   .panel-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
     max-height: calc(100dvh - 4rem - env(safe-area-inset-top) - 26px);
+    overflow: hidden;
+  }
+  .panel-header {
+    flex: 0 0 auto;
   }
   .panel-body {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     padding: 16px 20px;
+    /* iOS momentum scroll inside the sheet. */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  /* On the phone sheet the panel-body is the ONE scroller — the timeline
+     tab's desktop-oriented inner scroll regions flatten out. */
+  .tab-content[data-tab-content="timeline-feed"].active {
+    height: auto;
+  }
+  .timeline-tab-content {
+    overflow: visible;
   }
   .panel-header {
     padding: 16px 20px;

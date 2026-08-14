@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import { attachSheetDrag } from "maps_maplibre/utils/sheet_drag"
 
 // Google-Maps-style place detail bottom sheet (vicquick fork).
 // Opens when a search result is selected (or via openPlace event), shows the
@@ -54,8 +55,7 @@ export default class extends Controller {
   }
 
   disconnect() {
-    if (this._dragMove) window.removeEventListener("pointermove", this._dragMove)
-    if (this._dragUp) window.removeEventListener("pointerup", this._dragUp)
+    this._detachDrag?.()
     document.removeEventListener("location-search:selected", this.onSelected)
     document.removeEventListener("place-sheet:open", this.onOpen)
     document.removeEventListener("directions:stops", this.onStops)
@@ -399,50 +399,22 @@ export default class extends Controller {
     this.syncPad()
   }
 
-  // Draggable handle: drag up/down to resize the sheet, tap to toggle.
+  // Draggable handle — shared iOS physics (velocity projection, rubber-band,
+  // flick-down to dismiss). See maps_maplibre/utils/sheet_drag.js.
   setupDragHandle() {
     if (!this.hasHandleTarget) return
     const vh = () => window.innerHeight
-    let startY = 0
-    let startH = 0
-    let dragging = false
-    let moved = false
-
-    const down = (e) => {
-      dragging = true
-      moved = false
-      startY = e.clientY ?? e.touches?.[0]?.clientY ?? 0
-      startH = this.element.offsetHeight
-      this.element.style.transition = "none"
-      try { this.handleTarget.setPointerCapture(e.pointerId) } catch (_) {}
-    }
-    const move = (e) => {
-      if (!dragging) return
-      const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0
-      const dy = y - startY
-      if (Math.abs(dy) > 4) moved = true
-      const h = Math.max(vh() * 0.2, Math.min(this.maxSheetPx(), startH - dy))
-      this.element.style.height = `${h}px`
-    }
-    const up = () => {
-      if (!dragging) return
-      dragging = false
-      this.element.style.transition = ""
-      if (!moved) return this.togglePullUp()
-      // Snap to the nearest stop in px (top stop = max, clear of the navbar).
-      const stops = [vh() * 0.34, vh() * 0.62, this.maxSheetPx()]
-      const curPx = this.element.offsetHeight
-      const near = stops.reduce((a, b) => (Math.abs(b - curPx) < Math.abs(a - curPx) ? b : a))
-      this.element.style.height = `${near}px`
-      this.expanded = near > vh() * 0.45
-      this.syncPad()
-    }
-
-    this._dragMove = move
-    this._dragUp = up
-    this.handleTarget.addEventListener("pointerdown", down)
-    window.addEventListener("pointermove", move)
-    window.addEventListener("pointerup", up)
+    this._detachDrag = attachSheetDrag(this.element, this.handleTarget, {
+      detents: () => [vh() * 0.34, vh() * 0.62, this.maxSheetPx()],
+      onHeight: (px) => {
+        this.expanded = px > vh() * 0.45
+        this.syncPad()
+      },
+      onDismiss: () => {
+        this.close()
+        setTimeout(() => { this.element.style.height = "" }, 320)
+      },
+    })
   }
 
   close() {

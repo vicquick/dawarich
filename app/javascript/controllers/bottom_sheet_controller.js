@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import { attachSheetDrag } from "maps_maplibre/utils/sheet_drag"
 
 // Shared mobile bottom-sheet behaviour (vicquick fork).
 //
@@ -34,8 +35,7 @@ export default class extends Controller {
   disconnect() {
     window.removeEventListener("resize", this._onResize)
     this.observer?.disconnect()
-    if (this._move) window.removeEventListener("pointermove", this._move)
-    if (this._up) window.removeEventListener("pointerup", this._up)
+    this._detachDrag?.()
     this.clearPad()
   }
 
@@ -74,46 +74,26 @@ export default class extends Controller {
 
   setupDrag() {
     const vh = () => window.innerHeight
-    let startY = 0, startH = 0, dragging = false, moved = false
-
-    const down = (e) => {
-      if (!this.isMobile()) return
-      dragging = true
-      moved = false
-      startY = e.clientY ?? e.touches?.[0]?.clientY ?? 0
-      startH = this.element.offsetHeight
-      this.element.style.transition = "none"
-      try { this.handleTarget.setPointerCapture(e.pointerId) } catch (_) {}
-    }
-    const move = (e) => {
-      if (!dragging) return
-      const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0
-      const dy = y - startY
-      if (Math.abs(dy) > 4) moved = true
-      const h = Math.max(vh() * 0.2, Math.min(this.maxSheetPx(), startH - dy))
-      this.element.style.height = `${h}px`
-      this.syncPad()
-    }
-    const up = () => {
-      if (!dragging) return
-      dragging = false
-      this.element.style.transition = ""
-      if (!moved) {
-        // tap toggles between peek and full
-        const full = this.element.offsetHeight > vh() * 0.55
-        this.element.style.height = `${full ? vh() * 0.42 : this.maxSheetPx()}px`
-      } else {
-        const stops = [vh() * 0.42, vh() * 0.62, this.maxSheetPx()]
-        const cur = this.element.offsetHeight
-        this.element.style.height = `${stops.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a))}px`
-      }
-      this.syncPad()
-    }
-
-    this._move = move
-    this._up = up
-    this.handleTarget.addEventListener("pointerdown", down)
-    window.addEventListener("pointermove", move)
-    window.addEventListener("pointerup", up)
+    this._detachDrag = attachSheetDrag(this.element, this.handleTarget, {
+      enabled: () => this.isMobile(),
+      detents: () => [vh() * 0.42, vh() * 0.62, this.maxSheetPx()],
+      onHeight: () => this.syncPad(),
+      // A firm flick down (or dropping the sheet below the lowest detent)
+      // closes it — the drag bar doubles as the dismiss control. Route the
+      // dismissal through the host's own close button so its cleanup (class
+      // toggles, map padding, `map-panel:closed` event) all still runs.
+      onDismiss: () => {
+        // Close while still collapsed (height 0), then restore the natural
+        // height once the slide-out transform has finished — avoids a flash
+        // of the full sheet re-appearing mid-exit.
+        const close = this.element.querySelector(
+          "[data-sheet-close], .panel-header button, .place-drawer__close",
+        )
+        if (close) close.click()
+        else this.element.classList.remove("open", "place-drawer--open")
+        this.clearPad()
+        setTimeout(() => { this.element.style.height = "" }, 320)
+      },
+    })
   }
 }

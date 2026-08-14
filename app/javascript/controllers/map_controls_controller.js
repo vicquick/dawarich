@@ -5,9 +5,11 @@ export default class extends Controller {
   static values = { date: String }
 
   connect() {
-    // Restore panel state from sessionStorage on page load
+    // Restore panel state from sessionStorage on page load — desktop only.
+    // On phones the panel isn't toggled from the pill anymore (the pill opens
+    // the Timeline sheet), so a restored-open panel would have no way closed.
     const panelState = sessionStorage.getItem("mapControlsPanelState")
-    if (panelState === "visible") {
+    if (panelState === "visible" && window.matchMedia("(min-width: 1024px)").matches) {
       this.showPanel()
     }
 
@@ -120,23 +122,41 @@ export default class extends Controller {
     }
   }
 
+  // Tapping the pill's date opens the Timeline sheet — the calendar there is
+  // the date picker now, so the pill needs no chevron-down/dropdown of its own.
+  openTimeline() {
+    const cluster = document.querySelector('[data-controller~="map-panel"]')
+    const mp =
+      cluster &&
+      this.application.getControllerForElementAndIdentifier(
+        cluster,
+        "map-panel",
+      )
+    if (mp?.openTabByName) mp.openTabByName("timeline-feed")
+  }
+
   showPanel() {
     this.panelTarget.classList.remove("hidden")
 
-    // Update icon to chevron-up
-    const currentIcon = this.toggleIconTarget.querySelector("svg")
-    currentIcon.classList.remove("lucide-chevron-down")
-    currentIcon.classList.add("lucide-chevron-up")
-    currentIcon.innerHTML = '<path d="m18 15-6-6-6 6"/>'
+    // Update icon to chevron-up (the icon only exists on layouts that still
+    // render a dropdown toggle).
+    const currentIcon = this.hasToggleIconTarget && this.toggleIconTarget.querySelector("svg")
+    if (currentIcon) {
+      currentIcon.classList.remove("lucide-chevron-down")
+      currentIcon.classList.add("lucide-chevron-up")
+      currentIcon.innerHTML = '<path d="m18 15-6-6-6 6"/>'
+    }
   }
 
   hidePanel() {
     this.panelTarget.classList.add("hidden")
 
     // Update icon to chevron-down
-    const currentIcon = this.toggleIconTarget.querySelector("svg")
-    currentIcon.classList.remove("lucide-chevron-up")
-    currentIcon.classList.add("lucide-chevron-down")
-    currentIcon.innerHTML = '<path d="m6 9 6 6 6-6"/>'
+    const currentIcon = this.hasToggleIconTarget && this.toggleIconTarget.querySelector("svg")
+    if (currentIcon) {
+      currentIcon.classList.remove("lucide-chevron-up")
+      currentIcon.classList.add("lucide-chevron-down")
+      currentIcon.innerHTML = '<path d="m6 9 6 6 6-6"/>'
+    }
   }
 }

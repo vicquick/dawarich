@@ -711,6 +711,32 @@
         <div class="timeline-tab-content" data-controller="timeline-feed">
           <%# ---------- LEFT RAIL ---------- %>
           <aside class="timeline-rail">
+            <%# Range presets + custom range — phones only. The mobile date
+                pill has no dropdown anymore (its tap opens THIS sheet), so
+                Today / 7 days / Month and the custom range live here.
+                Desktop keeps the full top bar and never shows this. %>
+            <div class="timeline-rail__ranges lg:hidden">
+              <div class="timeline-rail__preset-row">
+                <button type="button" class="btn btn-xs border border-base-300 hover:btn-ghost"
+                        data-action="click->timeline-feed#presetToday">Today</button>
+                <button type="button" class="btn btn-xs border border-base-300 hover:btn-ghost"
+                        data-action="click->timeline-feed#presetWeek">7 days</button>
+                <button type="button" class="btn btn-xs border border-base-300 hover:btn-ghost"
+                        data-action="click->timeline-feed#presetMonth">Month</button>
+              </div>
+              <details class="timeline-rail__custom">
+                <summary class="text-xs opacity-70 cursor-pointer select-none">Custom range</summary>
+                <div class="grid grid-cols-1 gap-2 mt-2">
+                  <input type="datetime-local" class="input input-xs input-bordered w-full"
+                         data-timeline-feed-target="customStart" max="9999-12-31T23:59" />
+                  <input type="datetime-local" class="input input-xs input-bordered w-full"
+                         data-timeline-feed-target="customEnd" max="9999-12-31T23:59" />
+                  <button type="button" class="btn btn-xs btn-primary"
+                          data-action="click->timeline-feed#applyCustomRange">Search</button>
+                </div>
+              </details>
+            </div>
+
             <%# Calendar (lazy-loaded turbo frame) %>
             <turbo-frame id="timeline-calendar-frame"
                          src="<%= calendar_map_timeline_feeds_path(month: initial_calendar_month(current_user)) %>"
