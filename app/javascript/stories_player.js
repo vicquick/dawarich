@@ -159,14 +159,38 @@ function casingGradientAt(prog) {
 }
 
 // ---------- flags + caravan ----------
-function flag(iconText, coords, cls) {
-  const d = document.createElement("div")
-  d.className = `story-flag ${cls}`
-  d.textContent = iconText
-  new maplibregl.Marker({ element: d, anchor: "bottom" }).setLngLat(coords).addTo(map)
+// MapLibre positions a marker by writing an inline transform on its element,
+// so anything animated goes on an INNER element — never the marker root
+// (animating the root's transform is what made the flag fly around).
+function flagMarker(svg, coords, cls) {
+  const root = document.createElement("div")
+  const inner = document.createElement("div")
+  inner.className = `story-flag ${cls}`
+  inner.innerHTML = svg
+  root.appendChild(inner)
+  new maplibregl.Marker({ element: root, anchor: "bottom" }).setLngLat(coords).addTo(map)
+  return inner
 }
-flag("🚩", [P[0][0], P[0][1]], "story-flag--start")
-flag("🏁", [P[N - 1][0], P[N - 1][1]], "story-flag--end")
+const FLAG_START = `
+<svg viewBox="0 0 40 48" width="30" height="36">
+  <line x1="4" y1="3" x2="4" y2="46" stroke="#e8eaed" stroke-width="2.6" stroke-linecap="round"/>
+  <path class="cloth" d="M6 5 L35 11.5 L6 18 Z" fill="${ACCENT}"/>
+</svg>`
+const FLAG_END = (() => {
+  let cells = ""
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 4; c++) {
+      if ((r + c) % 2 === 0) cells += `<rect x="${6 + c * 7}" y="${5 + r * 4.6}" width="7" height="4.6" fill="#14161d"/>`
+    }
+  }
+  return `
+<svg viewBox="0 0 40 48" width="30" height="36">
+  <line x1="4" y1="3" x2="4" y2="46" stroke="#e8eaed" stroke-width="2.6" stroke-linecap="round"/>
+  <g class="cloth"><rect x="6" y="5" width="28" height="13.8" rx="1" fill="#f5f6fa"/>${cells}</g>
+</svg>`
+})()
+flagMarker(FLAG_START, [P[0][0], P[0][1]], "story-flag--start")
+const endFlag = flagMarker(FLAG_END, [P[N - 1][0], P[N - 1][1]], "story-flag--end")
 
 // Four pack horses, walking. Legs swing, bodies bob, luggage sways; the whole
 // caravan flips to face the direction of travel.
@@ -185,11 +209,30 @@ const HORSE = `
   <rect x="42" y="24" width="3.6" height="15" rx="1.8" fill="#4a2f1b" class="leg leg-b"/>
   <rect x="50" y="24" width="3.6" height="15" rx="1.8" fill="#3f2917" class="leg leg-a"/>
 </svg>`
+// Marker root stays clean; the inner wrapper carries flip/walk classes so its
+// transforms don't collide with MapLibre's positioning.
+const caravanRoot = document.createElement("div")
 const caravanEl = document.createElement("div")
 caravanEl.className = "story-caravan"
 caravanEl.innerHTML = HORSE + HORSE + HORSE + HORSE
-const caravan = new maplibregl.Marker({ element: caravanEl, anchor: "center" })
+caravanRoot.appendChild(caravanEl)
+const caravan = new maplibregl.Marker({ element: caravanRoot, anchor: "center" })
   .setLngLat([P[0][0], P[0][1]]).addTo(map)
+
+// Dust puffs at the hooves while walking.
+let dustTimer = 0
+function startDust() {
+  stopDust()
+  dustTimer = setInterval(() => {
+    if (!state.playing) return
+    const p = document.createElement("div")
+    p.className = "story-dust"
+    p.style.left = `${15 + Math.random() * 65}%`
+    p.addEventListener("animationend", () => p.remove())
+    caravanEl.appendChild(p)
+  }, 340)
+}
+function stopDust() { clearInterval(dustTimer) }
 
 function updateCaravanFacing(prog) {
   const b = bearingBetween(posAt(Math.max(0, prog - 0.002)), posAt(Math.min(1, prog + 0.002)))
@@ -229,18 +272,85 @@ function updatePhotos(prog) {
   }
 }
 
-// ---------- day/night ----------
+// ---------- day/night + ambient scene ----------
 const skyEl = el("story-sky")
+const ambientEl = el("story-ambient")
+const sunEl = el("story-sun")
+const moonEl = el("story-moon")
+function journeyHour(prog) { return ((P[idxAt(prog)][3] + TZ) / 3600) % 24 }
+// Slide an orb along a screen-space arc; t01 is its 0→1 slot in the sky.
+function orbit(orb, t01, size) {
+  if (t01 <= 0 || t01 >= 1) { orb.style.opacity = "0"; return }
+  const x = t01 * innerWidth - size / 2
+  const y = (0.3 - Math.sin(Math.PI * t01) * 0.24) * innerHeight
+  orb.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
+  orb.style.opacity = Math.min(1, Math.sin(Math.PI * t01) * 2.5).toFixed(3)
+}
 function updateSky(prog) {
   if (!DAY_NIGHT) return
-  const t = P[idxAt(prog)][3] + TZ
-  const h = (t / 3600) % 24
+  const h = journeyHour(prog)
   // darkness 0 at 13:00, 1 at 01:00 — smooth cosine day curve
   const darkness = Math.min(1, Math.max(0, (1 - Math.cos(((h - 1 + 24) % 24) / 24 * Math.PI * 2)) / 2) * 1.25 - 0.25)
   const dusk = Math.max(0, 1 - Math.abs(h - 20.5) / 1.6) + Math.max(0, 1 - Math.abs(h - 5.5) / 1.6)
   skyEl.style.background = `linear-gradient(rgba(8,10,26,${(darkness * 0.55).toFixed(3)}), rgba(8,10,26,${(darkness * 0.35).toFixed(3)}))`
   skyEl.style.boxShadow = dusk > 0.05 ? `inset 0 0 30vmax rgba(249,115,22,${(dusk * 0.28).toFixed(3)})` : "none"
   el("story-stars").style.opacity = String(Math.max(0, darkness - 0.45) * 1.6)
+  ambientEl.style.setProperty("--night", darkness.toFixed(3))
+  orbit(sunEl, (h - 5.5) / 15, 64) //  5:30 → 20:30
+  orbit(moonEl, ((h - 19 + 24) % 24) / 12, 44) // 19:00 → 07:00
+}
+
+// Bird flocks cross the sky now and then during daylight.
+const BIRD = `<svg width="16" height="9" viewBox="0 0 16 9"><path d="M1 6 Q4.5 1 8 6 Q11.5 1 15 6" stroke="#111827" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`
+setInterval(() => {
+  if (!state.playing || Math.random() < 0.45) return
+  const h = journeyHour(state.progress)
+  if (h < 6.5 || h > 20) return
+  const f = document.createElement("div")
+  f.className = "story-flock"
+  f.style.top = `${6 + Math.random() * 22}vh`
+  f.style.setProperty("--fly", `${9 + Math.random() * 6}s`)
+  f.innerHTML = BIRD.repeat(3 + Math.floor(Math.random() * 3))
+  f.addEventListener("animationend", (e) => { if (e.target === f) f.remove() })
+  ambientEl.appendChild(f)
+}, 8000)
+
+// ---------- kinetic day banner ----------
+const bannerEl = el("day-banner")
+let lastDayIdx = 0
+function dayIndexAt(i) {
+  let k = 0
+  for (let d = 0; d < DAYS.length; d++) { if (DAYS[d].i <= i) k = d; else break }
+  return k
+}
+function updateDayBanner(prog) {
+  const k = dayIndexAt(idxAt(prog))
+  if (k === lastDayIdx) return
+  const forward = k > lastDayIdx
+  lastDayIdx = k
+  if (!state.playing || !forward || !DAYS[k]) return
+  bannerEl.style.setProperty("--db-color", DAYS[k].color)
+  bannerEl.querySelector(".db-num").textContent = `Day ${k + 1}`
+  bannerEl.querySelector(".db-date").textContent = DAYS[k].label
+  bannerEl.classList.remove("show")
+  void bannerEl.offsetWidth // restart the animation
+  bannerEl.classList.add("show")
+}
+
+// Confetti burst at the finish flag when the journey completes.
+function celebrate() {
+  const colors = DAYS.length ? DAYS.map((d) => d.color) : [ACCENT]
+  for (let i = 0; i < 26; i++) {
+    const c = document.createElement("i")
+    c.className = "story-confetti"
+    c.style.background = colors[i % colors.length]
+    c.style.setProperty("--dx", `${((Math.random() - 0.5) * 150).toFixed(0)}px`)
+    c.style.setProperty("--dy", `${(-30 - Math.random() * 110).toFixed(0)}px`)
+    c.style.setProperty("--rot", `${((Math.random() - 0.5) * 560).toFixed(0)}deg`)
+    c.style.animationDelay = `${(Math.random() * 0.3).toFixed(2)}s`
+    c.addEventListener("animationend", () => c.remove())
+    endFlag.appendChild(c)
+  }
 }
 
 // ---------- elevation: grade-coloured, like the map's profile ----------
@@ -343,6 +453,7 @@ function applyProgress(prog, { moveCamera = true } = {}) {
   if (moveCamera && state.playing) updateCamera(state.progress)
   updatePhotos(state.progress)
   updateSky(state.progress)
+  updateDayBanner(state.progress)
   drawElevation(state.progress)
   updateHud(state.progress)
   if (state.progress >= 1) pause(true)
@@ -363,7 +474,9 @@ function play() {
   el("story-title-card").classList.add("dismissed")
   el("btn-play").classList.add("playing")
   caravanEl.classList.add("walking")
+  startDust()
   if (!state.started) {
+    lastDayIdx = -1 // fire the "Day 1" banner on first tick
     state.started = true
     if (CAMERA !== "overview") {
       map.easeTo({ center: posAt(0), zoom: 13, pitch: CAMERA === "drone" ? 60 : 48, bearing: 0, duration: 2200 })
@@ -378,8 +491,12 @@ function pause(finished = false) {
   cancelAnimationFrame(state.raf)
   el("btn-play").classList.remove("playing")
   caravanEl.classList.remove("walking")
+  stopDust()
   audio?.pause?.()
-  if (finished) map.fitBounds(bounds, { padding: 80, pitch: 0, bearing: 0, duration: 2500 })
+  if (finished) {
+    celebrate()
+    map.fitBounds(bounds, { padding: 80, pitch: 0, bearing: 0, duration: 2500 })
+  }
 }
 
 el("btn-play").addEventListener("click", () => (state.playing ? pause() : play()))

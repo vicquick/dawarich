@@ -70,9 +70,28 @@
     }
     .story-hud b { font-weight: 600; color: var(--story-accent); }
 
-    .story-flag { font-size: 1.6rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
-    .story-flag--start { animation: flagpulse 2.2s ease-in-out infinite; }
-    @keyframes flagpulse { 50% { transform: scale(1.15); } }
+    /* flags: MapLibre owns the marker element's inline transform, so every
+       animation lives on an inner element — the pin never leaves its coordinate */
+    .story-flag { position: relative; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+    .story-flag .cloth {
+      transform-box: fill-box; transform-origin: left center;
+      animation: flagwave 1.9s ease-in-out infinite;
+    }
+    .story-flag--end .cloth { animation-duration: 2.4s; }
+    @keyframes flagwave {
+      0%, 100% { transform: skewY(0deg) scaleX(1); }
+      30% { transform: skewY(-6deg) scaleX(.96); }
+      65% { transform: skewY(4deg) scaleX(1.02); }
+    }
+    .story-confetti {
+      position: absolute; left: 50%; top: 20%; width: 6px; height: 9px;
+      border-radius: 1px; pointer-events: none;
+      animation: confettifly 1.5s ease-out forwards;
+    }
+    @keyframes confettifly {
+      from { opacity: 1; transform: translate(0, 0) rotate(0); }
+      to { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+    }
     .story-puck {
       width: 16px; height: 16px; border-radius: 50%;
       background: var(--story-accent); border: 3px solid #fff;
@@ -183,28 +202,124 @@
     #story-photos.mode-full img.show { animation: fullfade 7s ease-in-out forwards; }
     @keyframes fullfade { 0% { opacity: 0; } 12% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: .0; } }
 
-    /* ---------- pack-horse caravan ---------- */
-    .story-caravan { display: flex; gap: 2px; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); }
+    /* ---------- pack-horse caravan ----------
+       .story-caravan is an INNER wrapper (marker root stays untouched for
+       MapLibre), so flip/walk transforms actually apply. Each horse gets its
+       own gait speed + phase so the four never march as clones. */
+    .story-caravan { position: relative; display: flex; gap: 2px; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); }
     .story-caravan.flip { transform: scaleX(-1); }
-    .story-caravan .horse:nth-child(2) { transform: translateY(2px); }
-    .story-caravan .horse:nth-child(3) { transform: translateY(-1px); }
-    .story-caravan .horse:nth-child(4) { transform: translateY(1px); }
-    .story-caravan .leg { transform-origin: top center; }
-    .story-caravan.walking .leg-a { animation: legswing .55s ease-in-out infinite; }
-    .story-caravan.walking .leg-b { animation: legswing .55s ease-in-out infinite reverse; }
-    .story-caravan.walking .horse-body { animation: bodybob .55s ease-in-out infinite; }
-    .story-caravan.walking .horse:nth-child(2) .leg-a,
-    .story-caravan.walking .horse:nth-child(4) .leg-a { animation-delay: .15s; }
-    .story-caravan.walking .horse:nth-child(2) .horse-body,
-    .story-caravan.walking .horse:nth-child(4) .horse-body { animation-delay: .15s; }
+    .story-caravan .horse:nth-child(1) { --gait: .55s; --lag: 0s; }
+    .story-caravan .horse:nth-child(2) { --gait: .59s; --lag: .14s; transform: translateY(2px); }
+    .story-caravan .horse:nth-child(3) { --gait: .53s; --lag: .07s; transform: translateY(-1px); }
+    .story-caravan .horse:nth-child(4) { --gait: .57s; --lag: .21s; transform: translateY(1px); }
+    .story-caravan .leg { transform-box: fill-box; transform-origin: top center; }
+    .story-caravan .tail, .story-caravan .luggage { transform-box: fill-box; }
+    .story-caravan .tail { transform-origin: top left; }
+    .story-caravan .luggage { transform-origin: bottom center; }
+    .story-caravan.walking .leg-a { animation: legswing var(--gait) ease-in-out var(--lag) infinite; }
+    .story-caravan.walking .leg-b { animation: legswing var(--gait) ease-in-out var(--lag) infinite reverse; }
+    .story-caravan.walking .horse-body { animation: bodybob var(--gait) ease-in-out var(--lag) infinite; }
+    .story-caravan.walking .tail { animation: tailsway calc(var(--gait) * 2.6) ease-in-out var(--lag) infinite; }
+    .story-caravan.walking .luggage { animation: lugsway calc(var(--gait) * 2) ease-in-out var(--lag) infinite; }
     @keyframes legswing { 0%,100% { transform: rotate(16deg); } 50% { transform: rotate(-16deg); } }
     @keyframes bodybob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.4px); } }
+    @keyframes tailsway { 50% { transform: rotate(9deg); } }
+    @keyframes lugsway { 50% { transform: rotate(-2.5deg); } }
+    .story-dust {
+      position: absolute; bottom: 0; width: 7px; height: 7px; border-radius: 50%;
+      background: rgba(214, 200, 180, .5); pointer-events: none;
+      animation: dustpuff .9s ease-out forwards;
+    }
+    @keyframes dustpuff {
+      from { opacity: .65; transform: translate(0, 0) scale(.5); }
+      to { opacity: 0; transform: translate(-15px, -9px) scale(1.7); }
+    }
+
+    /* ---------- ambient scene: sun, moon, clouds, birds ---------- */
+    #story-ambient { position: fixed; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; }
+    .sky-orb { position: absolute; top: 0; left: 0; opacity: 0; will-change: transform; transition: opacity 1.5s linear; }
+    #story-sun {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: radial-gradient(circle at 42% 40%, #fff7d6, #ffd24a 55%, rgba(255,180,40,0) 72%);
+      box-shadow: 0 0 60px 22px rgba(255, 190, 60, .3);
+    }
+    #story-moon {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: radial-gradient(circle at 38% 36%, #f6f7fb, #c9cede 70%);
+      box-shadow: 0 0 34px 10px rgba(200, 210, 255, .22);
+    }
+    #story-moon::after {
+      content: ""; position: absolute; inset: 0; border-radius: 50%;
+      background:
+        radial-gradient(6px 6px at 60% 40%, rgba(120,130,160,.4), transparent 70%),
+        radial-gradient(4px 4px at 40% 66%, rgba(120,130,160,.35), transparent 70%),
+        radial-gradient(3px 3px at 70% 68%, rgba(120,130,160,.3), transparent 70%);
+    }
+    .story-cloud {
+      position: absolute; width: 220px; height: 60px; filter: blur(2px);
+      opacity: calc(.5 - var(--night, 0) * .38);
+      animation: clouddrift linear infinite; will-change: transform;
+    }
+    .story-cloud::before {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(60px 36px at 30% 66%, rgba(255,255,255,.85), transparent 70%),
+        radial-gradient(80px 44px at 55% 45%, rgba(255,255,255,.8), transparent 70%),
+        radial-gradient(55px 32px at 78% 62%, rgba(255,255,255,.75), transparent 70%);
+    }
+    @keyframes clouddrift { from { transform: translateX(-30vw); } to { transform: translateX(130vw); } }
+    .story-flock { position: absolute; display: flex; gap: 5px; animation: flyacross var(--fly, 11s) linear forwards; will-change: transform; }
+    .story-flock svg { animation: flap .5s ease-in-out infinite; filter: drop-shadow(0 0 2px rgba(255,255,255,.45)); }
+    .story-flock svg:nth-child(2) { margin-top: 7px; animation-delay: .12s; }
+    .story-flock svg:nth-child(3) { margin-top: 2px; animation-delay: .24s; }
+    .story-flock svg:nth-child(4) { margin-top: 10px; animation-delay: .06s; }
+    .story-flock svg:nth-child(5) { margin-top: 5px; animation-delay: .18s; }
+    @keyframes flyacross { from { transform: translateX(-15vw); } to { transform: translateX(115vw); } }
+    @keyframes flap { 50% { transform: scaleY(.5); } }
+
+    /* ---------- kinetic day banner ---------- */
+    #day-banner {
+      position: fixed; top: 13vh; left: 50%; z-index: 25; pointer-events: none;
+      transform: translateX(-50%); text-align: center; opacity: 0;
+    }
+    #day-banner.show { animation: bannerpop 3.4s cubic-bezier(.22, 1, .36, 1) forwards; }
+    #day-banner .db-num {
+      font-size: clamp(1.6rem, 5vw, 2.6rem); font-weight: 700; line-height: 1.1;
+      letter-spacing: -.02em; color: var(--db-color, #fff);
+      text-shadow: 0 2px 18px rgba(0,0,0,.6);
+    }
+    #day-banner .db-date { font-size: .95rem; opacity: .85; margin-top: .15rem; text-shadow: 0 1px 8px rgba(0,0,0,.7); }
+    #day-banner .db-rule { width: 3.2rem; height: 3px; margin: .45rem auto 0; border-radius: 2px; background: var(--db-color, #fff); }
+    @keyframes bannerpop {
+      0% { opacity: 0; transform: translateX(-50%) translateY(14px) scale(.92); }
+      12% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+      80% { opacity: 1; }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(.98); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #story-ambient, .story-dust { display: none; }
+      .story-flag .cloth, .story-caravan .leg, .story-caravan .horse-body,
+      .story-caravan .tail, .story-caravan .luggage { animation: none !important; }
+    }
   </style>
 </head>
 <body>
   <div id="story-map"></div>
   <div id="story-sky" aria-hidden="true"></div>
   <div id="story-stars" aria-hidden="true"></div>
+  <div id="story-ambient" aria-hidden="true">
+    <div id="story-sun" class="sky-orb"></div>
+    <div id="story-moon" class="sky-orb"></div>
+    <div class="story-cloud" style="top: 8vh; animation-duration: 150s; animation-delay: -40s"></div>
+    <div class="story-cloud" style="top: 17vh; width: 160px; animation-duration: 210s; animation-delay: -120s"></div>
+    <div class="story-cloud" style="top: 4vh; width: 280px; animation-duration: 110s; animation-delay: -15s"></div>
+  </div>
+  <div id="day-banner" aria-hidden="true">
+    <div class="db-num"></div>
+    <div class="db-date"></div>
+    <div class="db-rule"></div>
+  </div>
 
   <div id="story-photos" aria-hidden="true">
     <img id="slide-a" alt="">
