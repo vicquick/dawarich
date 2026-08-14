@@ -71,7 +71,10 @@ class Tracks::GeojsonSerializer
       avg_speed: track.avg_speed.to_f,
       duration: track.duration,
       # True when the drawn line is the map-matched one (vicquick fork).
-      matched: matched_path_for(track).present?
+      matched: matched_path_for(track).present?,
+      # Source attribution: absent import_id = live Dawarich tracking; an id
+      # points at the imported file (GPX etc.). Drives the track-source filter.
+      import_id: (track.import_id if track.respond_to?(:import_id))
     }
   end
 

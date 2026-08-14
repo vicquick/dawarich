@@ -1113,8 +1113,6 @@ export class SettingsController {
     this.map.once("idle", () => {
       this.controller.loadMapData()
       setTimeout(() => { try { window.dawarichTraffic?.refresh?.() } catch (_) {} }, 600)
-      // Imported-file overlays live outside the style — re-add after the swap.
-      try { window.dawarichImportLayers?.reapply?.() } catch (_) { /* noop */ }
     })
     this.controller._userBasemap = name
     try { localStorage.setItem("dawarichBasemap", name) } catch (_) { /* private mode */ }

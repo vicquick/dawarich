@@ -136,6 +136,37 @@ export class TracksLayer extends BaseLayer {
     })
 
     this.setVisibility(this.visible)
+    // Re-apply the persisted source filter — layers are recreated on every
+    // data load / basemap swap and a plain addLayer has no filter.
+    this.applySourceFilter()
+  }
+
+  // vicquick fork: filter tracks by SOURCE. `hiddenKeys` collects what to
+  // HIDE: -1 = live tracking (no import_id), any other number = that
+  // imported file's id. One expression on the existing line layer.
+  setSourceFilter(hiddenKeys) {
+    this._hiddenSourceKeys = Array.isArray(hiddenKeys) ? hiddenKeys : []
+    try { localStorage.setItem("dawarichTrackSourceHidden", JSON.stringify(this._hiddenSourceKeys)) } catch (_) { /* noop */ }
+    this.applySourceFilter()
+  }
+
+  hiddenSourceKeys() {
+    if (this._hiddenSourceKeys) return this._hiddenSourceKeys
+    try {
+      this._hiddenSourceKeys = JSON.parse(localStorage.getItem("dawarichTrackSourceHidden") || "[]")
+    } catch (_) {
+      this._hiddenSourceKeys = []
+    }
+    return this._hiddenSourceKeys
+  }
+
+  applySourceFilter() {
+    if (!this.map?.getLayer(this.id)) return
+    const hidden = this.hiddenSourceKeys()
+    const filter = hidden.length
+      ? ["!", ["in", ["coalesce", ["get", "import_id"], -1], ["literal", hidden]]]
+      : null
+    try { this.map.setFilter(this.id, filter) } catch (_) { /* expression rejected — show all */ }
   }
 
   /**

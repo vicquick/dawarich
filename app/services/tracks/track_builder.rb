@@ -66,7 +66,11 @@ module Tracks::TrackBuilder
       tracker_id: resolved_tracker_id,
       start_at: Time.zone.at(points.first.timestamp),
       end_at: Time.zone.at(points.last.timestamp),
-      original_path: build_path(points)
+      original_path: build_path(points),
+      # vicquick fork: source attribution — nil means live tracking, an id
+      # means this track came from that imported file (GPX etc.). Drives the
+      # map's track-source filter.
+      import_id: points.lazy.map(&:import_id).find(&:itself)
     )
 
     track.distance  = clamp_distance(pre_calculated_distance)

@@ -68,6 +68,31 @@
               <span class="label-text font-medium">Tracks</span>
             </label>
             <p class="text-sm text-base-content/60 ml-14">Show backend-calculated tracks</p>
+            <%# vicquick fork: filter tracks by SOURCE — live Dawarich tracking
+                vs individual imported GPX files. Not extra layers: the same
+                tracks layer, filtered. Only shown when GPX imports exist. %>
+            <% gpx_imports = current_user.imports.where(source: %w[gpx kml kmz tcx fit]).order(created_at: :desc).select(:id, :name) %>
+            <% if gpx_imports.any? %>
+              <details class="ml-14 mt-1 track-source-filter">
+                <summary class="text-xs opacity-70 cursor-pointer select-none">Filter by source</summary>
+                <div class="mt-1 space-y-1">
+                  <label class="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary"
+                           data-track-source="tracking"
+                           data-action="change->maps--maplibre#toggleTrackSource" />
+                    <span>Dawarich tracking</span>
+                  </label>
+                  <% gpx_imports.each do |imp| %>
+                    <label class="flex items-center gap-2 text-xs cursor-pointer">
+                      <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary"
+                             data-track-source="<%= imp.id %>"
+                             data-action="change->maps--maplibre#toggleTrackSource" />
+                      <span class="truncate"><%= imp.name %></span>
+                    </label>
+                  <% end %>
+                </div>
+              </details>
+            <% end %>
           </div>
 
           <div class="divider"></div>

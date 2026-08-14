@@ -297,12 +297,7 @@ Rails.application.routes.draw do
       end
 
       resources :areas,     only: %i[index show create update destroy]
-      resources :imports,   only: %i[index show create] do
-        member do
-          # Import as map geometry — the "Imported files" layer (vicquick fork)
-          get :geojson
-        end
-      end
+      resources :imports,   only: %i[index show create]
       resources :places,    only: %i[index show create update destroy] do
         collection do
           get 'nearby'

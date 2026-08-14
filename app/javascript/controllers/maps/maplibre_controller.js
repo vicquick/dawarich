@@ -21,7 +21,6 @@ import { MapInitializer } from "./maplibre/map_initializer"
 import { installMapPadding } from "./maplibre/map_overlay_padding"
 import { ImmichManager } from "./maplibre/immich_manager"
 import { WeatherManager } from "./maplibre/weather_manager"
-import { ImportsManager } from "./maplibre/imports_manager"
 import { TrackProfileManager } from "./maplibre/track_profile"
 import { TrailsManager } from "./maplibre/trails_manager"
 import { DopManager } from "./maplibre/dop_manager"
@@ -212,6 +211,16 @@ export default class extends Controller {
     // Sync toggle states with loaded settings
     this.settingsController.syncToggleStates()
 
+    // vicquick fork: reflect the persisted track-source filter in its
+    // checkboxes (the filter itself re-applies inside the tracks layer).
+    try {
+      const hidden = JSON.parse(localStorage.getItem("dawarichTrackSourceHidden") || "[]")
+      document.querySelectorAll("[data-track-source]").forEach((cb) => {
+        const key = cb.dataset.trackSource === "tracking" ? -1 : Number(cb.dataset.trackSource)
+        cb.checked = !hidden.includes(key)
+      })
+    } catch (_) { /* defaults stay checked */ }
+
     await this.initializeMap()
     this.initializeAPI()
 
@@ -288,12 +297,6 @@ export default class extends Controller {
     // vicquick fork: live rain radar overlay (Layers → Weather).
     this.weatherManager = new WeatherManager(this)
     window.dawarichWeather = this.weatherManager
-
-    // vicquick fork: imported files (GPX/KML/Takeout) as their own map
-    // overlays, independent of the date range (Layers → Imported files).
-    this.importsManager = new ImportsManager(this)
-    window.dawarichImportLayers = this.importsManager
-    this.map.once("idle", () => this.importsManager.restore())
 
     // vicquick fork: elevation + speed profile panel (opens on track click).
     this.trackProfile = new TrackProfileManager(this)
@@ -1599,6 +1602,20 @@ export default class extends Controller {
   }
   toggleTracks(event) {
     return this.routesManager.toggleTracks(event)
+  }
+
+  // vicquick fork: filter the tracks layer by SOURCE (live tracking vs a
+  // specific imported GPX file). One filter expression on the existing
+  // layer — no extra layers. Unchecked sources collect into a hidden set;
+  // -1 stands for "live tracking" (tracks without an import_id).
+  toggleTrackSource() {
+    const hidden = []
+    document.querySelectorAll("[data-track-source]").forEach((cb) => {
+      if (cb.checked) return
+      hidden.push(cb.dataset.trackSource === "tracking" ? -1 : Number(cb.dataset.trackSource))
+    })
+    const tracksLayer = this.layerManager.getLayer("tracks")
+    tracksLayer?.setSourceFilter?.(hidden)
   }
   toggleSpeedColoredRoutes(event) {
     return this.routesManager.toggleSpeedColoredRoutes(event)
