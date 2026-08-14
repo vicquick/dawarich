@@ -6,6 +6,12 @@
   <%# Header %>
   <%= render layout: 'shared/page_header', locals: { title: @trip.name } do %>
     <div class="flex items-center gap-2">
+      <%# vicquick fork: cinematic shareable story — creates (or opens) the
+          trip's animation page. Private until published from that page. %>
+      <%= button_to story_trip_path(@trip), method: :post,
+            class: "btn btn-primary btn-sm gap-1", form_class: "inline-block" do %>
+        🎬 <%= @trip.story ? "Open story" : "Create story" %>
+      <% end %>
       <%= render "trips/recalculate_button", trip: @trip %>
       <div class="dropdown dropdown-end">
         <label tabindex="0" class="btn btn-outline btn-sm">

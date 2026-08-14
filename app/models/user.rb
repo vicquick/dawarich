@@ -29,6 +29,7 @@ class User < ApplicationRecord
   has_many :places,         dependent: :destroy
   has_many :tags,           dependent: :destroy
   has_many :trips,  dependent: :destroy
+  has_many :stories, dependent: :destroy # vicquick fork: shareable trip animations
   has_many :tracks, dependent: :destroy
   has_many :raw_data_archives, class_name: 'Points::RawDataArchive', dependent: :destroy
   has_many :digests, class_name: 'Users::Digest', dependent: :destroy

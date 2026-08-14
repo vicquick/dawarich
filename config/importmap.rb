@@ -33,3 +33,5 @@ pin 'emoji-mart' # @5.6.0
 pin 'maplibre-gl' # @5.12.0
 pin 'fflate' # @0.8.2
 pin 'h3-js' # @4.4.0
+# vicquick fork: standalone entry for the public story player (no app bundle)
+pin 'stories_player'

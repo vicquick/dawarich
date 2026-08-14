@@ -129,8 +129,14 @@ Rails.application.routes.draw do
     member do
       post :recalculate
       post :export
+      # vicquick fork: create/find this trip's shareable story
+      post :story, to: 'stories#create'
     end
   end
+  resources :stories, only: %i[update]
+  # vicquick fork: public cinematic story page — tokened, publish-gated
+  get 's/:token', to: 'public/stories#show', as: :story_public
+  get 's/:token/photo/:sig', to: 'public/stories#photo', as: :story_photo, sig: %r{[^/]+}
   resources :tags, except: [:show]
 
   # Family management routes (only if feature is enabled)

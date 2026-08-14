@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class Trip < ApplicationRecord
+  has_one :story, dependent: :destroy # vicquick fork: shareable animation
   include Demoable
   include Calculateable
   include DistanceConvertible

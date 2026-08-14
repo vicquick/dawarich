@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title><%= @bundle[:title] %> — a journey</title>
+  <%= stylesheet_link_tag "maplibre-gl" %>
+  <%= javascript_importmap_tags "stories_player" %>
+  <style>
+    @font-face {
+      font-family: "Space Grotesk";
+      font-style: normal; font-weight: 300 700; font-display: swap;
+      src: url("/fonts/SpaceGrotesk.woff2") format("woff2-variations");
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      background: #0b0e13; color: #e8eaed; overflow: hidden;
+    }
+    #story-map { position: fixed; inset: 0; }
+
+    /* Title card */
+    #story-title-card {
+      position: fixed; inset: 0; z-index: 30; display: grid; place-items: center;
+      background: radial-gradient(ellipse at center, rgba(11,14,19,.25), rgba(11,14,19,.78));
+      text-align: center; padding: 2rem; pointer-events: none;
+      transition: opacity 1.2s ease;
+    }
+    #story-title-card.dismissed { opacity: 0; }
+    #story-title-card h1 {
+      font-size: clamp(2rem, 7vw, 4.2rem); font-weight: 700; letter-spacing: -0.02em;
+      text-shadow: 0 2px 24px rgba(0,0,0,.55);
+    }
+    #story-title-card p { margin-top: .6rem; font-size: clamp(.95rem, 3vw, 1.2rem); opacity: .85; }
+
+    /* Bottom dock: controls + elevation */
+    #story-dock {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+      padding: .6rem .9rem calc(.9rem + env(safe-area-inset-bottom));
+      background: linear-gradient(transparent, rgba(11,14,19,.88) 30%);
+    }
+    #story-elev { width: 100%; height: 64px; display: block; }
+    .story-controls { display: flex; align-items: center; gap: .7rem; margin-top: .4rem; }
+    #btn-play {
+      width: 3rem; height: 3rem; border-radius: 50%; border: 0; cursor: pointer;
+      background: #f97316; color: #fff; font-size: 1.15rem; flex: 0 0 auto;
+      display: grid; place-items: center; box-shadow: 0 4px 18px rgba(249,115,22,.4);
+      transition: transform .15s cubic-bezier(.32,.72,0,1);
+    }
+    #btn-play:active { transform: scale(.92); }
+    #btn-play::before { content: "▶"; margin-left: 2px; }
+    #btn-play.playing::before { content: "⏸"; margin-left: 0; }
+    #story-scrub {
+      -webkit-appearance: none; appearance: none; flex: 1 1 auto; height: 4px;
+      border-radius: 2px; background: rgba(255,255,255,.25); cursor: pointer;
+    }
+    #story-scrub::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+      background: #fff; border: 2.5px solid #f97316;
+    }
+    .story-btn {
+      border: 1px solid rgba(255,255,255,.25); background: transparent; color: inherit;
+      border-radius: 999px; padding: .3rem .7rem; font: 600 .8rem "Space Grotesk", sans-serif;
+      cursor: pointer; flex: 0 0 auto;
+    }
+    .story-hud {
+      display: flex; gap: 1rem; font-size: .78rem; opacity: .85; margin-top: .35rem;
+      font-variant-numeric: tabular-nums; flex-wrap: wrap;
+    }
+    .story-hud b { font-weight: 600; color: #f97316; }
+
+    /* Map furniture */
+    .story-flag { font-size: 1.6rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+    .story-flag--start { animation: flagpulse 2.2s ease-in-out infinite; }
+    @keyframes flagpulse { 50% { transform: scale(1.15); } }
+    .story-puck {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: #f97316; border: 3px solid #fff;
+      box-shadow: 0 0 0 6px rgba(249,115,22,.25), 0 2px 8px rgba(0,0,0,.5);
+    }
+    .story-photo {
+      width: 56px; height: 56px; border-radius: 8px; overflow: hidden;
+      border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.45);
+      transform: scale(0) rotate(-8deg); transition: transform .5s cubic-bezier(.32,.72,0,1);
+      cursor: pointer; position: relative; background: #222;
+    }
+    .story-photo.pop { transform: scale(1) rotate(-3deg); }
+    .story-photo:nth-child(even) { transform: scale(0) rotate(8deg); }
+    .story-photo.pop:hover { transform: scale(1.6) rotate(0); z-index: 5; }
+    .story-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .story-photo__play {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      color: #fff; font-size: 1rem; background: rgba(0,0,0,.25);
+    }
+
+    #story-lightbox {
+      position: fixed; inset: 0; z-index: 60; display: none; place-items: center;
+      background: rgba(0,0,0,.85); cursor: zoom-out; padding: 2rem;
+    }
+    #story-lightbox.open { display: grid; }
+    #story-lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; }
+
+    /* Owner toolbar (only rendered for the story's owner) */
+    .story-owner {
+      position: fixed; top: .8rem; left: .8rem; right: .8rem; z-index: 50;
+      display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+      background: rgba(11,14,19,.85); border: 1px solid rgba(255,255,255,.14);
+      border-radius: .8rem; padding: .5rem .7rem; font-size: .8rem;
+      backdrop-filter: blur(8px);
+    }
+    .story-owner form { display: flex; gap: .5rem; align-items: center; margin: 0; }
+    .story-owner button, .story-owner input[type=file] { font: inherit; }
+    .story-owner .pill {
+      border-radius: 999px; padding: .25rem .7rem; border: 0; cursor: pointer; font-weight: 600;
+    }
+    .story-owner .pill--pub { background: #16a34a; color: #fff; }
+    .story-owner .pill--unpub { background: #b45309; color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="story-map"></div>
+
+  <div id="story-title-card">
+    <div>
+      <h1><%= @bundle[:title] %></h1>
+      <p><%= @bundle[:date_label] %></p>
+      <p id="hud-total" style="margin-top:1rem; font-size:.9rem; opacity:.7"></p>
+      <p style="margin-top:1.6rem; font-size:.85rem; opacity:.6">press play</p>
+    </div>
+  </div>
+
+  <% if @owner %>
+    <div class="story-owner">
+      <span><%= @story.published? ? "🌍 Public — anyone with this link" : "🔒 Private — only you can see this" %></span>
+      <%= form_with url: story_path(@story), method: :patch do |f| %>
+        <%= hidden_field_tag "story[published]", (!@story.published?).to_s %>
+        <button type="submit" class="pill <%= @story.published? ? 'pill--unpub' : 'pill--pub' %>">
+          <%= @story.published? ? "Unpublish" : "Publish" %>
+        </button>
+      <% end %>
+      <%= form_with url: story_path(@story), method: :patch, multipart: true do |f| %>
+        <input type="file" name="story[audio]" accept="audio/*"
+               onchange="this.form.requestSubmit()" title="Soundtrack (mp3/m4a)">
+      <% end %>
+      <span style="opacity:.6"><%= @story.audio.attached? ? "🎵 #{@story.audio.filename}" : "no music yet" %></span>
+    </div>
+  <% end %>
+
+  <div id="story-dock">
+    <canvas id="story-elev"></canvas>
+    <div class="story-controls">
+      <button id="btn-play" aria-label="Play"></button>
+      <input id="story-scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Timeline">
+      <button id="btn-speed" class="story-btn">1×</button>
+      <button id="btn-mute" class="story-btn" hidden>🔊</button>
+    </div>
+    <div class="story-hud">
+      <span><b id="hud-dist">0 km</b></span>
+      <span><b id="hud-ele">0 m</b></span>
+      <span id="hud-date"></span>
+    </div>
+  </div>
+
+  <div id="story-lightbox"></div>
+
+  <script type="application/json" id="story-bundle"><%= raw @bundle.to_json %></script>
+</body>
+</html>
