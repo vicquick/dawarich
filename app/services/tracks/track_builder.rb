@@ -91,6 +91,9 @@ module Tracks::TrackBuilder
       if track.save
         Point.where(id: points.map(&:id)).update_all(track_id: track.id)
         detect_and_create_segments(track, points)
+        # vicquick fork: snap the raw line to real OSM ways (Valhalla) in the
+        # background — display prefers matched_path once it lands.
+        Tracks::MapMatchJob.perform_later(track.id)
         saved_track = track
       else
         Rails.logger.error "Failed to create track for user #{user.id}: #{track.errors.full_messages.join(', ')}"

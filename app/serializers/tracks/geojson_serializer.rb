@@ -69,7 +69,9 @@ class Tracks::GeojsonSerializer
       end_at: track.end_at.iso8601,
       distance: track.distance.to_i,
       avg_speed: track.avg_speed.to_f,
-      duration: track.duration
+      duration: track.duration,
+      # True when the drawn line is the map-matched one (vicquick fork).
+      matched: matched_path_for(track).present?
     }
   end
 
@@ -170,7 +172,20 @@ class Tracks::GeojsonSerializer
   end
 
   def geometry_for(track)
-    geometry = RGeo::GeoJSON.encode(track.original_path)
+    # vicquick fork: prefer the map-matched line (snapped to real OSM ways by
+    # Valhalla) over the raw point-to-point line — no more straight cuts
+    # through buildings. Falls back to the raw path whenever matching hasn't
+    # run or wasn't confident; the raw line is never modified.
+    path = matched_path_for(track) || track.original_path
+    geometry = RGeo::GeoJSON.encode(path)
     geometry.respond_to?(:as_json) ? geometry.as_json.deep_symbolize_keys : geometry
+  end
+
+  def matched_path_for(track)
+    return nil unless track.respond_to?(:matched_path)
+    return nil if track.matched_path.nil?
+    return nil if track.matched_confidence.to_f < 0.7
+
+    track.matched_path
   end
 end
