@@ -159,27 +159,8 @@ export default class extends Controller {
     const [saved, geo, poi = []] = await Promise.all(tasks)
     if (this.inputTarget.value.trim() !== q) return // raced a newer query
     const list = [...saved, ...poi, ...geo]
-    if (!list.length) { this.clearPins(); return this.offerSpelling(q, "No matches") }
+    if (!list.length) { this.clearPins(); return this.renderEmpty("No matches") }
     this.renderList(list, q)
-  }
-
-  // Dead-end forgiveness: ask the server to spell-correct the place name
-  // ("hornösand" → "Härnösand") and offer the corrected results. Shows the
-  // plain empty message immediately, then upgrades it if a correction lands —
-  // the LLM can take a few seconds and must never block the input.
-  async offerSpelling(q, emptyMsg) {
-    this.renderEmpty(`${emptyMsg} — checking spelling…`)
-    try {
-      const res = await fetch(`/api/v1/spell?q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(this.apiKeyValue)}`)
-      if (!res.ok) return this.renderEmpty(emptyMsg)
-      const data = await res.json()
-      if (this.inputTarget.value.trim() !== q) return // user typed on
-      const rows = (data.suggestions || []).filter((s) => s.lat != null && s.lon != null)
-      if (!data.corrected || !rows.length) return this.renderEmpty(emptyMsg)
-      this.renderList(rows, null, `Did you mean “${data.corrected}”?`)
-    } catch (_) {
-      this.renderEmpty(emptyMsg)
-    }
   }
 
   // Does this free text map to a POI category/cuisine? Returns {category} or
@@ -410,15 +391,15 @@ export default class extends Controller {
         this.clearPins()
         // Nothing in view — fall back to the geocoder before giving up, so a
         // city/place name typed into "search nearby" still resolves (that
-        // path used to dead-end even for perfectly valid names). If the
-        // geocoder's matches don't even resemble the query (Photon has no
-        // fuzziness — "hornösand" returns Hornosín, Czechia), prefer the
-        // spell-check route over showing lookalike noise.
+        // path used to dead-end even for perfectly valid names). Skip the
+        // fallback when the geocoder's matches don't even resemble the query
+        // (Photon has no fuzziness — "hornösand" returns Hornosín, Czechia);
+        // lookalike noise is worse than an honest empty state.
         const geo = await this.searchGeocoder(q)
         const stem = q.toLowerCase().slice(0, 4)
         const plausible = geo.some((g) => (g.name || "").toLowerCase().startsWith(stem))
         if (geo.length && plausible) return this.renderList(geo, null, `Further away · ${q}`)
-        return this.offerSpelling(q, `No places matching “${q}” nearby`)
+        return this.renderEmpty(`No places matching “${q}” nearby`)
       }
       const smart = String(data.category || "").startsWith("ai:")
       this.renderList(list, null, `${smart ? "✨ " : ""}Nearby · ${q}`)

@@ -444,39 +444,6 @@ class Api::V1::DiscoveryController < ApiController
   # Local-LLM intent resolver: free text → up to 6 OSM selectors. Uses the
   # always-loaded CPU model over the VPN (no GPU contention), cached 30 days,
   # and degrades gracefully to nil on any error so search never blocks.
-  # Which real place did the user mean? Needs actual reasoning — tested on
-  # "hornösand": the 8B models answer "Hornosand"/"Hornöstrand" (made up),
-  # while qwen3.6-27b reasoning it out lands on Härnösand. So this uses the
-  # big model WITH a think-then-answer prompt (~25 s warm, more on a cold
-  # GPU swap). Only runs on dead-end searches, result cached 30 days, and the
-  # client shows it as an async "did you mean" upgrade — never blocking.
-  def llm_spell_correct(term)
-    base = ENV['LLM_BASE_URL'].presence || 'http://10.10.10.12:8080/v1'
-    model = ENV['SPELL_LLM_MODEL'].presence || 'qwen3.6-27b'
-    sys = 'You identify the real-world place a user meant when their spelling is off. ' \
-          'Reason briefly: what language does it look like, which real cities/towns ' \
-          'sound or look similar. Then output the final answer as the LAST LINE in ' \
-          'the exact form: ANSWER: <place name with correct local spelling>'
-    body = {
-      model: model, temperature: 0, max_tokens: 600,
-      messages: [{ role: 'system', content: sys }, { role: 'user', content: term }]
-    }
-    uri = URI("#{base}/chat/completions")
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.use_ssl = uri.scheme == 'https'
-    http.open_timeout = 3
-    http.read_timeout = 90 # cold GPU swap (~35 s) + reasoning
-    req = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-    req.body = JSON.generate(body)
-    resp = http.request(req)
-    return nil unless resp.is_a?(Net::HTTPSuccess)
-
-    text = Oj.load(resp.body).dig('choices', 0, 'message', 'content').to_s
-    answer = text.scan(/ANSWER:\s*(.+)/).last&.first.to_s.strip.delete('"')
-    answer.length.between?(2, 80) ? answer : nil
-  rescue StandardError
-    nil
-  end
 
   def llm_selectors(term)
     # Off by default: the CPU model is ~30s (too slow to block search) and a
@@ -729,29 +696,6 @@ class Api::V1::DiscoveryController < ApiController
     render_error('could not read that link', :unprocessable_content)
   end
 
-  # Typo-forgiving fallback: "hornösand" finds nothing anywhere, because
-  # Photon has no fuzziness — it returns Hornosín/Horn Island instead of
-  # Härnösand. When a search dead-ends, the client calls this: the local LLM
-  # spell-corrects the place name, we re-geocode the correction, and the UI
-  # offers "Did you mean …?". Cached 30 days; degrades to empty on any error
-  # so it can never make search worse.
-  def spell
-    q = params[:q].to_s.strip
-    return render json: { corrected: nil, suggestions: [] } if q.blank? || q.length < 3 || q.length > 80
-
-    corrected = Rails.cache.fetch("v1/spell/#{Digest::MD5.hexdigest(q.downcase)}", expires_in: 30.days) do
-      llm_spell_correct(q)
-    end
-    return render json: { corrected: nil, suggestions: [] } if corrected.blank? || corrected.casecmp?(q)
-
-    results = LocationSearch::GeocodingService.new(corrected).search.first(5).map do |s|
-      { name: s[:name], address: s[:address], lat: s[:lat], lon: s[:lon],
-        type: s[:type], osm_type: s[:osm_type], osm_id: s[:osm_id] }
-    end
-    render json: { corrected: corrected, suggestions: results }
-  rescue StandardError
-    render json: { corrected: nil, suggestions: [] }
-  end
 
   # Stream a place photo through the server so the browser never talks to the
   # image host (Bing/Yelp/etc). Only URLs this app signed are fetchable.

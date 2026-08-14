@@ -20,16 +20,20 @@
     <span style="width:44px; height:5px; border-radius:3px; background:rgba(128,128,128,.55); display:block;"></span>
   </div>
 
-  <div style="padding:0 18px 14px; overflow:auto; flex:1 1 auto;">
-    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
-      <div style="min-width:0;">
-        <h3 data-place-sheet-target="title" style="margin:0; font-size:1.15rem; font-weight:700; line-height:1.2;">Place</h3>
-        <p data-place-sheet-target="address" style="margin:2px 0 0; font-size:.85rem; opacity:.75;"></p>
-        <p data-place-sheet-target="meta" data-action="click->place-sheet#copyCoords" title="Tap to copy coordinates" style="margin:2px 0 0; font-size:.72rem; opacity:.55; cursor:copy;"></p>
-      </div>
-      <button type="button" data-action="click->place-sheet#close" aria-label="Close"
-              class="btn btn-ghost btn-sm btn-circle">✕</button>
+  <%# Title row + ✕ are PINNED between the grab bar and the scroll area — they
+      used to live inside the scroller, so scrolling down to the tag chips
+      carried the close button off-screen ("how to close place modal??"). %>
+  <div style="padding:0 18px 6px; flex:0 0 auto; display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+    <div style="min-width:0;">
+      <h3 data-place-sheet-target="title" style="margin:0; font-size:1.15rem; font-weight:700; line-height:1.2;">Place</h3>
+      <p data-place-sheet-target="address" style="margin:2px 0 0; font-size:.85rem; opacity:.75;"></p>
+      <p data-place-sheet-target="meta" data-action="click->place-sheet#copyCoords" title="Tap to copy coordinates" style="margin:2px 0 0; font-size:.72rem; opacity:.55; cursor:copy;"></p>
     </div>
+    <button type="button" data-action="click->place-sheet#close" aria-label="Close"
+            class="btn btn-ghost btn-sm btn-circle" style="flex:0 0 auto;">✕</button>
+  </div>
+
+  <div style="padding:0 18px 14px; overflow:auto; flex:1 1 auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;">
 
     <%# INFO mode: actions + enrichment %>
     <div data-place-sheet-target="info">

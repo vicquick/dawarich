@@ -53,7 +53,15 @@ export function attachSheetDrag(el, handle, opts = {}) {
     // Next frame so the transition applies to the change.
     requestAnimationFrame(() => {
       setH(px)
-      const done = () => {
+      // Run-once guard: BOTH transitionend and the fallback timeout land here.
+      // Without it, `after` fired twice — a dismiss would toggle the panel
+      // closed and then straight back open.
+      let finished = false
+      const done = (e) => {
+        // Ignore bubbled transitions from children / other properties.
+        if (e && (e.target !== el || e.propertyName !== "height")) return
+        if (finished) return
+        finished = true
         el.style.transition = ""
         el.removeEventListener("transitionend", done)
         if (after) after()
