@@ -342,16 +342,24 @@
   /* While routing, the map is the hero — tuck the layers control away too. */
   body.routing-active .layers-control { display: none; }
 
-  /* Mobile: button sits TOP-right (where the old incident toggle was); the
-     panel drops DOWN from it instead of rising. */
+  /* Mobile: the trigger lives in the LEFT button cluster now (Victor prefers
+     the cluster's card styling + the left edge), so the floating corner
+     button hides and the panel opens from the top-LEFT beside the cluster. */
   @media (max-width: 768px) {
     .layers-control {
       top: max(4.75rem, calc(env(safe-area-inset-top) + 4rem));
-      bottom: auto; right: 0.75rem;
+      bottom: auto; left: 0.75rem; right: auto;
     }
+    .layers-control .layers-button { display: none; }
     .layers-panel {
-      top: 3.5rem; bottom: auto;
-      transform-origin: top right; transform: translateY(-8px) scale(.96);
+      top: 0; bottom: auto; left: 3.4rem; right: auto;
+      width: min(calc(100vw - 4.6rem), 22rem);
+      transform-origin: top left; transform: translateY(-8px) scale(.96);
+      /* Same card recipe as the button cluster — translucent base + blur. */
+      background: oklch(var(--b1) / 0.95);
+      backdrop-filter: blur(6px);
+      border: 1px solid oklch(var(--bc) / 0.15);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
     }
     .layers-panel--open { transform: translateY(0) scale(1); }
   }

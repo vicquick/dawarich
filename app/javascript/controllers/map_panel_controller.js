@@ -162,6 +162,15 @@ export default class extends Controller {
   }
 
   /**
+   * Cluster button → the floating Layers control (same path as the L key).
+   * The layers-control Stimulus scope lives on its own element, so we go
+   * through its trigger button rather than reaching into the controller.
+   */
+  toggleLayers() {
+    document.querySelector('[data-action*="layers-control#toggleOpen"]')?.click()
+  }
+
+  /**
    * Open the settings panel to a specific tab.
    * Triggered by the map-edge button cluster and keyboard shortcuts.
    */

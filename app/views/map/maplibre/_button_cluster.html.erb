@@ -37,6 +37,19 @@
     <%= icon 'play', class: 'w-5 h-5', aria: { hidden: true } %>
   </button>
 
+  <%# Phones only: Layers lives in this cluster (the floating bottom-right
+      button hides ≤768px — Victor prefers the cluster's card styling and the
+      left edge). Desktop keeps the Google-style corner button. %>
+  <button type="button"
+          class="map-button-cluster__btn lg:hidden"
+          data-action="click->map-panel#toggleLayers"
+          data-testid="map-button-layers"
+          aria-label="Layers"
+          aria-keyshortcuts="L"
+          title="Map layers (L)">
+    <%= icon 'layers', class: 'w-5 h-5', aria: { hidden: true } %>
+  </button>
+
   <div class="map-button-cluster__divider" aria-hidden="true"></div>
 
   <button type="button"

@@ -178,10 +178,46 @@ export default class extends Controller {
     } catch (e) { /* noop */ }
   }
 
-  // --- one button: Save / current category, gateway to the picker ---
+  // --- split Save button: quick-save with the last-used category ---
   // "Default list" is an internal bucket — never offered as a category.
+  // Home and Work are set from Settings → Saved addresses (an address is a
+  // deliberate, rare choice) — they only appear here while ACTIVE on this
+  // place, so they can still be seen and removed.
   pickerTags() {
-    return (this.tagsValue || []).filter((t) => t.name !== "Default list")
+    const activeIds = new Set(this.currentTagIds())
+    return (this.tagsValue || []).filter((t) => {
+      if (t.name === "Default list") return false
+      if ((t.name === "Home" || t.name === "Work") && !activeIds.has(t.id)) return false
+      return true
+    })
+  }
+
+  // Quick-save categories the main button may use (never Home/Work).
+  quickTags() {
+    return (this.tagsValue || []).filter(
+      (t) => !["Default list", "Home", "Work"].includes(t.name),
+    )
+  }
+
+  lastSaveTag() {
+    let id = null
+    try { id = Number(localStorage.getItem("dawarichLastSaveTag")) } catch (_) { /* noop */ }
+    const pool = this.quickTags()
+    return pool.find((t) => t.id === id) ||
+      pool.find((t) => t.id === this.starredTagIdValue) ||
+      pool[0] || null
+  }
+
+  rememberSaveTag(tagId) {
+    try { localStorage.setItem("dawarichLastSaveTag", String(tagId)) } catch (_) { /* noop */ }
+  }
+
+  // Main half of the split button: tag with the remembered category, or
+  // untag if the place is already saved (Google-style toggle).
+  quickSave() {
+    if (this.currentTagIds().length) return this.toggleTag(0)
+    const tag = this.lastSaveTag()
+    if (tag) this.toggleTag(tag.id)
   }
 
   currentTagIds() {
@@ -193,14 +229,19 @@ export default class extends Controller {
     const primary = this.place.tags[0] // server-ordered by priority
     const btn = this.categoryBtnTarget
     if (primary && primary.name) {
+      // Saved: category icon + the word "Saved" — the icon says which list.
       btn.className = "btn btn-sm gap-1"
-      btn.textContent = `${primary.icon ? primary.icon + " " : "⭐ "}${primary.name}`
+      btn.textContent = `${primary.icon ? primary.icon + " " : "⭐ "}Saved`
+      btn.title = primary.name
       btn.style.background = primary.color || "#6366f1"
       btn.style.color = "#fff"
       btn.style.border = "0"
     } else {
+      // Unsaved: show the REMEMBERED category's icon so one tap is predictable.
+      const next = this.lastSaveTag()
       btn.className = "btn btn-outline btn-sm gap-1"
-      btn.textContent = "⭐ Save"
+      btn.textContent = `${next?.icon ? next.icon + " " : "⭐ "}Save`
+      btn.title = next?.name ? `Save as ${next.name}` : "Save"
       btn.style.background = ""
       btn.style.color = ""
       btn.style.border = ""
@@ -233,6 +274,9 @@ export default class extends Controller {
   async toggleTag(tagId) {
     const current = this.currentTagIds()
     const ids = (tagId === 0 || (current.length === 1 && current[0] === tagId)) ? [] : [tagId]
+    // Remember the choice so the split button's one-tap save repeats it —
+    // but only quick categories, never Home/Work.
+    if (ids.length && this.quickTags().some((t) => t.id === tagId)) this.rememberSaveTag(tagId)
     const data = await this.persistTags(ids)
     if (!data) return
     this.place.tags = Array.isArray(data.tags) ? data.tags : []

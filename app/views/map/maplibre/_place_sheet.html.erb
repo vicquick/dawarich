@@ -41,11 +41,18 @@
         <button type="button" data-action="click->place-sheet#directions" class="btn btn-primary btn-sm gap-1">
           <%= icon 'route' %> Directions
         </button>
-        <%# One button: "Save" when untagged, or the current category (colour) when
-            saved. Tapping it opens the category picker. %>
-        <button type="button" data-place-sheet-target="categoryBtn"
-                data-action="click->place-sheet#toggleTagPicker"
-                class="btn btn-sm gap-1">⭐ Save</button>
+        <%# Save is a split button like Share: the main half saves with the
+            LAST-USED category one tap (remembered across places), the ▾ half
+            opens the category chips. Label is just "Save"/"Saved" + the
+            category's icon — the icon carries the meaning. %>
+        <span class="ps-share-split">
+          <button type="button" data-place-sheet-target="categoryBtn"
+                  data-action="click->place-sheet#quickSave"
+                  class="btn btn-sm gap-1">⭐ Save</button>
+          <button type="button" data-action="click->place-sheet#toggleTagPicker"
+                  data-place-sheet-target="categoryCaret"
+                  class="btn btn-sm px-2" aria-label="Choose category" title="Choose category">▾</button>
+        </span>
         <%# Share + its ▾ are one unit: joined as a split button so the arrow can
             never wrap onto a line of its own. %>
         <span class="ps-share-split">

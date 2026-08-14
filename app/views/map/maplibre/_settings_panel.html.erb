@@ -65,6 +65,50 @@
           two) — see _layer_toggles.html.erb. %>
       <!-- Settings Tab -->
       <div class="tab-content" data-tab-content="settings" data-map-panel-target="tabContent">
+        <%# Saved addresses — Home & Work are set HERE (deliberate, rare
+            choices with a proper address lookup), not from the place sheet's
+            quick chips. Geocoding via the self-hosted Photon suggestions API. %>
+        <%
+          addr_tags = current_user.tags.where(name: %w[Home Work]).index_by(&:name)
+          addr_places = {}
+          addr_tags.each do |name, tag|
+            addr_places[name] = tag.places.where(user: current_user).first
+          end
+        %>
+        <div class="mb-4"
+             data-controller="saved-addresses"
+             data-saved-addresses-api-key-value="<%= current_user.api_key %>">
+          <div class="font-semibold text-sm mb-2">Saved addresses</div>
+          <% { 'Home' => '🏡', 'Work' => '💼' }.each do |label, fallback_icon| %>
+            <% tag = addr_tags[label]; place = addr_places[label] %>
+            <% next unless tag %>
+            <div class="mb-2" data-saved-addresses-target="row"
+                 data-tag-id="<%= tag.id %>" data-place-id="<%= place&.id %>">
+              <div class="flex items-center gap-2">
+                <span class="text-lg" aria-hidden="true"><%= tag.icon.presence || fallback_icon %></span>
+                <span class="text-sm font-medium w-12"><%= label %></span>
+                <span class="text-xs opacity-70 flex-1 truncate" data-saved-addresses-target="current">
+                  <%= place ? place.name : 'Not set' %>
+                </span>
+                <% if place %>
+                  <button type="button" class="btn btn-ghost btn-xs" data-action="click->saved-addresses#clear">Clear</button>
+                <% end %>
+              </div>
+              <div class="relative mt-1">
+                <input type="text" class="input input-xs input-bordered w-full"
+                       placeholder="Search address…" autocomplete="off"
+                       data-saved-addresses-target="input"
+                       data-action="input->saved-addresses#search" />
+                <ul class="absolute z-50 w-full mt-1 bg-base-100 rounded-lg shadow-lg border border-base-300 hidden max-h-48 overflow-y-auto"
+                    data-saved-addresses-target="results"></ul>
+              </div>
+            </div>
+          <% end %>
+          <p class="text-xs text-base-content/50">Used for quick routing and the place sheet.</p>
+        </div>
+
+        <div class="divider"></div>
+
         <form data-action="submit->maps--maplibre#updateAdvancedSettings" class="space-y-4">
           <!-- Globe Projection -->
           <div class="form-control">
