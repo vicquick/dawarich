@@ -46,8 +46,13 @@ class Points::Params
   end
 
   def params_valid?(point)
-    point.dig(:geometry, :coordinates).present? &&
-      point.dig(:properties, :timestamp).present?
+    coordinates = point.dig(:geometry, :coordinates)
+
+    # Ported from upstream 267c5b60: exact (0,0) is a device glitch, not a
+    # position — reject it at the API batch path too.
+    coordinates.present? &&
+      point.dig(:properties, :timestamp).present? &&
+      !Points::NullIsland.coordinates?(coordinates[0], coordinates[1])
   end
 
   def lonlat(point)
