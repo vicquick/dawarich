@@ -20,7 +20,11 @@ module Tracks
   # (footway / rail / road…), which ModeRefiner uses to correct the
   # speed-only transport classification (e.g. driving-speed on rail = train).
   class MapMatcher
-    MIN_CONFIDENCE = 0.7
+    # Store matches above this floor; DISPLAY thresholds live in the
+    # serializer and differ by source. Kept low on purpose: for imported
+    # tracks (Google Takeout especially) the "original" line is itself an
+    # interpolated straight-line guess, so even a mediocre match beats it.
+    MIN_CONFIDENCE = 0.35
     MAX_POINTS = 4_000 # Valhalla shape limit guard; tracks are far smaller
 
     # Which Valhalla costing walks this track's kind of movement?

@@ -187,7 +187,12 @@ class Tracks::GeojsonSerializer
   def matched_path_for(track)
     return nil unless track.respond_to?(:matched_path)
     return nil if track.matched_path.nil?
-    return nil if track.matched_confidence.to_f < 0.7
+    # Display thresholds by source: live tracking only swaps in a confident
+    # match (the raw recording is real data). Imported tracks swap in at much
+    # lower confidence — Takeout "originals" are Google's own straight-line
+    # interpolations, so nearly any street-following match is an improvement.
+    threshold = track.try(:import_id) ? 0.4 : 0.7
+    return nil if track.matched_confidence.to_f < threshold
 
     track.matched_path
   end
