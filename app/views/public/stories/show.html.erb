@@ -13,6 +13,7 @@
       font-style: normal; font-weight: 300 700; font-display: swap;
       src: url("/fonts/SpaceGrotesk.woff2") format("woff2-variations");
     }
+    :root { --story-accent: #f97316; }
     * { box-sizing: border-box; margin: 0; }
     html, body { height: 100%; }
     body {
@@ -21,7 +22,6 @@
     }
     #story-map { position: fixed; inset: 0; }
 
-    /* Title card */
     #story-title-card {
       position: fixed; inset: 0; z-index: 30; display: grid; place-items: center;
       background: radial-gradient(ellipse at center, rgba(11,14,19,.25), rgba(11,14,19,.78));
@@ -35,7 +35,6 @@
     }
     #story-title-card p { margin-top: .6rem; font-size: clamp(.95rem, 3vw, 1.2rem); opacity: .85; }
 
-    /* Bottom dock: controls + elevation */
     #story-dock {
       position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
       padding: .6rem .9rem calc(.9rem + env(safe-area-inset-bottom));
@@ -45,8 +44,8 @@
     .story-controls { display: flex; align-items: center; gap: .7rem; margin-top: .4rem; }
     #btn-play {
       width: 3rem; height: 3rem; border-radius: 50%; border: 0; cursor: pointer;
-      background: #f97316; color: #fff; font-size: 1.15rem; flex: 0 0 auto;
-      display: grid; place-items: center; box-shadow: 0 4px 18px rgba(249,115,22,.4);
+      background: var(--story-accent); color: #fff; font-size: 1.15rem; flex: 0 0 auto;
+      display: grid; place-items: center; box-shadow: 0 4px 18px color-mix(in srgb, var(--story-accent) 40%, transparent);
       transition: transform .15s cubic-bezier(.32,.72,0,1);
     }
     #btn-play:active { transform: scale(.92); }
@@ -58,7 +57,7 @@
     }
     #story-scrub::-webkit-slider-thumb {
       -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
-      background: #fff; border: 2.5px solid #f97316;
+      background: #fff; border: 2.5px solid var(--story-accent);
     }
     .story-btn {
       border: 1px solid rgba(255,255,255,.25); background: transparent; color: inherit;
@@ -69,16 +68,15 @@
       display: flex; gap: 1rem; font-size: .78rem; opacity: .85; margin-top: .35rem;
       font-variant-numeric: tabular-nums; flex-wrap: wrap;
     }
-    .story-hud b { font-weight: 600; color: #f97316; }
+    .story-hud b { font-weight: 600; color: var(--story-accent); }
 
-    /* Map furniture */
     .story-flag { font-size: 1.6rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
     .story-flag--start { animation: flagpulse 2.2s ease-in-out infinite; }
     @keyframes flagpulse { 50% { transform: scale(1.15); } }
     .story-puck {
       width: 16px; height: 16px; border-radius: 50%;
-      background: #f97316; border: 3px solid #fff;
-      box-shadow: 0 0 0 6px rgba(249,115,22,.25), 0 2px 8px rgba(0,0,0,.5);
+      background: var(--story-accent); border: 3px solid #fff;
+      box-shadow: 0 0 0 6px color-mix(in srgb, var(--story-accent) 25%, transparent), 0 2px 8px rgba(0,0,0,.5);
     }
     .story-photo {
       width: 56px; height: 56px; border-radius: 8px; overflow: hidden;
@@ -86,6 +84,7 @@
       transform: scale(0) rotate(-8deg); transition: transform .5s cubic-bezier(.32,.72,0,1);
       cursor: pointer; position: relative; background: #222;
     }
+    .story-photo--lg { width: 84px; height: 84px; }
     .story-photo.pop { transform: scale(1) rotate(-3deg); }
     .story-photo:nth-child(even) { transform: scale(0) rotate(8deg); }
     .story-photo.pop:hover { transform: scale(1.6) rotate(0); z-index: 5; }
@@ -102,21 +101,53 @@
     #story-lightbox.open { display: grid; }
     #story-lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; }
 
-    /* Owner toolbar (only rendered for the story's owner) */
-    .story-owner {
-      position: fixed; top: .8rem; left: .8rem; right: .8rem; z-index: 50;
-      display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
-      background: rgba(11,14,19,.85); border: 1px solid rgba(255,255,255,.14);
-      border-radius: .8rem; padding: .5rem .7rem; font-size: .8rem;
-      backdrop-filter: blur(8px);
+    /* ---------- Builder drawer (owner only) ---------- */
+    #builder-fab {
+      position: fixed; top: .9rem; right: .9rem; z-index: 55;
+      width: 2.7rem; height: 2.7rem; border-radius: 50%; border: 0; cursor: pointer;
+      background: rgba(11,14,19,.85); color: #fff; font-size: 1.1rem;
+      border: 1px solid rgba(255,255,255,.2); backdrop-filter: blur(8px);
     }
-    .story-owner form { display: flex; gap: .5rem; align-items: center; margin: 0; }
-    .story-owner button, .story-owner input[type=file] { font: inherit; }
-    .story-owner .pill {
-      border-radius: 999px; padding: .25rem .7rem; border: 0; cursor: pointer; font-weight: 600;
+    #builder {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 56;
+      width: min(92vw, 21rem); overflow-y: auto; overscroll-behavior: contain;
+      background: rgba(11,14,19,.94); backdrop-filter: blur(14px);
+      border-left: 1px solid rgba(255,255,255,.12);
+      padding: 1rem 1rem calc(1.2rem + env(safe-area-inset-bottom));
+      transform: translateX(105%); transition: transform .32s cubic-bezier(.32,.72,0,1);
+      font-size: .85rem;
     }
-    .story-owner .pill--pub { background: #16a34a; color: #fff; }
-    .story-owner .pill--unpub { background: #b45309; color: #fff; }
+    #builder.open { transform: translateX(0); }
+    #builder h2 { font-size: 1rem; margin-bottom: .8rem; display: flex; justify-content: space-between; align-items: center; }
+    #builder h2 button { background: none; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; }
+    .b-section { margin-bottom: 1.1rem; }
+    .b-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; opacity: .55; margin-bottom: .4rem; }
+    .b-row { display: flex; gap: .4rem; flex-wrap: wrap; }
+    .b-chip {
+      border: 1px solid rgba(255,255,255,.22); background: transparent; color: inherit;
+      border-radius: 999px; padding: .3rem .75rem; font: 600 .78rem "Space Grotesk", sans-serif;
+      cursor: pointer;
+    }
+    .b-chip.on { background: var(--story-accent); border-color: var(--story-accent); color: #fff; }
+    .b-swatch {
+      width: 1.7rem; height: 1.7rem; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0;
+    }
+    .b-swatch.on { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+    #builder input[type="text"] {
+      width: 100%; background: rgba(255,255,255,.08); color: inherit;
+      border: 1px solid rgba(255,255,255,.18); border-radius: .5rem; padding: .45rem .6rem;
+      font: inherit;
+    }
+    .b-pub {
+      width: 100%; border: 0; border-radius: .6rem; padding: .6rem; cursor: pointer;
+      font: 700 .9rem "Space Grotesk", sans-serif; color: #fff;
+    }
+    .b-pub--publish { background: #16a34a; }
+    .b-pub--unpublish { background: #b45309; }
+    .b-note { font-size: .7rem; opacity: .55; margin-top: .35rem; line-height: 1.35; }
+    .b-file { font-size: .78rem; width: 100%; }
+    .b-link-row { display: flex; gap: .4rem; }
+    .b-link-row input { flex: 1; font-size: .72rem !important; }
   </style>
 </head>
 <body>
@@ -125,27 +156,106 @@
   <div id="story-title-card">
     <div>
       <h1><%= @bundle[:title] %></h1>
-      <p><%= @bundle[:date_label] %></p>
+      <p><%= @bundle.dig(:config, 'subtitle').presence || @bundle[:date_label] %></p>
       <p id="hud-total" style="margin-top:1rem; font-size:.9rem; opacity:.7"></p>
       <p style="margin-top:1.6rem; font-size:.85rem; opacity:.6">press play</p>
     </div>
   </div>
 
   <% if @owner %>
-    <div class="story-owner">
-      <span><%= @story.published? ? "🌍 Public — anyone with this link" : "🔒 Private — only you can see this" %></span>
-      <%= form_with url: story_path(@story), method: :patch do |f| %>
-        <%= hidden_field_tag "story[published]", (!@story.published?).to_s %>
-        <button type="submit" class="pill <%= @story.published? ? 'pill--unpub' : 'pill--pub' %>">
-          <%= @story.published? ? "Unpublish" : "Publish" %>
-        </button>
+    <button id="builder-fab" title="Story settings" onclick="document.getElementById('builder').classList.toggle('open')">🎬</button>
+    <aside id="builder">
+      <h2>Story builder <button onclick="document.getElementById('builder').classList.remove('open')">✕</button></h2>
+
+      <%= form_with url: story_path(@story), method: :patch, id: "builder-form" do %>
+        <div class="b-section">
+          <div class="b-label">Title</div>
+          <input type="text" name="story[title]" value="<%= @story.title %>" placeholder="<%= @story.trip.name %>">
+        </div>
+        <div class="b-section">
+          <div class="b-label">Subtitle</div>
+          <input type="text" name="story[config][subtitle]" value="<%= @story.config['subtitle'] %>" placeholder="<%= @bundle[:date_label] %>">
+        </div>
+
+        <% builder_chips = lambda do |label, key, options, current| %>
+          <div class="b-section">
+            <div class="b-label"><%= label %></div>
+            <div class="b-row">
+              <% options.each do |val, text| %>
+                <label class="b-chip <%= 'on' if current == val || (current.blank? && val == options.first[0]) %>">
+                  <input type="radio" name="story[config][<%= key %>]" value="<%= val %>"
+                         <%= 'checked' if current == val || (current.blank? && val == options.first[0]) %>
+                         hidden onchange="this.form.requestSubmit()">
+                  <%= text %>
+                </label>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+
+        <% builder_chips.call('Theme', 'theme',
+              [%w[midnight Midnight], %w[paper Paper], %w[satellite Satellite]], @story.config['theme']) %>
+        <% builder_chips.call('Camera', 'camera',
+              [%w[follow Follow], %w[drone Drone], %w[overview Overview]], @story.config['camera']) %>
+        <% builder_chips.call('Length', 'duration',
+              [%w[auto Auto], %w[45 Short], %w[90 Medium], %w[180 Long]], @story.config['duration']) %>
+        <% builder_chips.call('Line', 'line_style',
+              [%w[solid Solid], %w[glow Glow]], @story.config['line_style']) %>
+        <% builder_chips.call('Photos', 'show_photos',
+              [%w[on On], %w[off Off]], @story.config['show_photos']) %>
+        <% builder_chips.call('Photo size', 'photo_size',
+              [%w[small Small], %w[large Large]], @story.config['photo_size']) %>
+        <% builder_chips.call('Elevation', 'show_elevation',
+              [%w[on On], %w[off Off]], @story.config['show_elevation']) %>
+
+        <div class="b-section">
+          <div class="b-label">Accent</div>
+          <div class="b-row">
+            <% %w[#f97316 #3b82f6 #10b981 #ec4899 #eab308 #a855f7].each do |c| %>
+              <label class="b-swatch <%= 'on' if (@story.config['accent'] || '#f97316') == c %>" style="background: <%= c %>">
+                <input type="radio" name="story[config][accent]" value="<%= c %>"
+                       <%= 'checked' if (@story.config['accent'] || '#f97316') == c %>
+                       hidden onchange="this.form.requestSubmit()">
+              </label>
+            <% end %>
+          </div>
+        </div>
       <% end %>
-      <%= form_with url: story_path(@story), method: :patch, multipart: true do |f| %>
-        <input type="file" name="story[audio]" accept="audio/*"
-               onchange="this.form.requestSubmit()" title="Soundtrack (mp3/m4a)">
-      <% end %>
-      <span style="opacity:.6"><%= @story.audio.attached? ? "🎵 #{@story.audio.filename}" : "no music yet" %></span>
-    </div>
+
+      <div class="b-section">
+        <div class="b-label">Soundtrack</div>
+        <%= form_with url: story_path(@story), method: :patch, multipart: true do %>
+          <input type="file" name="story[audio]" accept="audio/*" class="b-file"
+                 onchange="this.form.requestSubmit()">
+        <% end %>
+        <% if @story.audio.attached? %>
+          <div class="b-note">🎵 <%= @story.audio.filename %></div>
+          <%= form_with url: story_path(@story), method: :patch do %>
+            <%= hidden_field_tag 'story[remove_audio]', 'true' %>
+            <button type="submit" class="b-chip" style="margin-top:.3rem">Remove music</button>
+          <% end %>
+        <% end %>
+      </div>
+
+      <div class="b-section">
+        <div class="b-label">Sharing</div>
+        <%= form_with url: story_path(@story), method: :patch do %>
+          <%= hidden_field_tag 'story[published]', (!@story.published?).to_s %>
+          <button type="submit" class="b-pub <%= @story.published? ? 'b-pub--unpublish' : 'b-pub--publish' %>">
+            <%= @story.published? ? 'Unpublish' : 'Publish' %>
+          </button>
+        <% end %>
+        <div class="b-note">
+          <%= @story.published? ? '🌍 Anyone with the link can watch.' : '🔒 Private — only you see this page.' %>
+        </div>
+        <div class="b-link-row" style="margin-top:.5rem">
+          <input type="text" readonly value="<%= story_public_url(@story.token) %>" id="share-url">
+          <button type="button" class="b-chip"
+                  onclick="navigator.clipboard.writeText(document.getElementById('share-url').value).then(() => { this.textContent = '✓'; setTimeout(() => this.textContent = 'Copy', 1400) })">Copy</button>
+        </div>
+        <div class="b-note">Password protection: coming soon (Immich-style).</div>
+      </div>
+    </aside>
   <% end %>
 
   <div id="story-dock">
