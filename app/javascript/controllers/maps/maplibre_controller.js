@@ -698,6 +698,13 @@ export default class extends Controller {
     this.startDateValue = start
     this.endDateValue = end
 
+    // Re-sync the live settings snapshot from the settings cache before
+    // rebuilding layers. Layer toggles write to the cache + backend but not
+    // to this shared object — a full page load re-reads everything so it
+    // never mattered, but this SPA path was resurrecting layers the user
+    // had just switched OFF (tracks kept drawing with every toggle dark).
+    try { Object.assign(this.settings, SettingsManager.getSettings()) } catch (_) { /* keep current */ }
+
     this._clearDayHighlight?.()
     this.loadMapData().then(() => {
       if (this.settings?.anomaliesEnabled) {
