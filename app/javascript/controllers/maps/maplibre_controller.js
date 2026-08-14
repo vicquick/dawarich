@@ -561,8 +561,29 @@ export default class extends Controller {
       })
       this.map.addControl(this.geolocateControl, "bottom-left")
       // vicquick fork: locate the user automatically on arrival (best-effort —
-      // the browser may require a gesture / prior permission grant).
-      const locateNow = () => { try { this.geolocateControl.trigger() } catch (_) { /* noop */ } }
+      // the browser may require a gesture / prior permission grant) — but
+      // RESPECT an explicit opt-out. Turning the control off used to last only
+      // until the next full page load (e.g. a preset/day-range navigation),
+      // which silently re-enabled tracking.
+      const optedOut = () => {
+        try { return localStorage.getItem("dawarichGeolocate") === "off" } catch (_) { return false }
+      }
+      this.geolocateControl.on("trackuserlocationstart", () => {
+        try { localStorage.setItem("dawarichGeolocate", "on") } catch (_) { /* noop */ }
+      })
+      this.geolocateControl.on("trackuserlocationend", () => {
+        // Fires for BOTH "user clicked it off" and "map pan moved tracking to
+        // background". Only a genuine OFF is an opt-out.
+        try {
+          if (this.geolocateControl._watchState === "OFF") {
+            localStorage.setItem("dawarichGeolocate", "off")
+          }
+        } catch (_) { /* noop */ }
+      })
+      const locateNow = () => {
+        if (optedOut()) return
+        try { this.geolocateControl.trigger() } catch (_) { /* noop */ }
+      }
       if (this.map.loaded()) locateNow()
       else this.map.once("load", locateNow)
     } catch (e) {
