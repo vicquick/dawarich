@@ -22,7 +22,7 @@ const SHOW_ELEV = cfg.show_elevation !== "off"
 const DAY_NIGHT = cfg.day_night !== "off"
 const TZ = Number(bundle.tz_offset) || 7200
 
-const state = { playing: false, progress: 0, speed: 1, started: false, raf: 0, lastTs: 0, photoIdx: -1 }
+const state = { playing: false, exploring: false, progress: 0, speed: 1, started: false, raf: 0, lastTs: 0, photoIdx: -1 }
 
 const P = bundle.points // [lon, lat, ele, t]
 const D = bundle.dist_km
@@ -81,8 +81,20 @@ const map = new maplibregl.Map({
   bounds,
   fitBoundsOptions: { padding: 80 },
   attributionControl: { compact: true },
+  hash: "map", // #map=z/lat/lng — a paused/explored view is a shareable URL
 })
 await new Promise((resolve) => map.once("load", resolve))
+
+// v3: a deep-linked ?day=N / ?t=0.42 sets where the story opens (the hash owns
+// the camera; the query owns the story playhead so they don't fight).
+const START_QUERY = new URLSearchParams(location.search)
+const START_PROGRESS = (() => {
+  const t = parseFloat(START_QUERY.get("t"))
+  if (t >= 0 && t <= 1) return t
+  const d = parseInt(START_QUERY.get("day"), 10)
+  if (d >= 1 && DAYS[d - 1]) return DAYS[d - 1].i / (N - 1)
+  return 0
+})()
 
 // In split mode the photo panel owns one side — pad every camera move so the
 // caravan stays centred in the VISIBLE map, not under the panel.
@@ -468,6 +480,7 @@ function tick(ts) {
 }
 
 function play() {
+  if (state.exploring) exitExplore()
   if (state.progress >= 1) applyProgress(0)
   state.playing = true
   state.lastTs = 0
@@ -523,5 +536,183 @@ if (audio) {
 el("hud-total").textContent =
   `${totalKm.toFixed(0)} km · ${bundle.stats.days} days · ↑${bundle.stats.elevation_gain_m} m` +
   (PHOTO_MODE !== "off" ? ` · ${bundle.photos.length} photos` : "")
-applyProgress(0, { moveCamera: false })
+
+// ============================================================================
+// v3 — INTERACTIVE EXPLORE MODE ("pause & investigate", Google-My-Maps style)
+// The cinematic playback above is untouched; explore mode layers a freely
+// navigable map + clickable features + a day legend on top, and hands the
+// camera back to the movie on resume.
+// ============================================================================
+
+// ---- clickable photo markers (a My-Maps-style layer of the trip's photos) ----
+if (bundle.photos.length) {
+  map.addSource("story-photo-pins", {
+    type: "geojson",
+    data: {
+      type: "FeatureCollection",
+      features: bundle.photos.map((ph, k) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [P[ph.idx][0], P[ph.idx][1]] },
+        properties: { k, day: dayIndexAt(ph.idx) + 1 },
+      })),
+    },
+  })
+  map.addLayer({
+    id: "story-photo-pins", type: "circle", source: "story-photo-pins",
+    layout: { visibility: "none" }, // only in explore mode
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 4, 14, 7],
+      "circle-color": "#fff",
+      "circle-stroke-color": ACCENT,
+      "circle-stroke-width": 2.5,
+      "circle-opacity": 0.95,
+    },
+  })
+}
+
+// ---- bottom-sheet investigate card ----
+const sheet = el("investigate-sheet")
+function haversineKm(a, b) {
+  const rad = Math.PI / 180, dlat = (b[1] - a[1]) * rad, dlon = (b[0] - a[0]) * rad
+  const h = Math.sin(dlat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dlon / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.sqrt(h))
+}
+function nearestIndexTo(lngLat) {
+  let best = 0, bestD = Infinity
+  for (let i = 0; i < N; i++) {
+    const d = haversineKm([P[i][0], P[i][1]], [lngLat.lng, lngLat.lat])
+    if (d < bestD) { bestD = d; best = i }
+  }
+  return best
+}
+function openSheet(html) {
+  sheet.innerHTML = html
+  sheet.classList.add("open")
+}
+function closeSheet() { sheet.classList.remove("open") }
+function pointCardHTML(i, photoK = null) {
+  const day = dayIndexAt(i) + 1
+  const col = dayColorAt(i)
+  const dateStr = new Date(P[i][3] * 1000).toLocaleString(undefined,
+    { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+  const photo = photoK != null ? bundle.photos[photoK] : null
+  return `
+    <button class="sheet-x" aria-label="Close">✕</button>
+    ${photo ? `<img class="sheet-photo" src="${photo.url}" alt="">` : ""}
+    <div class="sheet-body">
+      <div class="sheet-day" style="color:${col}">● Day ${day}</div>
+      <div class="sheet-date">${dateStr}</div>
+      <div class="sheet-stats">
+        <span><b>${D[i].toFixed(1)}</b> km</span>
+        <span><b>${P[i][2]}</b> m elev</span>
+      </div>
+      <button class="sheet-jump" data-i="${i}">▶ Play from here</button>
+    </div>`
+}
+function investigateAt(i, photoK = null) {
+  if (!state.exploring) enterExplore()
+  openSheet(pointCardHTML(i, photoK))
+  investigateMarker.setLngLat([P[i][0], P[i][1]]).addTo(map)
+}
+// a pulsing dot marking what you clicked
+const investigateEl = document.createElement("div")
+investigateEl.className = "story-puck"
+const investigateMarker = new maplibregl.Marker({ element: investigateEl })
+
+sheet.addEventListener("click", (e) => {
+  if (e.target.closest(".sheet-x")) { closeSheet(); investigateMarker.remove(); return }
+  const jump = e.target.closest(".sheet-jump")
+  if (jump) {
+    const i = Number(jump.dataset.i)
+    closeSheet(); investigateMarker.remove()
+    resumePlaybackFrom(i / (N - 1))
+  }
+})
+
+// photo pin click → investigate that photo
+if (bundle.photos.length) {
+  map.on("click", "story-photo-pins", (e) => {
+    const k = e.features[0].properties.k
+    investigateAt(bundle.photos[k].idx, k)
+  })
+  map.on("mouseenter", "story-photo-pins", () => { map.getCanvas().style.cursor = "pointer" })
+  map.on("mouseleave", "story-photo-pins", () => { map.getCanvas().style.cursor = "" })
+}
+// click the trail (or anywhere, in explore) → nearest point card
+map.on("click", (e) => {
+  if (!state.exploring) return
+  if (map.queryRenderedFeatures(e.point, { layers: ["story-photo-pins"] }).length) return
+  investigateAt(nearestIndexTo(e.lngLat))
+})
+
+// ---- day legend / jump strip ----
+const legend = el("story-legend")
+function buildLegend() {
+  legend.querySelector(".legend-days").innerHTML = DAYS.map((d, k) => `
+    <button class="legend-day" data-prog="${d.i / (N - 1)}">
+      <span class="legend-swatch" style="background:${d.color}"></span>
+      <span class="legend-label">Day ${k + 1}<small>${d.label}</small></span>
+    </button>`).join("")
+}
+buildLegend()
+legend.addEventListener("click", (e) => {
+  const day = e.target.closest(".legend-day")
+  if (day) { closeSheet(); investigateMarker.remove(); resumePlaybackFrom(Number(day.dataset.prog)); return }
+  if (e.target.closest("[data-legend-close]")) toggleLegend(false)
+})
+function toggleLegend(show) {
+  legend.classList.toggle("open", show ?? !legend.classList.contains("open"))
+}
+// photo-pin visibility toggle inside the legend
+const pinToggle = el("legend-pins")
+if (pinToggle) {
+  if (!bundle.photos.length) pinToggle.closest(".legend-row")?.remove()
+  else pinToggle.addEventListener("change", () => {
+    map.setLayoutProperty("story-photo-pins", "visibility", pinToggle.checked ? "visible" : "none")
+  })
+}
+
+// ---- mode transitions ----
+function enterExplore() {
+  if (state.exploring) return
+  state.exploring = true
+  cancelAnimationFrame(state.raf)
+  state.playing = false
+  stopDust()
+  audio?.pause?.()
+  caravanEl.classList.remove("walking")
+  el("btn-play").classList.remove("playing")
+  document.body.classList.add("exploring")
+  el("story-title-card").classList.add("dismissed")
+  if (bundle.photos.length && pinToggle?.checked) {
+    map.setLayoutProperty("story-photo-pins", "visibility", "visible")
+  }
+  toggleLegend(true)
+}
+function exitExplore() {
+  state.exploring = false
+  document.body.classList.remove("exploring")
+  toggleLegend(false)
+  closeSheet(); investigateMarker.remove()
+  if (bundle.photos.length) map.setLayoutProperty("story-photo-pins", "visibility", "none")
+}
+function resumePlaybackFrom(prog) {
+  exitExplore()
+  state.progress = Math.max(0, Math.min(0.9999, prog))
+  // glide the camera back onto the cinematic path, THEN roll the film
+  const pos = posAt(state.progress)
+  map.easeTo({ center: pos, zoom: Math.max(map.getZoom(), 12.8), pitch: CAMERA === "drone" ? 60 : 48, duration: 900 })
+  map.once("moveend", () => { if (!state.exploring) play() })
+}
+
+// auto-pause the moment the viewer grabs the map during playback
+;["dragstart", "rotatestart", "pitchstart", "zoomstart"].forEach((ev) =>
+  map.on(ev, (e) => { if (e.originalEvent && state.playing) enterExplore() }))
+
+// explore/resume button + legend button
+el("btn-explore").addEventListener("click", () => (state.exploring ? resumePlaybackFrom(state.progress) : enterExplore()))
+el("btn-legend").addEventListener("click", () => toggleLegend())
+
+applyProgress(START_PROGRESS, { moveCamera: false })
+if (START_PROGRESS > 0) enterExplore() // deep-linked into a specific spot → explore there
 window.addEventListener("resize", () => drawElevation(state.progress))

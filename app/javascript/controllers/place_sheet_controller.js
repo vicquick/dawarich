@@ -531,16 +531,32 @@ export default class extends Controller {
   }
 
   // Share the current route as a link (opens the OS share sheet, else copies).
+  // Capture the button synchronously (e.currentTarget is null after any await),
+  // and treat a REAL share failure — not just a user-cancel — as "fall back to
+  // copying the link" so the action never silently does nothing.
   async shareRoute(e) {
+    const btn = e?.currentTarget
     const data = window.dawarichDirections?.routeShareData?.()
     if (!data) return
     const enc = btoa(unescape(encodeURIComponent(JSON.stringify(data))))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     const url = `${location.origin}/map?dir=${enc}`
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Route", url })
+        return
+      } catch (err) {
+        if (err?.name === "AbortError") return // dismissed the share sheet — fine
+        // real failure (no permission / unsupported) → fall through to copy
+      }
+    }
     try {
-      if (navigator.share) await navigator.share({ title: "Route", url })
-      else { await navigator.clipboard.writeText(url); this._flash(e?.currentTarget, "✓ Link copied") }
-    } catch (_) { /* user cancelled — noop */ }
+      await navigator.clipboard.writeText(url)
+      this._flash(btn, "✓ Link copied")
+    } catch (_) {
+      this._flash(btn, "Copy failed")
+    }
   }
 
   // Download the current route as a GPX track.

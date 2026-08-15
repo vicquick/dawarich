@@ -302,6 +302,68 @@
       .story-flag .cloth, .story-caravan .leg, .story-caravan .horse-body,
       .story-caravan .tail, .story-caravan .luggage { animation: none !important; }
     }
+
+    /* ---------- v3: explore mode (investigate + legend) ---------- */
+    /* the compass button glows while exploring; photo panel steps aside so the
+       map is fully grabbable */
+    body.exploring #btn-explore { background: var(--story-accent); border-color: var(--story-accent); color: #fff; }
+    body.exploring #story-photos { opacity: 0 !important; pointer-events: none; }
+    body.exploring #story-ambient { opacity: .35; }
+
+    /* bottom-sheet investigate card */
+    #investigate-sheet {
+      position: fixed; left: 50%; bottom: 0; z-index: 45; width: min(30rem, 94vw);
+      transform: translate(-50%, 110%); transition: transform .34s cubic-bezier(.32,.72,0,1);
+      background: rgba(17,20,27,.96); backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,.12); border-bottom: 0;
+      border-radius: 1.1rem 1.1rem 0 0; overflow: hidden;
+      box-shadow: 0 -12px 40px rgba(0,0,0,.5);
+      margin-bottom: calc(6.5rem + env(safe-area-inset-bottom));
+    }
+    #investigate-sheet.open { transform: translate(-50%, 0); }
+    #investigate-sheet .sheet-x {
+      position: absolute; top: .5rem; right: .5rem; z-index: 2; width: 1.9rem; height: 1.9rem;
+      border-radius: 50%; border: 0; cursor: pointer; font-size: .9rem;
+      background: rgba(0,0,0,.45); color: #fff; backdrop-filter: blur(4px);
+    }
+    #investigate-sheet .sheet-photo { width: 100%; height: 9rem; object-fit: cover; display: block; }
+    #investigate-sheet .sheet-body { padding: .8rem 1rem 1rem; }
+    #investigate-sheet .sheet-day { font-weight: 700; font-size: .95rem; }
+    #investigate-sheet .sheet-date { opacity: .7; font-size: .82rem; margin-top: .1rem; }
+    #investigate-sheet .sheet-stats { display: flex; gap: 1.2rem; margin-top: .5rem; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    #investigate-sheet .sheet-stats b { color: var(--story-accent); }
+    #investigate-sheet .sheet-jump {
+      margin-top: .8rem; width: 100%; padding: .55rem; border: 0; border-radius: .6rem; cursor: pointer;
+      background: var(--story-accent); color: #fff; font: 700 .85rem "Space Grotesk", sans-serif;
+    }
+
+    /* day legend / jump panel */
+    #story-legend {
+      position: fixed; top: 0; left: 0; bottom: 0; z-index: 46; width: min(17rem, 82vw);
+      background: rgba(11,14,19,.94); backdrop-filter: blur(14px);
+      border-right: 1px solid rgba(255,255,255,.12);
+      padding: 1rem .8rem calc(1rem + env(safe-area-inset-bottom));
+      transform: translateX(-105%); transition: transform .32s cubic-bezier(.32,.72,0,1);
+      overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column;
+    }
+    #story-legend.open { transform: translateX(0); }
+    #story-legend .legend-head {
+      display: flex; justify-content: space-between; align-items: center;
+      font-weight: 700; font-size: 1rem; margin-bottom: .7rem;
+    }
+    #story-legend .legend-head button { background: none; border: 0; color: inherit; font-size: 1rem; cursor: pointer; }
+    #story-legend .legend-days { display: flex; flex-direction: column; gap: .15rem; }
+    .legend-day {
+      display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left;
+      background: none; border: 0; color: inherit; cursor: pointer;
+      padding: .45rem .4rem; border-radius: .5rem; font: inherit;
+    }
+    .legend-day:hover { background: rgba(255,255,255,.07); }
+    .legend-swatch { width: .85rem; height: .85rem; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+    .legend-label { font-size: .85rem; font-weight: 600; line-height: 1.15; display: flex; flex-direction: column; }
+    .legend-label small { font-weight: 400; opacity: .6; font-size: .72rem; }
+    #story-legend .legend-row { display: flex; align-items: center; gap: .5rem; margin-top: .9rem; font-size: .82rem; cursor: pointer; }
+    #story-legend .legend-hint { margin-top: auto; padding-top: .9rem; font-size: .72rem; opacity: .5; line-height: 1.35; }
   </style>
 </head>
 <body>
@@ -458,6 +520,8 @@
     <div class="story-controls">
       <button id="btn-play" aria-label="Play"></button>
       <input id="story-scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Timeline">
+      <button id="btn-explore" class="story-btn" title="Explore the map" aria-label="Explore">🧭</button>
+      <button id="btn-legend" class="story-btn" title="Days & layers" aria-label="Legend">☰</button>
       <button id="btn-speed" class="story-btn">1×</button>
       <button id="btn-mute" class="story-btn" hidden>🔊</button>
     </div>
@@ -469,6 +533,23 @@
   </div>
 
   <div id="story-lightbox"></div>
+
+  <!-- v3: bottom-sheet detail card (populated on click in explore mode) -->
+  <div id="investigate-sheet" aria-live="polite"></div>
+
+  <!-- v3: day legend / jump strip + layer toggles -->
+  <aside id="story-legend" aria-label="Days and layers">
+    <div class="legend-head">
+      <span>Journey</span>
+      <button data-legend-close aria-label="Close legend">✕</button>
+    </div>
+    <div class="legend-days"></div>
+    <label class="legend-row">
+      <input type="checkbox" id="legend-pins" checked>
+      <span>Show photo spots</span>
+    </label>
+    <div class="legend-hint">Tap a day to play from there · tap the map to inspect a spot</div>
+  </aside>
 
   <script type="application/json" id="story-bundle"><%= raw @bundle.to_json %></script>
 </body>
