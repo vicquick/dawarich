@@ -45,7 +45,9 @@ if [ -d "/tmp/public_assets" ]; then
   echo "📦 Syncing static assets to public volume..."
   # Remove old compiled assets to prevent stale files from persisting
   rm -rf $APP_PATH/public/assets
-  cp -r /tmp/public_assets/* $APP_PATH/public/
+  # `/.` (not `/*`) so dot-directories like .well-known/ sync too — the `*`
+  # glob silently skipped them, which broke Digital Asset Links / app-links.
+  cp -r /tmp/public_assets/. $APP_PATH/public/
   echo "✅ Static assets synced!"
 fi
 
