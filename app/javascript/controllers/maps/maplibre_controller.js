@@ -1,7 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 import { formatNumber, translate } from "i18n"
 import maplibregl from "maplibre-gl"
-import { getCurrentTheme } from "maps_maplibre/utils/popup_theme"
 import { Toast } from "maps_maplibre/components/toast"
 import { ReplayPanel } from "maps_maplibre/managers/replay_panel"
 import { ApiClient } from "maps_maplibre/services/api_client"
@@ -10,29 +9,30 @@ import { featureToPhoto } from "maps_maplibre/utils/feature_to_photo"
 import { cancelAllPreviews } from "maps_maplibre/utils/layer_gate"
 import { loadLastView, saveView } from "maps_maplibre/utils/map_view_store"
 import { performanceMonitor } from "maps_maplibre/utils/performance_monitor"
+import { getCurrentTheme } from "maps_maplibre/utils/popup_theme"
 import { SearchManager } from "maps_maplibre/utils/search_manager"
 import { SettingsManager } from "maps_maplibre/utils/settings_manager"
 import { AreaSelectionManager } from "./maplibre/area_selection_manager"
-import { DirectionsManager } from "./maplibre/directions_manager"
 import { DataLoader } from "./maplibre/data_loader"
 import { DateManager } from "./maplibre/date_manager"
+import { DirectionsManager } from "./maplibre/directions_manager"
+import { DopManager } from "./maplibre/dop_manager"
 import { EventHandlers } from "./maplibre/event_handlers"
 import { FilterManager } from "./maplibre/filter_manager"
+import { ImmichManager } from "./maplibre/immich_manager"
 import { LayerManager } from "./maplibre/layer_manager"
 import { MapDataManager } from "./maplibre/map_data_manager"
 import { MapInitializer } from "./maplibre/map_initializer"
 import { installMapPadding } from "./maplibre/map_overlay_padding"
-import { ImmichManager } from "./maplibre/immich_manager"
-import { WeatherManager } from "./maplibre/weather_manager"
-import { TrackProfileManager } from "./maplibre/track_profile"
-import { TrailsManager } from "./maplibre/trails_manager"
-import { DopManager } from "./maplibre/dop_manager"
 import { PlacesManager } from "./maplibre/places_manager"
 import { POIsManager } from "./maplibre/pois_manager"
-import { StreetView } from "./maplibre/street_view"
 import { RoutesManager } from "./maplibre/routes_manager"
 import { SettingsController } from "./maplibre/settings_manager"
+import { StreetView } from "./maplibre/street_view"
+import { TrackProfileManager } from "./maplibre/track_profile"
+import { TrailsManager } from "./maplibre/trails_manager"
 import { VisitsManager } from "./maplibre/visits_manager"
+import { WeatherManager } from "./maplibre/weather_manager"
 
 /**
  * Main map controller for Maps V2
@@ -159,6 +159,37 @@ export default class extends Controller {
     "replaySpeedDisplay",
     // WebGL error
     "webglError",
+
+    // vicquick fork: restored 2026-08-20 — dropped by the upstream sync while
+    // _settings_panel.html.erb kept the markup binding them.
+    "gpsAccuracyThresholdValue",
+    "transportationExpertToggle",
+    "transportationBasicSettings",
+    "transportationExpertSettings",
+    "walkingMaxSpeedValue",
+    "walkingMaxSpeedInput",
+    "cyclingMaxSpeedValue",
+    "cyclingMaxSpeedInput",
+    "drivingMaxSpeedValue",
+    "drivingMaxSpeedInput",
+    "flyingMinSpeedValue",
+    "flyingMinSpeedInput",
+    "stationaryMaxSpeedValue",
+    "stationaryMaxSpeedInput",
+    "trainMinSpeedValue",
+    "trainMinSpeedInput",
+    "runningVsCyclingAccelValue",
+    "runningVsCyclingAccelInput",
+    "cyclingVsDrivingAccelValue",
+    "cyclingVsDrivingAccelInput",
+    "minSegmentDurationValue",
+    "minSegmentDurationInput",
+    "timeGapThresholdValue",
+    "timeGapThresholdInput",
+    "minFlightDistanceValue",
+    "minFlightDistanceInput",
+    "distanceUnitLabel",
+    "speedUnitLabel",
   ]
 
   async connect() {
@@ -197,12 +228,19 @@ export default class extends Controller {
     // vicquick fork: reflect the persisted track-source filter in its
     // checkboxes (the filter itself re-applies inside the tracks layer).
     try {
-      const hidden = JSON.parse(localStorage.getItem("dawarichTrackSourceHidden") || "[]")
+      const hidden = JSON.parse(
+        localStorage.getItem("dawarichTrackSourceHidden") || "[]",
+      )
       document.querySelectorAll("[data-track-source]").forEach((cb) => {
-        const key = cb.dataset.trackSource === "tracking" ? -1 : Number(cb.dataset.trackSource)
+        const key =
+          cb.dataset.trackSource === "tracking"
+            ? -1
+            : Number(cb.dataset.trackSource)
         cb.checked = !hidden.includes(key)
       })
-    } catch (_) { /* defaults stay checked */ }
+    } catch (_) {
+      /* defaults stay checked */
+    }
 
     await this.initializeMap()
     // initializeMap bails without setting this.map if the controller
@@ -249,7 +287,10 @@ export default class extends Controller {
         if (place.color) {
           features.push({
             type: "Feature",
-            geometry: { type: "Point", coordinates: [place.longitude, place.latitude] },
+            geometry: {
+              type: "Point",
+              coordinates: [place.longitude, place.latitude],
+            },
             properties: {
               id: place.id,
               name: place.name,
@@ -262,7 +303,9 @@ export default class extends Controller {
           })
         }
         layer.update({ type: "FeatureCollection", features })
-      } catch (e) { /* noop */ }
+      } catch (e) {
+        /* noop */
+      }
     }
     this.routesManager = new RoutesManager(this)
     this.directionsManager = new DirectionsManager(this)
@@ -305,7 +348,9 @@ export default class extends Controller {
     // per-viewport. "idle" also covers basemap swaps, which wipe custom layers.
     this.dopManager = new DopManager(this)
     window.dawarichDop = this.dopManager
-    const refreshDop = () => { this.dopManager.refresh().catch(() => {}) }
+    const refreshDop = () => {
+      this.dopManager.refresh().catch(() => {})
+    }
     this.map.on("moveend", refreshDop)
     this.map.on("idle", refreshDop)
     refreshDop()
@@ -455,10 +500,20 @@ export default class extends Controller {
     try {
       const enc = new URLSearchParams(window.location.search).get("dir")
       if (!enc) return
-      const json = decodeURIComponent(escape(atob(enc.replace(/-/g, "+").replace(/_/g, "/"))))
+      const json = decodeURIComponent(
+        escape(atob(enc.replace(/-/g, "+").replace(/_/g, "/"))),
+      )
       const data = JSON.parse(json)
-      setTimeout(() => document.dispatchEvent(new CustomEvent("directions:restore", { detail: data })), 600)
-    } catch (_) { /* malformed link — ignore */ }
+      setTimeout(
+        () =>
+          document.dispatchEvent(
+            new CustomEvent("directions:restore", { detail: data }),
+          ),
+        600,
+      )
+    } catch (_) {
+      /* malformed link — ignore */
+    }
   }
 
   // vicquick fork: open a place shared via ?p=lon,lat[&pname=…] — the clean
@@ -472,10 +527,16 @@ export default class extends Controller {
       if (!isFinite(lon) || !isFinite(lat)) return
       const name = q.get("pname") || `${lat.toFixed(5)}, ${lon.toFixed(5)}`
       setTimeout(() => {
-        try { this.map?.flyTo({ center: [lon, lat], zoom: 17 }) } catch (_) {}
-        document.dispatchEvent(new CustomEvent("place-sheet:open", { detail: { name, lat, lon } }))
+        try {
+          this.map?.flyTo({ center: [lon, lat], zoom: 17 })
+        } catch (_) {}
+        document.dispatchEvent(
+          new CustomEvent("place-sheet:open", { detail: { name, lat, lon } }),
+        )
       }, 700)
-    } catch (_) { /* malformed link — ignore */ }
+    } catch (_) {
+      /* malformed link — ignore */
+    }
   }
 
   disconnect() {
@@ -517,12 +578,17 @@ export default class extends Controller {
     // vicquick fork: camera priority is (1) the latest tracked point at city
     // zoom, (2) upstream's saved last viewport, (3) the Lüneburg home extent —
     // never the OLDEST tracked point, which is what upstream's fitBounds did.
-    const hasInitial = this.hasInitialLatValue && this.hasInitialLonValue &&
-      this.initialLatValue !== 0 && this.initialLonValue !== 0
-    const HOME = { center: [10.4147, 53.2520], zoom: 12 }
+    const hasInitial =
+      this.hasInitialLatValue &&
+      this.hasInitialLonValue &&
+      this.initialLatValue !== 0 &&
+      this.initialLonValue !== 0
+    const HOME = { center: [10.4147, 53.252], zoom: 12 }
     const initialCamera = hasInitial
       ? { center: [this.initialLonValue, this.initialLatValue], zoom: 14 }
-      : (lastView ? { center: lastView.center, zoom: lastView.zoom } : HOME)
+      : lastView
+        ? { center: lastView.center, zoom: lastView.zoom }
+        : HOME
 
     const map = await MapInitializer.initialize(
       this.containerTarget,
@@ -571,10 +637,11 @@ export default class extends Controller {
     // its own theme check (`data-theme === "dark"`), which never matched our
     // actual theme name ("dawarich-dark") — so it lit up "Light" while the map
     // rendered Dark.
-    window.dawarichActiveBasemap = () => this._userBasemap || this._currentBasemap
+    window.dawarichActiveBasemap = () =>
+      this._userBasemap || this._currentBasemap
     this.observeThemeForBasemap()
-    window.dawarichSelectBasemap = (name) => this.settingsController?.selectBasemap(name)
-
+    window.dawarichSelectBasemap = (name) =>
+      this.settingsController?.selectBasemap(name)
 
     // vicquick fork: device geolocation control (locate me / start point for routing)
     try {
@@ -590,10 +657,18 @@ export default class extends Controller {
       // until the next full page load (e.g. a preset/day-range navigation),
       // which silently re-enabled tracking.
       const optedOut = () => {
-        try { return localStorage.getItem("dawarichGeolocate") === "off" } catch (_) { return false }
+        try {
+          return localStorage.getItem("dawarichGeolocate") === "off"
+        } catch (_) {
+          return false
+        }
       }
       this.geolocateControl.on("trackuserlocationstart", () => {
-        try { localStorage.setItem("dawarichGeolocate", "on") } catch (_) { /* noop */ }
+        try {
+          localStorage.setItem("dawarichGeolocate", "on")
+        } catch (_) {
+          /* noop */
+        }
       })
       this.geolocateControl.on("trackuserlocationend", () => {
         // Fires for BOTH "user clicked it off" and "map pan moved tracking to
@@ -602,11 +677,17 @@ export default class extends Controller {
           if (this.geolocateControl._watchState === "OFF") {
             localStorage.setItem("dawarichGeolocate", "off")
           }
-        } catch (_) { /* noop */ }
+        } catch (_) {
+          /* noop */
+        }
       })
       const locateNow = () => {
         if (optedOut()) return
-        try { this.geolocateControl.trigger() } catch (_) { /* noop */ }
+        try {
+          this.geolocateControl.trigger()
+        } catch (_) {
+          /* noop */
+        }
       }
       if (this.map.loaded()) locateNow()
       else this.map.once("load", locateNow)
@@ -727,7 +808,11 @@ export default class extends Controller {
     // to this shared object — a full page load re-reads everything so it
     // never mattered, but this SPA path was resurrecting layers the user
     // had just switched OFF (tracks kept drawing with every toggle dark).
-    try { Object.assign(this.settings, SettingsManager.getSettings()) } catch (_) { /* keep current */ }
+    try {
+      Object.assign(this.settings, SettingsManager.getSettings())
+    } catch (_) {
+      /* keep current */
+    }
 
     this._clearDayHighlight?.()
     this.loadMapData().then(() => {
@@ -1494,6 +1579,15 @@ export default class extends Controller {
   toggleGlobe(event) {
     return this.settingsController.toggleGlobe(event)
   }
+  updateGpsAccuracyThresholdDisplay(event) {
+    return this.settingsController.updateGpsAccuracyThresholdDisplay(event)
+  }
+  toggleTransportationExpertMode(event) {
+    return this.settingsController.toggleTransportationExpertMode(event)
+  }
+  updateTransportationThresholdDisplay(event) {
+    return this.settingsController.updateTransportationThresholdDisplay(event)
+  }
   markTransportationSettingsDirty(event) {
     return this.settingsController.markTransportationSettingsDirty(event)
   }
@@ -1665,7 +1759,11 @@ export default class extends Controller {
     const hidden = []
     document.querySelectorAll("[data-track-source]").forEach((cb) => {
       if (cb.checked) return
-      hidden.push(cb.dataset.trackSource === "tracking" ? -1 : Number(cb.dataset.trackSource))
+      hidden.push(
+        cb.dataset.trackSource === "tracking"
+          ? -1
+          : Number(cb.dataset.trackSource),
+      )
     })
     const tracksLayer = this.layerManager.getLayer("tracks")
     tracksLayer?.setSourceFilter?.(hidden)

@@ -807,10 +807,18 @@ export class SettingsController {
     // + the incidents overlay once the new basemap has rendered.
     this.map.once("idle", () => {
       this.controller.loadMapData()
-      setTimeout(() => { try { window.dawarichTraffic?.refresh?.() } catch (_) {} }, 600)
+      setTimeout(() => {
+        try {
+          window.dawarichTraffic?.refresh?.()
+        } catch (_) {}
+      }, 600)
     })
     this.controller._userBasemap = name
-    try { localStorage.setItem("dawarichBasemap", name) } catch (_) { /* private mode */ }
+    try {
+      localStorage.setItem("dawarichBasemap", name)
+    } catch (_) {
+      /* private mode */
+    }
   }
 
   /**
@@ -1207,6 +1215,95 @@ export class SettingsController {
   updateMinutesBetweenDisplay(event) {
     if (this.controller.hasMinutesBetweenValueTarget) {
       this.controller.minutesBetweenValueTarget.textContent = `${event.target.value}min`
+    }
+  }
+
+  // vicquick fork: restored 2026-08-20 — the upstream sync's resolution of
+  // this file dropped these three, while _settings_panel.html.erb kept the
+  // markup that binds their targets. Without them the transportation and GPS
+  // threshold sliders render but their live value labels never update.
+  updateGpsAccuracyThresholdDisplay(event) {
+    if (this.controller.hasGpsAccuracyThresholdValueTarget) {
+      this.controller.gpsAccuracyThresholdValueTarget.textContent = `${event.target.value}m`
+    }
+  }
+  toggleTransportationExpertMode(event) {
+    const isExpertMode = event.target.checked
+    const controller = this.controller
+
+    if (controller.hasTransportationExpertSettingsTarget) {
+      controller.transportationExpertSettingsTarget.classList.toggle(
+        "hidden",
+        !isExpertMode,
+      )
+    }
+
+    // Save the expert mode setting
+    this.settings.transportationExpertMode = isExpertMode
+    SettingsManager.updateSetting("transportationExpertMode", isExpertMode)
+  }
+  updateTransportationThresholdDisplay(event) {
+    const input = event.target
+    const name = input.name
+    const value = parseFloat(input.value)
+    const controller = this.controller
+    const isMetric = this.getDistanceUnit() === "km"
+
+    // Map input names to value target names and units
+    const displayMap = {
+      // Basic speed thresholds
+      walkingMaxSpeed: {
+        target: "walkingMaxSpeedValue",
+        unit: isMetric ? "km/h" : "mph",
+      },
+      cyclingMaxSpeed: {
+        target: "cyclingMaxSpeedValue",
+        unit: isMetric ? "km/h" : "mph",
+      },
+      drivingMaxSpeed: {
+        target: "drivingMaxSpeedValue",
+        unit: isMetric ? "km/h" : "mph",
+      },
+      flyingMinSpeed: {
+        target: "flyingMinSpeedValue",
+        unit: isMetric ? "km/h" : "mph",
+      },
+      // Expert speed thresholds
+      stationaryMaxSpeed: {
+        target: "stationaryMaxSpeedValue",
+        unit: isMetric ? "km/h" : "mph",
+      },
+      trainMinSpeed: {
+        target: "trainMinSpeedValue",
+        unit: isMetric ? "km/h" : "mph",
+      },
+      // Acceleration thresholds
+      runningVsCyclingAccel: {
+        target: "runningVsCyclingAccelValue",
+        unit: "m/s²",
+      },
+      cyclingVsDrivingAccel: {
+        target: "cyclingVsDrivingAccelValue",
+        unit: "m/s²",
+      },
+      // Time thresholds
+      minSegmentDuration: { target: "minSegmentDurationValue", unit: "sec" },
+      timeGapThreshold: { target: "timeGapThresholdValue", unit: "sec" },
+      // Distance threshold
+      minFlightDistanceKm: {
+        target: "minFlightDistanceValue",
+        unit: isMetric ? "km" : "mi",
+      },
+    }
+
+    const mapping = displayMap[name]
+    if (!mapping) return
+
+    const targetName = mapping.target
+    const hasTarget = `has${targetName.charAt(0).toUpperCase()}${targetName.slice(1)}Target`
+
+    if (controller[hasTarget]) {
+      controller[`${targetName}Target`].textContent = `${value} ${mapping.unit}`
     }
   }
 
