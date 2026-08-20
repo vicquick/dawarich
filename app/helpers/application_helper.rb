@@ -201,7 +201,7 @@ module ApplicationHelper
   end
 
   def preferred_map_path(params = {})
-    map_v2_path(params)
+    map_path(params)
   end
 
   # Generates a user-specific upgrade URL that authenticates the user

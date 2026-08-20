@@ -7,9 +7,12 @@ RSpec.describe 'Web app manifest launch behavior' do
     JSON.parse(Rails.root.join('public/site.webmanifest').read)
   end
 
-  it 'opens the Map v2 application within the site scope' do
+  # vicquick fork: the manifest launches the canonical, un-versioned /map, and
+  # sets id to match it. These expectations still described the pre-
+  # canonicalisation URLs.
+  it 'opens the map application within the site scope' do
     expect(manifest).to include(
-      'start_url' => '/map/v2',
+      'start_url' => '/map',
       'scope' => '/'
     )
   end
@@ -19,7 +22,7 @@ RSpec.describe 'Web app manifest launch behavior' do
       'name' => 'Dawarich',
       'short_name' => 'Dawarich',
       'display' => 'standalone',
-      'id' => '/'
+      'id' => '/map'
     )
     expect(manifest['icons']).to include(
       hash_including('sizes' => '192x192'),
@@ -64,7 +67,7 @@ RSpec.describe 'PWA installability', type: :request do
   describe 'map layout (the manifest start_url)' do
     before do
       sign_in create(:user)
-      get map_v2_path
+      get map_path
     end
 
     it_behaves_like 'a page with PWA meta tags'

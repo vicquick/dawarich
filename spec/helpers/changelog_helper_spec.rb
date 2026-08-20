@@ -58,17 +58,20 @@ RSpec.describe ChangelogHelper, type: :helper do
       end
     end
 
+    # vicquick fork: self-hosted short-circuits to :badge for every consent value,
+    # so the external chibichange widget and its prompt are never reachable here.
+    # Upstream returns :widget / :prompt in these two cases.
     context 'on self-hosted, signed in' do
       let(:self_hosted) { true }
 
-      it 'shows the widget when consent granted' do
+      it 'shows the plain badge even when consent is granted' do
         user = build(:user, changelog_consent: :granted)
-        expect(helper.changelog_indicator_state(user)).to eq(:widget)
+        expect(helper.changelog_indicator_state(user)).to eq(:badge)
       end
 
-      it 'prompts when consent is pending (nil)' do
+      it 'shows the plain badge when consent is pending (nil)' do
         user = build(:user, changelog_consent: nil)
-        expect(helper.changelog_indicator_state(user)).to eq(:prompt)
+        expect(helper.changelog_indicator_state(user)).to eq(:badge)
       end
 
       it 'shows the plain badge when consent declined' do

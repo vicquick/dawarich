@@ -164,15 +164,24 @@ Rails.application.routes.draw do
     end
   end
   resources :stories, only: %i[index update destroy]
+
+  # Public shared-link viewer.
+  #
+  # vicquick fork: this shares the /s/ prefix with our story pages below, so it
+  # must be declared FIRST and constrained. shared_links.id is a uuid, while a
+  # story token is SecureRandom.urlsafe_base64(16) and never carries the uuid's
+  # dash groups — so the constraint separates them with no ambiguity. Declared
+  # the other way round (as it was after the sync), the unconstrained :token
+  # route swallowed every /s/:id request and shared links 404'd.
+  UUID_RE = /\h{8}-\h{4}-\h{4}-\h{4}-\h{12}/
+  get  '/s/:id',         to: 'shared/links#show',     as: :public_shared_link,        id: UUID_RE
+  post '/s/:id/unlock',  to: 'shared/links#unlock',   as: :unlock_public_shared_link, id: UUID_RE
+
   # vicquick fork: public cinematic story page — tokened, publish-gated
   get 's/:token', to: 'public/stories#show', as: :story_public
   post 's/:token/unlock', to: 'public/stories#unlock', as: :story_unlock
   get 's/:token/photo/:sig', to: 'public/stories#photo', as: :story_photo, sig: %r{[^/]+}
   resources :tags, except: [:show]
-
-  # Public shared-link viewer
-  get  '/s/:id',         to: 'shared/links#show',     as: :public_shared_link
-  post '/s/:id/unlock',  to: 'shared/links#unlock',   as: :unlock_public_shared_link
 
   # Family management routes. Always defined — per-user access is enforced by
   # ApplicationController#ensure_family_feature_available!, since the routes are
@@ -294,16 +303,20 @@ Rails.application.routes.draw do
     # send Access-Control-Allow-Origin (memomaps ÖPNV, German state DOP WMS) —
     # MapLibre loads raster tiles with crossOrigin=anonymous, so they'd fail
     # without this. Same-origin → carries the session cookie (login-gated).
-    get '/tiles/:provider/:z/:x/:y', to: 'tile_proxy#xyz',
+    # Explicitly named: without `as:`, Rails fell back to the bare namespace
+    # name for these, so `map_path` resolved to the tile proxy (and demanded
+    # :provider/:z/:x/:y) instead of the map page. That is what forced /map to
+    # be named :map_v2 below.
+    get '/tiles/:provider/:z/:x/:y', to: 'tile_proxy#xyz', as: :tile_proxy,
         constraints: { z: /\d+/, x: /\d+/, y: /\d+/, format: /png|jpe?g/ }
-    get '/wms/:provider', to: 'tile_proxy#wms'
+    get '/wms/:provider', to: 'tile_proxy#wms', as: :wms_proxy
   end
 
   # Backward compatibility redirects
   # vicquick fork: /map renders the MapLibre map directly (no redirect) — it's
-  # the engine we're standardising on. Named :map_v2 because the :map namespace
-  # above already owns the map_* prefix; preferred_map_path() calls map_v2_path.
-  get '/map', to: 'map/maplibre#index', as: :map_v2
+  # the engine we're standardising on. Named :map, same as upstream, now that
+  # the tile-proxy routes above no longer squat on that name.
+  get '/map', to: 'map/maplibre#index', as: :map
   # PWA share target — Android "share to Dawarich" lands here (vicquick fork).
   get '/share', to: 'share#receive', as: :share_target
   get '/maps/v2', to: redirect('/map')

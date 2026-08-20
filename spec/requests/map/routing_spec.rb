@@ -23,18 +23,20 @@ RSpec.describe 'Map routing', type: :request do
   end
 
   describe 'GET /map/v1' do
+    # vicquick fork: upstream redirects /map/v1 -> /map/v2; this fork made /map
+    # canonical and un-versioned, so the target is /map.
     it 'permanently redirects to the MapLibre map' do
       get '/map/v1'
 
       expect(response).to have_http_status(:moved_permanently)
-      expect(URI.parse(response.headers['Location']).path).to eq('/map/v2')
+      expect(URI.parse(response.headers['Location']).path).to eq('/map')
     end
 
     it 'preserves the query parameters' do
       get '/map/v1?start_at=2026-08-01T00:00:00'
 
       location = URI.parse(response.headers['Location'])
-      expect(location.path).to eq('/map/v2')
+      expect(location.path).to eq('/map')
       expect(Rack::Utils.parse_query(location.query)).to eq('start_at' => '2026-08-01T00:00:00')
     end
 

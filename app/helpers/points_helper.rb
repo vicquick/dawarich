@@ -16,10 +16,10 @@ module PointsHelper
   def link_to_date(timestamp)
     datetime = Time.zone.at(timestamp)
 
-    # vicquick fork: map_v2_path, not map_path — the :map namespace owns the
+    # vicquick fork: map_path, not map_path — the :map namespace owns the
     # map_* name prefix, so our canonical /map route is named :map_v2 and a bare
     # `map_path` raises UrlGenerationError here.
-    link_to map_v2_path(start_at: datetime.beginning_of_day, end_at: datetime.end_of_day), \
+    link_to map_path(start_at: datetime.beginning_of_day, end_at: datetime.end_of_day), \
             class: 'underline hover:no-underline' do
       datetime.strftime('%d.%m.%Y')
     end

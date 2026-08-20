@@ -8,7 +8,7 @@ RSpec.describe 'Map v2 date pickers reflect the time component from the URL', ty
   before { sign_in user }
 
   it 'renders the start_at datetime-local input with the requested time, not just the date' do
-    get map_v2_path(start_at: '2026-07-11T14:30:00Z', end_at: '2026-07-11T18:45:00Z')
+    get map_path(start_at: '2026-07-11T14:30:00Z', end_at: '2026-07-11T18:45:00Z')
 
     expect(response).to have_http_status(:ok)
 

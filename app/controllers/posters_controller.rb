@@ -20,7 +20,7 @@ class PostersController < ApplicationController
         ]
       end
       format.html do
-        redirect_to map_v2_path,
+        redirect_to map_path,
                     notice: I18n.t('controllers.posters.poster_generation_started_this_takes_about_a_minute')
       end
     end
@@ -33,7 +33,7 @@ class PostersController < ApplicationController
                status: :unprocessable_content
       end
       format.html do
-        redirect_to map_v2_path, alert: I18n.t('controllers.posters.failed_to_start_poster_generation'),
+        redirect_to map_path, alert: I18n.t('controllers.posters.failed_to_start_poster_generation'),
 status: :unprocessable_content
       end
     end
@@ -47,7 +47,7 @@ status: :unprocessable_content
       format.turbo_stream do
         render turbo_stream: turbo_stream.remove(ActionView::RecordIdentifier.dom_id(poster))
       end
-      format.html { redirect_to map_v2_path, notice: I18n.t('controllers.posters.poster_deleted'), status: :see_other }
+      format.html { redirect_to map_path, notice: I18n.t('controllers.posters.poster_deleted'), status: :see_other }
     end
   end
 

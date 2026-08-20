@@ -12,24 +12,27 @@ RSpec.describe 'Navbar changelog indicator', type: :request do
     sign_in user
   end
 
+  # vicquick fork: self-hosted never loads the external chibichange widget or its
+  # consent prompt — no third-party request, no popup. changelog_indicator_state
+  # returns :badge for every consent value here, so the upstream expectations
+  # below (prompt when pending, widget when granted) do not apply to this fork.
   context 'when consent is pending (nil)' do
-    it 'shows the opt-in prompt and no chibichange script' do
+    it 'shows neither the opt-in prompt nor the chibichange script' do
       get '/settings/users'
 
       expect(response).to have_http_status(:success)
-      expect(response.body).to include('Stay up to date?')
+      expect(response.body).not_to include('Stay up to date?')
       expect(response.body).not_to include('/w/v1/loader.js')
     end
   end
 
   context 'when consent is granted' do
-    it 'mounts the chibichange widget and shows no prompt' do
+    it 'still mounts no widget on self-hosted, even once granted' do
       user.update!(changelog_consent: :granted)
 
       get '/settings/users'
 
-      expect(response.body).to include('data-controller="changelog-widget"')
-      expect(response.body).to include('/w/v1/loader.js')
+      expect(response.body).not_to include('/w/v1/loader.js')
       expect(response.body).not_to include('Stay up to date?')
     end
 
@@ -43,13 +46,12 @@ RSpec.describe 'Navbar changelog indicator', type: :request do
       expect(indicator.text).to include(APP_VERSION)
     end
 
-    it 'mounts the widget with the self-hosted slug' do
+    it 'renders no widget mount point on self-hosted' do
       user.update!(changelog_consent: :granted)
 
       get '/settings/users'
 
-      mount = Nokogiri::HTML(response.body).at_css('#chgtool-mount')
-      expect(mount['data-changelog-widget-slug-value']).to eq(CHIBICHANGE_SLUG)
+      expect(Nokogiri::HTML(response.body).at_css('#chgtool-mount')).to be_nil
     end
   end
 

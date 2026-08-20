@@ -55,6 +55,7 @@ jobs:
               --scanners vuln \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
+              --timeout 20m \
               --format sarif \
               --output /work/trivy-image.sarif \
               --exit-code 0 \

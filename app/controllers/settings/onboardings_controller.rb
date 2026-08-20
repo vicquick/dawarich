@@ -43,7 +43,7 @@ module Settings
       tz = current_user.safe_settings.timezone.presence || 'UTC'
       Time.use_zone(tz) do
         yesterday = Time.zone.today - 1
-        map_v2_path(
+        map_path(
           panel: 'timeline',
           date: yesterday.iso8601,
           start_at: yesterday.beginning_of_day.iso8601,

@@ -610,14 +610,14 @@ RSpec.describe ApplicationHelper, type: :helper do
   end
 
   describe '#preferred_map_path' do
-    it 'returns map_v2_path' do
-      expect(helper.preferred_map_path).to eq(helper.map_v2_path)
+    it 'returns map_path' do
+      expect(helper.preferred_map_path).to eq(helper.map_path)
     end
 
     it 'passes query params through' do
       params = { start_at: '2025-01-01T00:00', end_at: '2025-12-31T23:59' }
 
-      expect(helper.preferred_map_path(params)).to eq(helper.map_v2_path(params))
+      expect(helper.preferred_map_path(params)).to eq(helper.map_path(params))
     end
 
     context 'when a user still carries the legacy v1 preference' do
@@ -630,8 +630,8 @@ RSpec.describe ApplicationHelper, type: :helper do
         user.save
       end
 
-      it 'still returns map_v2_path' do
-        expect(helper.preferred_map_path).to eq(helper.map_v2_path)
+      it 'still returns map_path' do
+        expect(helper.preferred_map_path).to eq(helper.map_path)
       end
     end
   end

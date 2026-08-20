@@ -8,7 +8,7 @@ RSpec.describe 'Map V2 mobile viewport / safe-area handling', type: :request do
   before { sign_in user }
 
   describe 'GET /map/v2' do
-    before { get map_v2_path }
+    before { get map_path }
 
     it 'declares viewport-fit=cover so iOS Safari respects safe-area insets' do
       viewport = response.body.match(/<meta name="viewport" content="([^"]+)"/)&.[](1)

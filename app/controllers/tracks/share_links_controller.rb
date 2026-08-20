@@ -22,7 +22,7 @@ module Tracks
     end
 
     def fallback_path
-      map_v2_path
+      map_path
     end
 
     def build_attributes_for_new

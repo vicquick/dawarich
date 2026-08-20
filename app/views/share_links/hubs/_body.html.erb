@@ -36,7 +36,7 @@
       <%= render 'shared_links/modal_active', share: hub.live_share, paths: live_paths,
                  subtitle: t('.your_live_location_is_shared_via_a_public_link') %>
     <% else %>
-      <%= render 'shared_links/modal_live_create_form', resource: nil, paths: live_paths, close_path: map_v2_path %>
+      <%= render 'shared_links/modal_live_create_form', resource: nil, paths: live_paths, close_path: map_path %>
     <% end %>
   </div>
 
@@ -45,7 +45,7 @@
       <%= render 'shared_links/modal_active', share: hub.timeline_share, paths: timeline_paths,
                  subtitle: timeline_share_subtitle(hub.timeline_share) %>
     <% else %>
-      <%= render 'shared_links/modal_timeline_create_form', resource: nil, paths: timeline_paths, close_path: map_v2_path %>
+      <%= render 'shared_links/modal_timeline_create_form', resource: nil, paths: timeline_paths, close_path: map_path %>
     <% end %>
   </div>
 

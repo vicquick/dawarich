@@ -15,7 +15,7 @@ module ShareLinks
       if hub_request?
         render turbo_stream: render_hub_streams('shared')
       else
-        redirect_to map_v2_path
+        redirect_to map_path
       end
     end
 
