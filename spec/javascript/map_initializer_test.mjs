@@ -45,6 +45,10 @@ class FakeMap {
   }
 
   on(event, callback) {
+    // vicquick fork: the fork registers events upstream's mock never listed
+    // (e.g. "idle", for collapsing the attribution control). Create the bucket
+    // on demand rather than enumerating every event the app might use.
+    if (!this.listeners[event]) this.listeners[event] = []
     this.listeners[event].push(callback)
   }
 
@@ -57,7 +61,9 @@ class FakeMap {
   }
 
   off(event, callback) {
-    this.listeners[event] = this.listeners[event].filter((c) => c !== callback)
+    this.listeners[event] = (this.listeners[event] ?? []).filter(
+      (c) => c !== callback,
+    )
   }
 
   emit(event, payload) {
