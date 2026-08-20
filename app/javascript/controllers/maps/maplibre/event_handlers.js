@@ -21,27 +21,48 @@ function selectPlacePin(id) {
   const src = "places-source"
   if (!map || id == null || !map.getSource(src)) return
   if (_selPlaceId != null && _selPlaceId !== id) {
-    try { map.setFeatureState({ source: src, id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+    try {
+      map.setFeatureState(
+        { source: src, id: _selPlaceId },
+        { selected: false, pop: false },
+      )
+    } catch (_) {
+      /* noop */
+    }
   }
   _selPlaceId = id
   try {
     map.setFeatureState({ source: src, id }, { selected: true, pop: true })
     clearTimeout(_popTimer)
     _popTimer = setTimeout(() => {
-      try { map.setFeatureState({ source: src, id }, { pop: false }) } catch (_) { /* noop */ }
+      try {
+        map.setFeatureState({ source: src, id }, { pop: false })
+      } catch (_) {
+        /* noop */
+      }
     }, 160)
-  } catch (_) { /* noop */ }
+  } catch (_) {
+    /* noop */
+  }
 }
 
 function clearPlaceSelection() {
   const map = window.dawarichMap
   if (map && _selPlaceId != null && map.getSource("places-source")) {
-    try { map.setFeatureState({ source: "places-source", id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+    try {
+      map.setFeatureState(
+        { source: "places-source", id: _selPlaceId },
+        { selected: false, pop: false },
+      )
+    } catch (_) {
+      /* noop */
+    }
   }
   _selPlaceId = null
 }
 
-if (typeof window !== "undefined") window.dawarichClearPlaceSel = clearPlaceSelection
+if (typeof window !== "undefined")
+  window.dawarichClearPlaceSel = clearPlaceSelection
 
 // Restored from upstream during the 2026-08-20 sync: layer_manager.js imports
 // this, but our resolution of this file predated it and dropped the export.
@@ -51,7 +72,6 @@ export function shouldShowPointPopup(properties = {}) {
   if (properties.id == null) return false
   return (properties.count ?? 1) <= 1
 }
-
 
 // Restored from upstream during the 2026-08-20 sync alongside
 // shouldShowPointPopup. Format the coordinates a feature carries in its
@@ -257,8 +277,10 @@ export class EventHandlers {
     // first tag's name + colour to the sheet as a badge.
     let tags = []
     try {
-      tags = typeof p.tags === "string" ? JSON.parse(p.tags) : (p.tags || [])
-    } catch (_) { tags = [] }
+      tags = typeof p.tags === "string" ? JSON.parse(p.tags) : p.tags || []
+    } catch (_) {
+      tags = []
+    }
     // vicquick fork: a saved place opens the Google-style place sheet
     // (info + hours + Directions / category / Share), same as POIs/search.
     document.dispatchEvent(
@@ -696,7 +718,11 @@ export class EventHandlers {
     this.selectedTrackFeature = fullFeature
 
     // vicquick fork: open the elevation + speed profile for this track.
-    try { window.dawarichTrackProfile?.open(properties.id) } catch (_) { /* noop */ }
+    try {
+      window.dawarichTrackProfile?.open(properties.id)
+    } catch (_) {
+      /* noop */
+    }
 
     // Keep the on-map highlight + segment visualization — those are visual
     // feedback for the click itself, independent of the info surface.
