@@ -302,10 +302,6 @@ Rails.application.routes.draw do
   # the engine we're standardising on. Named :map_v2 because the :map namespace
   # above already owns the map_* prefix; preferred_map_path() calls map_v2_path.
   get '/map', to: 'map/maplibre#index', as: :map_v2
-  # Same path, also named :map so `map_path` resolves. Upstream names its /map
-  # route implicitly (map_path) and both its specs and points_helper.rb call it;
-  # without this alias they raise UrlGenerationError against our fork.
-  get '/map', to: 'map/maplibre#index', as: :map
   # PWA share target — Android "share to Dawarich" lands here (vicquick fork).
   get '/share', to: 'share#receive', as: :share_target
   get '/maps/v2', to: redirect('/map')
