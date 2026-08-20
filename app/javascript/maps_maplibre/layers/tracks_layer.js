@@ -10,8 +10,16 @@ import { BaseLayer } from "./base_layer"
 // colour, picked from its id so it's stable across reloads — the OrganicMaps
 // look. Hues chosen to stay legible on both the light and dark basemaps.
 const TRACK_PALETTE = [
-  "#3b82f6", "#f97316", "#a855f7", "#10b981", "#ef4444",
-  "#eab308", "#06b6d4", "#ec4899", "#84cc16", "#f43f5e",
+  "#3b82f6",
+  "#f97316",
+  "#a855f7",
+  "#10b981",
+  "#ef4444",
+  "#eab308",
+  "#06b6d4",
+  "#ec4899",
+  "#84cc16",
+  "#f43f5e",
 ]
 // NB: ["at", i, ["literal", [...]]] is rejected — MapLibre wants array<color>
 // and won't coerce a string array. A `match` over id % N is the working form.
@@ -81,7 +89,17 @@ export class TracksLayer extends BaseLayer {
           "line-color": TRACK_COLOR,
           // Bolder, fully opaque line that thickens as you zoom in — a tracked
           // hike should read like a route (OrganicMaps/Komoot), not a hairline.
-          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 12, 5, 16, 7],
+          "line-width": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            8,
+            3.5,
+            12,
+            5,
+            16,
+            7,
+          ],
           "line-opacity": 0.95,
         },
       },
@@ -156,14 +174,23 @@ export class TracksLayer extends BaseLayer {
   // imported file's id. One expression on the existing line layer.
   setSourceFilter(hiddenKeys) {
     this._hiddenSourceKeys = Array.isArray(hiddenKeys) ? hiddenKeys : []
-    try { localStorage.setItem("dawarichTrackSourceHidden", JSON.stringify(this._hiddenSourceKeys)) } catch (_) { /* noop */ }
+    try {
+      localStorage.setItem(
+        "dawarichTrackSourceHidden",
+        JSON.stringify(this._hiddenSourceKeys),
+      )
+    } catch (_) {
+      /* noop */
+    }
     this.applySourceFilter()
   }
 
   hiddenSourceKeys() {
     if (this._hiddenSourceKeys) return this._hiddenSourceKeys
     try {
-      this._hiddenSourceKeys = JSON.parse(localStorage.getItem("dawarichTrackSourceHidden") || "[]")
+      this._hiddenSourceKeys = JSON.parse(
+        localStorage.getItem("dawarichTrackSourceHidden") || "[]",
+      )
     } catch (_) {
       this._hiddenSourceKeys = []
     }
@@ -174,9 +201,16 @@ export class TracksLayer extends BaseLayer {
     if (!this.map?.getLayer(this.id)) return
     const hidden = this.hiddenSourceKeys()
     const filter = hidden.length
-      ? ["!", ["in", ["coalesce", ["get", "import_id"], -1], ["literal", hidden]]]
+      ? [
+          "!",
+          ["in", ["coalesce", ["get", "import_id"], -1], ["literal", hidden]],
+        ]
       : null
-    try { this.map.setFilter(this.id, filter) } catch (_) { /* expression rejected — show all */ }
+    try {
+      this.map.setFilter(this.id, filter)
+    } catch (_) {
+      /* expression rejected — show all */
+    }
   }
 
   /**

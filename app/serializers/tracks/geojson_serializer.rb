@@ -219,6 +219,7 @@ class Tracks::GeojsonSerializer
   def matched_path_for(track)
     return nil unless track.respond_to?(:matched_path)
     return nil if track.matched_path.nil?
+
     # Display thresholds by source: live tracking only swaps in a confident
     # match (the raw recording is real data). Imported tracks swap in at much
     # lower confidence — Takeout "originals" are Google's own straight-line

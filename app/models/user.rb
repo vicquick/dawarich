@@ -34,7 +34,7 @@ class User < ApplicationRecord
   has_many :visited_places, through: :visits, source: :place
   has_many :places,         dependent: :destroy
   has_many :tags,           dependent: :destroy
-  has_many :trips,  dependent: :destroy
+  has_many :trips, dependent: :destroy
   has_many :stories, dependent: :destroy # vicquick fork: shareable trip animations
   has_many :tracks, dependent: :destroy
   has_many :flights, dependent: :destroy

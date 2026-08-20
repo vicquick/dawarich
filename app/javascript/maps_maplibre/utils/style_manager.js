@@ -375,7 +375,15 @@ function declutterPoiLabels(style) {
     layer.layout = layer.layout || {}
     layer.layout["text-padding"] = 7
     layer.layout["symbol-sort-key"] = ["coalesce", ["get", "min_zoom"], 15]
-    layer.layout["text-size"] = ["interpolate", ["linear"], ["zoom"], 15, 9.5, 19, 13]
+    layer.layout["text-size"] = [
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      15,
+      9.5,
+      19,
+      13,
+    ]
     layer.layout["text-max-width"] = 7
   }
 }

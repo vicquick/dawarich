@@ -119,7 +119,10 @@ export class MapInitializer {
     if (showControls) {
       // vicquick fork: zoom + compass live bottom-left, clear of the top search
       // bar and the bottom-right place sheet / toast.
-      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-left")
+      map.addControl(
+        new maplibregl.NavigationControl({ showCompass: true }),
+        "bottom-left",
+      )
     }
 
     map.addControl(
@@ -132,7 +135,9 @@ export class MapInitializer {
     map.once("idle", () => {
       document
         .querySelectorAll(".maplibregl-ctrl-attrib.maplibregl-compact-show")
-        .forEach((el) => el.classList.remove("maplibregl-compact-show"))
+        .forEach((el) => {
+          el.classList.remove("maplibregl-compact-show")
+        })
     })
 
     return map

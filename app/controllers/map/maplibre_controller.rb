@@ -25,10 +25,10 @@ module Map
       # (city-level default zoom). Coords live in the PostGIS `lonlat` geometry —
       # the latitude/longitude columns are often nil — so read from there.
       last = current_user.points.where.not(lonlat: nil).order(timestamp: :desc).first
-      if last&.lonlat
-        @last_lon = last.lonlat.x
-        @last_lat = last.lonlat.y
-      end
+      return unless last&.lonlat
+
+      @last_lon = last.lonlat.x
+      @last_lat = last.lonlat.y
     end
 
     private

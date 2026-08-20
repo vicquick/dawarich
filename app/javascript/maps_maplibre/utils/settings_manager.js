@@ -342,13 +342,15 @@ export class SettingsManager {
     // resurrected on every reload after switching all layers off quickly).
     // Chaining on the previous save guarantees last-toggle-wins.
     const run = () => SettingsManager._saveToBackendNow(settings)
-    const chained = (SettingsManager._savePromise || Promise.resolve()).then(run, run)
+    const chained = (SettingsManager._savePromise || Promise.resolve()).then(
+      run,
+      run,
+    )
     SettingsManager._savePromise = chained.catch(() => null)
     return chained
   }
 
   static async _saveToBackendNow(settings) {
-
     try {
       const enabledMapLayers = SettingsManager._collapseLayerSettings(settings)
 

@@ -77,7 +77,9 @@ export default class extends Controller {
       // control now, so the shortcut opens that instead.
       if (e.key === "l" || e.key === "L") {
         e.preventDefault()
-        document.querySelector('[data-action*="layers-control#toggleOpen"]')?.click()
+        document
+          .querySelector('[data-action*="layers-control#toggleOpen"]')
+          ?.click()
         return
       }
 
@@ -173,7 +175,9 @@ export default class extends Controller {
     // layers-control's outside-click listener and close the panel in the
     // same instant it opened.
     event?.stopPropagation()
-    document.querySelector('[data-action*="layers-control#toggleOpen"]')?.click()
+    document
+      .querySelector('[data-action*="layers-control#toggleOpen"]')
+      ?.click()
   }
 
   /**
