@@ -443,6 +443,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_16_120000) do
     t.index ["year"], name: "index_stats_on_year"
   end
 
+  create_table "stories", force: :cascade do |t|
+    t.jsonb "config", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.string "password_digest"
+    t.boolean "published", default: false, null: false
+    t.string "title"
+    t.string "token", null: false
+    t.bigint "trip_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["token"], name: "index_stories_on_token", unique: true
+    t.index ["trip_id"], name: "index_stories_on_trip_id"
+    t.index ["user_id"], name: "index_stories_on_user_id"
+  end
+
   create_table "taggings", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "tag_id", null: false
@@ -508,6 +523,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_16_120000) do
     t.integer "elevation_min"
     t.datetime "end_at", null: false
     t.bigint "import_id"
+    t.datetime "matched_at"
+    t.float "matched_confidence"
+    t.geometry "matched_path", limit: {srid: 4326, type: "line_string"}
+    t.jsonb "matched_uses"
     t.geometry "original_path", limit: {srid: 4326, type: "line_string"}, null: false
     t.datetime "start_at", null: false
     t.string "tracker_id"
@@ -648,6 +667,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_16_120000) do
   add_foreign_key "posters", "users"
   add_foreign_key "shared_links", "users", on_delete: :cascade
   add_foreign_key "stats", "users"
+  add_foreign_key "stories", "trips"
+  add_foreign_key "stories", "users"
   add_foreign_key "taggings", "tags"
   add_foreign_key "tags", "users"
   add_foreign_key "track_segments", "tracks"
