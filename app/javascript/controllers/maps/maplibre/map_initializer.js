@@ -117,13 +117,23 @@ export class MapInitializer {
     }
 
     if (showControls) {
-      map.addControl(new maplibregl.NavigationControl(), "top-right")
+      // vicquick fork: zoom + compass live bottom-left, clear of the top search
+      // bar and the bottom-right place sheet / toast.
+      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-left")
     }
 
     map.addControl(
       new maplibregl.AttributionControl({ compact: true }),
       "bottom-right",
     )
+    // vicquick fork: compact mode still renders EXPANDED on first load, which
+    // puts a wide credits bar over the map. Collapse it to the (i) chip once —
+    // tapping it opens the full attribution.
+    map.once("idle", () => {
+      document
+        .querySelectorAll(".maplibregl-ctrl-attrib.maplibregl-compact-show")
+        .forEach((el) => el.classList.remove("maplibregl-compact-show"))
+    })
 
     return map
   }

@@ -143,6 +143,13 @@
           <span class="hidden sm:inline"><%= t('.poster') %></span>
         </button>
 
+        <%# vicquick fork: cinematic shareable story — creates (or opens) the
+            trip's animation page. Private until published from that page. %>
+        <%= button_to story_trip_path(@trip), method: :post,
+              class: "btn btn-primary btn-sm gap-1", form_class: "inline-block" do %>
+          🎬 <%= @trip.story ? "Open story" : "Create story" %>
+        <% end %>
+
         <%= render "trips/recalculate_button", trip: @trip %>
       </div>
 
@@ -188,11 +195,15 @@
               <% if day_photos.present? %>
                 <div class="grid grid-cols-3 gap-2 mt-3">
                   <% day_photos.each do |photo| %>
-                    <div class="aspect-square overflow-hidden rounded-lg transition-transform duration-200 hover:scale-105 hover:shadow-lg">
+                    <div class="relative aspect-square overflow-hidden rounded-lg transition-transform duration-200 hover:scale-105 hover:shadow-lg">
                       <img src="<%= photo[:url] %>"
                            loading="lazy"
                            alt=""
                            class="h-full w-full object-cover">
+                      <%# vicquick fork: videos show their poster frame — badge them so it's clear. %>
+                      <% if photo[:type].to_s.casecmp('video').zero? %>
+                        <span class="absolute bottom-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-[0.7rem] text-white backdrop-blur-sm">▶</span>
+                      <% end %>
                     </div>
                   <% end %>
                 </div>

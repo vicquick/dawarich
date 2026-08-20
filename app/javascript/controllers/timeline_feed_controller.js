@@ -23,6 +23,8 @@ export default class extends Controller {
     "mergeButton",
     "deleteForm",
     "deleteButton",
+    "customStart",
+    "customEnd",
   ]
 
   connect() {
@@ -343,7 +345,7 @@ export default class extends Controller {
     params.set("end_at", endAtLocal)
     params.set("panel", "timeline")
     params.set("date", date)
-    window.history.pushState({}, "", `/map/v2?${params.toString()}`)
+    window.history.pushState({}, "", `/map?${params.toString()}`)
 
     document.dispatchEvent(
       new CustomEvent("timeline-feed:date-navigated", {
@@ -725,6 +727,44 @@ export default class extends Controller {
 
     grid.innerHTML = cells.join("")
     calendar.classList.add("timeline-calendar--loading")
+  }
+
+  // ---------- Range presets (mobile sheet) ----------
+  // The mobile date pill opens this sheet instead of a dropdown, so the
+  // presets + custom range live here. Today is a single day → SPA through
+  // navigateToDay (map fits the day's data); multi-day ranges load fresh so
+  // every layer rebinds to the span.
+  presetToday() {
+    const now = new Date()
+    const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+    this.navigateToDay(iso)
+  }
+
+  presetWeek() {
+    this.navigateToRange(7)
+  }
+
+  presetMonth() {
+    this.navigateToRange(30)
+  }
+
+  navigateToRange(days) {
+    const end = new Date()
+    const start = new Date(end.getTime() - days * 86400000)
+    const fmt = (d, t) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}T${t}`
+    window.location.assign(
+      `/map?start_at=${fmt(start, "00:00:00")}&end_at=${fmt(end, "23:59:59")}&panel=timeline`,
+    )
+  }
+
+  applyCustomRange() {
+    const start = this.hasCustomStartTarget && this.customStartTarget.value
+    const end = this.hasCustomEndTarget && this.customEndTarget.value
+    if (!start || !end) return
+    window.location.assign(
+      `/map?start_at=${encodeURIComponent(start)}:00&end_at=${encodeURIComponent(end)}:59&panel=timeline`,
+    )
   }
 
   // ---------- Day navigation ----------

@@ -95,3 +95,4 @@ node_modules/
 
 .impeccable/
 DESIGN.md
+tmp_*.py

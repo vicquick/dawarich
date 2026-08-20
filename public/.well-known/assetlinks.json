@@ -1,11 +1,25 @@
 [
   {
-    "relation": ["delegate_permission/common.get_login_creds"],
+    "relation": [
+      "delegate_permission/common.get_login_creds"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "app.dawarich.Dawarich",
       "sha256_cert_fingerprints": [
         "5F:0B:34:52:74:93:5D:19:7E:5C:9F:5B:95:F1:33:A9:15:75:10:C5:58:9F:6C:AB:51:72:FD:70:27:D1:75:86"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "art.budinic.dawarich",
+      "sha256_cert_fingerprints": [
+        "38:B1:31:98:80:4F:DE:CD:82:E3:3C:D9:6C:4E:EA:18:C3:1B:C5:3F:46:2D:BD:75:77:80:13:51:49:E7:CB:3D"
       ]
     }
   }

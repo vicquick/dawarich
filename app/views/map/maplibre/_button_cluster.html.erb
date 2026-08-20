@@ -9,31 +9,13 @@
           aria-keyshortcuts="T"
           title="<%= t('.timeline_t') %>">
     <%= icon 'calendar-clock' %>
+    <%# vicquick fork: visit-suggestion badge hidden by default — the suggestions
+        still generate and live in the Timeline tab; this just drops the nag count. %>
   </button>
 
-  <button type="button"
-          class="map-button-cluster__btn"
-          data-action="click->map-panel#openTab"
-          aria-expanded="false"
-          data-tab="layers"
-          data-testid="map-button-layers"
-          aria-label="<%= t('.layers') %>"
-          aria-keyshortcuts="L"
-          title="<%= t('.layers_l') %>">
-    <%= icon 'layer' %>
-  </button>
-
-  <button type="button"
-          class="map-button-cluster__btn"
-          data-action="click->map-panel#openTab"
-          aria-expanded="false"
-          data-tab="search"
-          data-testid="map-button-search"
-          aria-label="<%= t('.search') %>"
-          aria-keyshortcuts="/"
-          title="<%= t('.search_2') %>">
-    <%= icon 'search' %>
-  </button>
+  <%# The Layers button is gone: layers now live in the floating Layers control
+      (bottom-right), which owns basemaps, overlays AND the data toggles. Two
+      menus for one job was the confusion. %>
 
   <button type="button"
           class="map-button-cluster__btn map-button-cluster__btn--create"
@@ -64,6 +46,19 @@
           aria-label="<%= t('.poster_studio') %>"
           title="<%= t('.poster_studio') %>">
     <%= icon 'image' %>
+  </button>
+
+  <%# Phones only: Layers lives in this cluster (the floating bottom-right
+      button hides ≤768px — Victor prefers the cluster's card styling and the
+      left edge). Desktop keeps the Google-style corner button. %>
+  <button type="button"
+          class="map-button-cluster__btn lg:hidden"
+          data-action="click->map-panel#toggleLayers"
+          data-testid="map-button-layers"
+          aria-label="Layers"
+          aria-keyshortcuts="L"
+          title="Map layers (L)">
+    <%= icon 'layer', class: 'w-5 h-5', aria: { hidden: true } %>
   </button>
 
   <div class="map-button-cluster__divider" aria-hidden="true"></div>

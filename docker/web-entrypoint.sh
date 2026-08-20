@@ -67,7 +67,11 @@ if [ -d "$ASSETS_DIST" ]; then
   echo "📦 Syncing static assets to public volume..."
   # Remove old compiled assets to prevent stale files from persisting
   rm -rf $APP_PATH/public/assets
-  cp -r "$ASSETS_DIST"/* $APP_PATH/public/
+  # vicquick fork: `/.` (not `/*`) so dot-directories like .well-known/ sync
+  # too — the `*` glob silently skipped them, which broke Digital Asset Links /
+  # app-links. Source dir is upstream's $ASSETS_DIST (was /tmp/public_assets in
+  # our fork before the 2026-08-20 sync moved it to $APP_PATH/public_dist).
+  cp -r "$ASSETS_DIST"/. $APP_PATH/public/
   echo "✅ Static assets synced!"
 else
   echo "⚠️ $ASSETS_DIST not found — static assets were NOT synced. The public volume may keep serving assets from a previous version."

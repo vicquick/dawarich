@@ -768,6 +768,51 @@ export class SettingsController {
     })
   }
 
+  // vicquick fork: apply a basemap by name (theme-following), reloading layers.
+  // Does NOT persist the setting — keeps the user's manual style preference intact.
+  async applyBasemap(styleName) {
+    const style = await getMapStyle(styleName, {
+      hiddenTileCategories: this.settings.hiddenTileCategories || [],
+      disabledPoiGroups: this.settings.disabledPoiGroups || [],
+    })
+    this.layerManager.clearLayerReferences()
+    this.map.setStyle(style)
+    this.map.once("style.load", () => {
+      this.controller.loadMapData()
+    })
+  }
+
+  // vicquick fork: user-chosen basemap from the Layers control. Vector bases
+  // (light/dark) go through getMapStyle (POI filtering); raster bases
+  // (transit/topo/aerial) are plain style files served from /public. Either
+  // way we re-add all data on style.load, so routes/places/incidents survive.
+  static RASTER_BASEMAPS = ["transit", "topo", "aerial", "mapy"]
+
+  async selectBasemap(name) {
+    let style
+    if (SettingsController.RASTER_BASEMAPS.includes(name)) {
+      const resp = await fetch(`/maps_maplibre/styles/${name}.json`)
+      if (!resp.ok) throw new Error(`basemap ${name} ${resp.status}`)
+      style = await resp.json()
+    } else {
+      style = await getMapStyle(name, {
+        hiddenTileCategories: this.settings.hiddenTileCategories || [],
+        disabledPoiGroups: this.settings.disabledPoiGroups || [],
+      })
+    }
+    this.layerManager.clearLayerReferences()
+    this.map.setStyle(style)
+    // "idle" fires reliably after EACH setStyle settles (unlike "style.load",
+    // which can no-op on a 2nd+ swap and drop the data overlays). Re-add data
+    // + the incidents overlay once the new basemap has rendered.
+    this.map.once("idle", () => {
+      this.controller.loadMapData()
+      setTimeout(() => { try { window.dawarichTraffic?.refresh?.() } catch (_) {} }, 600)
+    })
+    this.controller._userBasemap = name
+    try { localStorage.setItem("dawarichBasemap", name) } catch (_) { /* private mode */ }
+  }
+
   /**
    * Reset settings to defaults
    */

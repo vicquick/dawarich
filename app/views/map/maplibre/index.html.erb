@@ -1,7 +1,5 @@
 <% content_for :title, t('.map') %>
 
-<%= render 'shared/map/date_navigation_v2', start_at: @start_at, end_at: @end_at %>
-
 <div id="maps-maplibre-container"
      data-controller="maps--maplibre area-drawer maps--maplibre-realtime"
      data-maps--maplibre-api-key-value="<%= current_user.api_key %>"
@@ -11,6 +9,10 @@
      data-maps--maplibre-user-plan-value="<%= current_user.effective_plan %>"
      data-maps--maplibre-import-id-value="<%= @import_id %>"
      data-maps--maplibre-upgrade-url-value="<%= upgrade_url(utm_medium: 'map', utm_content: 'maplibre') %>"
+     <% if @last_lat && @last_lon %>
+     data-maps--maplibre-initial-lat-value="<%= @last_lat %>"
+     data-maps--maplibre-initial-lon-value="<%= @last_lon %>"
+     <% end %>
      data-maps--maplibre-realtime-enabled-value="true"
      data-maps--maplibre-realtime-live-mode-value="<%= current_user.safe_settings.live_map_enabled %>"
      data-family-members-features-value="<%= current_user_features.to_json %>"
@@ -34,8 +36,26 @@
     <span data-maps--maplibre-target="progressBadgeText"><%= t('.loading') %></span>
   </div>
 
+  <!-- Floating Google-style search bar (vicquick fork) -->
+  <%= render 'map/maplibre/map_search' %>
+
+  <!-- Date control — floats as a compact pill under the search bar (vicquick fork) -->
+  <div class="map-date-float">
+    <%= render 'shared/map/date_navigation_v2', start_at: @start_at, end_at: @end_at %>
+  </div>
+
   <!-- Map-edge button cluster (top-right corner) -->
   <%= render 'button_cluster' %>
+
+  <!-- Live road-incidents controller (NAPSPAN). The floating button is hidden
+       via CSS — the toggle now lives inside the Layers control as an overlay —
+       but the partial stays so the Stimulus controller (window.dawarichTraffic)
+       remains mounted. -->
+  <%= render 'map/maplibre/traffic_toggle' %>
+
+  <!-- Google-style Layers control: base maps (Light/Dark/Transit/Terrain/
+       Satellite) + overlays. Replaces the standalone incident toggle. -->
+  <%= render 'map/maplibre/layers_control' %>
 
   <!-- Timeline map-corner overlays (shown only when Timeline tab is active; CSS handles visibility) -->
   <div class="timeline-map-overlay timeline-map-overlay--scope" data-timeline-feed-target="scopeBadge">
@@ -46,6 +66,9 @@
 
   <!-- Poster studio (full-screen WYSIWYG editor) -->
   <%= render 'posters/studio' %>
+
+  <!-- Place detail bottom sheet (vicquick fork) — directions render inside it -->
+  <%= render 'map/maplibre/place_sheet' %>
 
   <!-- Replay panel -->
   <%= render 'map/maplibre/replay_panel' %>

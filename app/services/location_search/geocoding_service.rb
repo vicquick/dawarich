@@ -39,14 +39,17 @@ module LocationSearch
 
         next unless valid_coordinates?(lat, lon)
 
+        props = result.data&.dig('properties') || {}
         {
           lat: lat,
           lon: lon,
-          name: result.address&.split(',')&.first || 'Unknown location',
+          name: props['name'].presence || result.address&.split(',')&.first || 'Unknown location',
           address: result.address || '',
-          type: result.data&.dig('type') || result.data&.dig('class') || 'unknown',
+          type: props['osm_value'] || result.data&.dig('type') || result.data&.dig('class') || 'place',
+          osm_type: props['osm_type'],
+          osm_id: props['osm_id'],
           provider_data: {
-            osm_id: result.data&.dig('osm_id'),
+            osm_id: props['osm_id'] || result.data&.dig('osm_id'),
             place_rank: result.data&.dig('place_rank'),
             importance: result.data&.dig('importance')
           }

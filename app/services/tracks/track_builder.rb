@@ -67,7 +67,11 @@ module Tracks::TrackBuilder
       tracker_id: resolved_tracker_id,
       start_at: Time.zone.at(points.first.timestamp),
       end_at: Time.zone.at(points.last.timestamp),
-      original_path: build_path(points)
+      original_path: build_path(points),
+      # vicquick fork: source attribution — nil means live tracking, an id
+      # means this track came from that imported file (GPX etc.). Drives the
+      # map's track-source filter.
+      import_id: points.lazy.map(&:import_id).find(&:itself)
     )
 
     track.distance  = clamp_distance(pre_calculated_distance)
@@ -92,6 +96,9 @@ module Tracks::TrackBuilder
       if track.save
         Point.where(id: points.map(&:id)).update_all(track_id: track.id)
         detect_and_create_segments(track, points) unless skip_segment_detection
+        # vicquick fork: snap the raw line to real OSM ways (Valhalla) in the
+        # background — display prefers matched_path once it lands.
+        Tracks::MapMatchJob.perform_later(track.id)
         saved_track = track
       else
         Rails.logger.error "Failed to create track for user #{user.id}: #{track.errors.full_messages.join(', ')}"

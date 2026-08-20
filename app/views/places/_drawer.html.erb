@@ -1,5 +1,8 @@
 <% stats = place_dwell_stats(place) %>
-<div class="place-drawer" data-place-id="<%= place.id %>">
+<div class="place-drawer" data-place-id="<%= place.id %>" data-controller="bottom-sheet">
+  <%# Grabber — only visible on phones, where the drawer is a draggable bottom
+      sheet (CSS hides it on desktop). %>
+  <div class="place-drawer__grab" data-bottom-sheet-target="handle" aria-hidden="true"></div>
   <header class="place-drawer__header">
     <div class="place-drawer__icon">
       <%# Tag.icon is validated to be emoji/symbol (see Tag#icon_is_not_ascii_letter),

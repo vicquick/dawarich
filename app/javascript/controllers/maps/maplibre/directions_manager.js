@@ -1,0 +1,1081 @@
+// DirectionsManager — turn-by-turn routing on the Dawarich map via self-hosted
+// Valhalla (vicquick fork, "synthesize Dawarich + Atlas"). Self-contained:
+// click to set start/destination, draw the route, show distance/time + turns.
+import maplibregl from "maplibre-gl"
+
+export class DirectionsManager {
+  constructor(controller) {
+    this.controller = controller
+    this.active = false
+    this.start = null
+    this.end = null
+    this.waypoints = []          // intermediate stops [{lat,lon,name}] (multi-stop)
+    this.wpMarkers = []          // map markers for the waypoints (numbered)
+    this.costing = "pedestrian" // Walk by default
+    this.markers = []
+    this.boundClick = this.onMapClick.bind(this)
+    // --- live navigation state ---
+    this.watchId = null          // navigator.geolocation.watchPosition handle
+    this.userMarker = null       // blue "you are here" puck (also the route origin)
+    this.manualStart = false     // user dragged the puck → stop GPS auto-follow
+    this.lastRouteFrom = null    // origin used for the last drawn route {lat,lon}
+    this.lastRouteAt = 0         // perf timestamp of the last route compute
+    this.recomputeTimer = null
+    this.tracking = false
+    this.boundPosition = this.onPosition.bind(this)
+    // --- turn-by-turn guidance + 3D nav camera ---
+    this.routeCoords = []        // [[lon,lat], ...] full polyline
+    this.maneuvers = []          // [{instruction,type,begin_shape_index,...}]
+    this.maneuverMarker = null   // highlight at the next turn
+    this.userPanned = false      // user dragged the map → pause follow-cam
+    this.nav3d = false
+    this.flatView = false        // 2D/3D toggle during nav
+    this.destName = null
+    this.routes = []             // [Feature, ...] best first
+    this.selectedRouteIdx = 0
+    this._rerouting = false
+    this.voiceOn = (() => { try { return localStorage.getItem("dawarichNavVoice") !== "off" } catch (e) { return true } })()
+    this._spoken = {}            // dedupe spoken cues, keyed by maneuver+phase
+    this.boundPanStart = () => {
+      if (!this.tracking || this.manualStart) return
+      this.userPanned = true
+      this.showRecenter(true)
+      // Panning pauses the follow-camera so you can look ahead — but it used to
+      // pause it FOREVER (until you found the Re-center button), which reads as
+      // "the map stopped following me". Resume by itself once you stop touching
+      // it, like Google does.
+      clearTimeout(this._resumeTimer)
+      this._resumeTimer = setTimeout(() => {
+        if (!this.tracking || this.manualStart) return
+        this.userPanned = false
+        this.showRecenter(false)
+        this.updateGuidance(true)
+      }, DirectionsManager.RESUME_FOLLOW_MS)
+    }
+  }
+
+  // Recompute throttle: don't hammer Valhalla on every GPS tick.
+  static MOVE_THRESHOLD_M = 25      // ignore jitter below this
+  static RECOMPUTE_INTERVAL_MS = 4000
+  static RESUME_FOLLOW_MS = 12000   // auto-resume follow-cam after a manual pan
+
+  get map() {
+    return this.controller.map
+  }
+
+  get apiKey() {
+    return this.controller.apiKeyValue
+  }
+
+  toggle() {
+    this.active ? this.disable() : this.enable()
+    return this.active
+  }
+
+  enable() {
+    if (!this.map) return
+    this.active = true
+    this.map.getCanvas().style.cursor = "crosshair"
+    this.map.on("click", this.boundClick)
+    this.setStatus("Click the map to set a start point.")
+    this.panel()?.classList.remove("hidden")
+  }
+
+  disable() {
+    this.active = false
+    if (this.map) {
+      this.map.getCanvas().style.cursor = ""
+      this.map.off("click", this.boundClick)
+    }
+    // Second press of the toggle: fully clear route/markers and close the panel.
+    this.clear()
+    this.resetCamera()
+    this.panel()?.classList.add("hidden")
+  }
+
+  clear() {
+    this.stopTracking()
+    this.exitNav()
+    this.start = null
+    this.end = null
+    this.waypoints = []
+    this.wpMarkers.forEach((m) => m.remove())
+    this.wpMarkers = []
+    this.markers.forEach((m) => m.remove())
+    this.markers = []
+    this.userMarker = null
+    this.endMarker = null
+    this.manualStart = false
+    this.lastRouteFrom = null
+    this.lastRouteAt = 0
+    this.routeCoords = []
+    this.maneuvers = []
+    this.routes = []
+    this.selectedRouteIdx = 0
+    this._rerouting = false
+    const rc = document.getElementById("directions-routes")
+    if (rc) { rc.style.display = "none"; rc.innerHTML = "" }
+    this.removeRoute()
+    this.setStatus("Click the map to set a start point.")
+    this.setSummary("")
+    this.setTurns([])
+  }
+
+  setCosting(value) {
+    this.costing = value
+    this.renderRideLinks() // show/hide Uber+Bolt as the mode changes
+    if (value === "transit") { this.computeTransit(); return }
+    // Switching back to a road mode: restore the road preview UI.
+    if (!this.tracking) {
+      const pa = document.getElementById("directions-preview-actions")
+      if (pa) pa.style.display = "flex"
+    }
+    if (this.start && this.end) this.computeRoute(true)
+  }
+
+  // Public-transport routing via OTP2 (all-Germany GTFS).
+  async computeTransit() {
+    if (!this.start || !this.end) return
+    this.setStatus("Finding public transport…")
+    this.removeRoute()
+    // Transit has no turn-by-turn Start / ride hand-off / driving alternates.
+    ;["directions-preview-actions", "directions-routes"].forEach((id) => {
+      const e = document.getElementById(id); if (e) e.style.display = "none"
+    })
+    try {
+      const res = await fetch(`/api/v1/transit?api_key=${encodeURIComponent(this.apiKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: this.start, to: this.end }),
+      })
+      if (res.status === 503 || res.status === 404) { this.setStatus("Public transport — not available yet"); return }
+      if (!res.ok) { this.setStatus("No transit route"); return }
+      this.renderTransit(await res.json())
+    } catch (e) {
+      this.setStatus("Public transport unavailable")
+    }
+  }
+
+  renderTransit(data) {
+    this.transitItins = data.itineraries || []
+    if (!this.transitItins.length) { this.setStatus("No transit route found"); this.setTurns([]); return }
+    this.setStatus("")
+    this.setSummary(this.transitSummary(this.transitItins[0]))
+    this.selTransit = 0
+    this.renderItinList()
+    this.selectTransit(0)
+  }
+
+  transitSummary(it) {
+    const dur = Math.round((it.duration_s ?? 0) / 60)
+    const chg = it.transfers ? ` · ${it.transfers} chg` : ""
+    return `${this.fmtClock(it.start_time)}–${this.fmtClock(it.end_time)} · ${dur} min${chg}`
+  }
+
+  renderItinList() {
+    const el = document.getElementById("directions-turns")
+    if (!el) return
+    el.innerHTML = ""
+    this.transitItins.forEach((it, i) => {
+      const li = document.createElement("li")
+      li.style.cssText = `padding:10px 6px;border-bottom:1px solid rgba(128,128,128,.15);cursor:pointer;border-radius:8px;${i === this.selTransit ? "background:rgba(26,115,232,.10)" : ""}`
+      const dur = Math.round((it.duration_s ?? 0) / 60)
+      const chips = it.legs.map((l) =>
+        l.mode === "WALK"
+          ? `<span style="opacity:.6">🚶${l.duration_s ? Math.round(l.duration_s / 60) : ""}</span>`
+          : `<span style="background:${this.modeColor(l)};color:#fff;border-radius:5px;padding:1px 6px;font-size:.72rem;font-weight:700">${this.modeIcon(l.mode)} ${this.esc(l.line || "")}</span>`
+      ).join(' <span style="opacity:.35">›</span> ')
+      li.innerHTML = `<div style="font-weight:700;font-size:.9rem">${this.fmtClock(it.start_time)}–${this.fmtClock(it.end_time)} · ${dur} min${it.transfers ? " · " + it.transfers + " chg" : ""}</div>
+        <div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;align-items:center">${chips}</div>`
+      li.addEventListener("click", () => this.selectTransit(i))
+      el.appendChild(li)
+    })
+  }
+
+  selectTransit(i) {
+    if (!this.transitItins || !this.transitItins[i]) return
+    this.selTransit = i
+    this.setSummary(this.transitSummary(this.transitItins[i]))
+    this.renderItinList()
+    this.drawTransit(this.transitItins[i])
+  }
+
+  // Draw an itinerary: transit legs solid + coloured, walk legs dashed grey.
+  drawTransit(it) {
+    this.removeRoute()
+    const feats = (it.legs || []).filter((l) => l.geometry && l.geometry.length > 1).map((l) => ({
+      type: "Feature",
+      properties: { walk: l.mode === "WALK", color: l.mode === "WALK" ? "#9aa0a6" : this.modeColor(l) },
+      geometry: { type: "LineString", coordinates: l.geometry },
+    }))
+    if (!feats.length) return
+    if (this.map.setPitch) { this.map.setPitch(0); this.map.setBearing(0) }
+    this.map.addSource("directions-route", { type: "geojson", data: { type: "FeatureCollection", features: feats } })
+    // transit legs (solid, coloured) — reuse the -line id so removeRoute cleans it
+    this.map.addLayer({
+      id: "directions-route-line", type: "line", source: "directions-route",
+      filter: ["!", ["get", "walk"]],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": ["get", "color"], "line-width": 5 },
+    })
+    // walk legs (dashed grey) — reuse the -casing id
+    this.map.addLayer({
+      id: "directions-route-casing", type: "line", source: "directions-route",
+      filter: ["get", "walk"],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#9aa0a6", "line-width": 4, "line-dasharray": [1, 1.6] },
+    })
+    this.fitRoute(feats.flatMap((f) => f.geometry.coordinates))
+  }
+
+  esc(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]))
+  }
+
+  fmtClock(ms) {
+    if (!ms) return "--:--"
+    try { return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } catch (_) { return "--:--" }
+  }
+
+  modeColor(l) {
+    if (l.color) return l.color
+    return { RAIL: "#8e24aa", SUBWAY: "#3949ab", TRAM: "#00897b", BUS: "#fb8c00", FERRY: "#039be5", COACH: "#6d4c41", FUNICULAR: "#00897b", CABLE_CAR: "#00897b" }[l.mode] || "#1a73e8"
+  }
+
+  modeIcon(mode) {
+    return { RAIL: "🚆", SUBWAY: "Ⓤ", TRAM: "🚊", BUS: "🚌", FERRY: "⛴", COACH: "🚌", FUNICULAR: "🚞", CABLE_CAR: "🚠" }[mode] || "🚆"
+  }
+
+  onMapClick(e) {
+    if (!this.active) return
+    const pt = { lat: e.lngLat.lat, lon: e.lngLat.lng }
+    if (!this.start) {
+      this.start = pt
+      this.addMarker(e.lngLat, "#22c55e", "A")
+      this.setStatus("Now click a destination.")
+    } else if (!this.end) {
+      this.end = pt
+      this.addMarker(e.lngLat, "#ef4444", "B")
+      this.computeRoute(true)
+    } else {
+      // third click restarts
+      this.clear()
+      this.start = pt
+      this.addMarker(e.lngLat, "#22c55e", "A")
+      this.setStatus("Now click a destination.")
+    }
+  }
+
+  addMarker(lngLat, color, label) {
+    const el = document.createElement("div")
+    el.style.cssText = `background:${color};color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:bold 12px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4)`
+    el.textContent = label
+    const marker = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(this.map)
+    this.markers.push(marker)
+    return marker
+  }
+
+  // --- editable endpoints (Google-Maps trip planner) ---
+  setEnd(lat, lon, name) {
+    if (!this.map) return
+    this.end = { lat: Number(lat), lon: Number(lon) }
+    this.destName = name || this.destName
+    if (this.endMarker) this.endMarker.setLngLat([this.end.lon, this.end.lat])
+    else this.endMarker = this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.computeRoute(true)
+    this.renderRideLinks()
+    this._emitStops()
+  }
+
+  setStart(lat, lon, name) {
+    if (!this.map) return
+    this.start = { lat: Number(lat), lon: Number(lon) }
+    this.startName = name
+    this.manualStart = true // a chosen start shouldn't be overwritten by GPS
+    if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
+    else this.addUserMarker([this.start.lon, this.start.lat])
+    this.computeRoute(true)
+    this._emitStops()
+  }
+
+  async useMyLocation() {
+    if (!this.map) return
+    this.manualStart = false
+    this.startName = null
+    this.start = await this.currentLocation()
+    if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
+    this.computeRoute(true)
+    this._emitStops()
+  }
+
+  swapEndpoints() {
+    if (!this.start || !this.end) return
+    const s = this.start; this.start = this.end; this.end = s
+    const sn = this.startName; this.startName = this.destName; this.destName = sn
+    this.manualStart = true
+    if (this.userMarker) this.userMarker.setLngLat([this.start.lon, this.start.lat])
+    if (this.endMarker) this.endMarker.setLngLat([this.end.lon, this.end.lat])
+    this.computeRoute(true)
+    this.renderRideLinks()
+    this._emitStops()
+  }
+
+  // --- multi-stop waypoints ---
+  // Ordered [start, ...waypoints, end] with only valid points — what we route.
+  orderedStops() {
+    return [this.start, ...this.waypoints, this.end].filter((p) => p && p.lat != null && p.lon != null)
+  }
+
+  addStop(lat, lon, name) {
+    this.waypoints.push({ lat: Number(lat), lon: Number(lon), name: name || "Stop" })
+    this._syncWpMarkers(); this._emitStops()
+    if (this.orderedStops().length >= 2) this.computeRoute(true)
+  }
+
+  setStop(i, lat, lon, name) {
+    if (!this.waypoints[i]) return
+    this.waypoints[i] = { lat: Number(lat), lon: Number(lon), name: name || "Stop" }
+    this._syncWpMarkers(); this._emitStops(); this.computeRoute(true)
+  }
+
+  removeStop(i) {
+    if (!this.waypoints[i]) return
+    this.waypoints.splice(i, 1)
+    this._syncWpMarkers(); this._emitStops()
+    if (this.orderedStops().length >= 2) this.computeRoute(true)
+  }
+
+  moveStop(from, to) {
+    if (from === to || !this.waypoints[from] || to < 0 || to >= this.waypoints.length) return
+    const [x] = this.waypoints.splice(from, 1)
+    this.waypoints.splice(to, 0, x)
+    this._syncWpMarkers(); this._emitStops(); this.computeRoute(true)
+  }
+
+  _syncWpMarkers() {
+    this.wpMarkers.forEach((m) => m.remove())
+    this.wpMarkers = []
+    if (!this.map) return
+    this.waypoints.forEach((w, i) => {
+      if (w.lat == null) return
+      const el = document.createElement("div")
+      el.style.cssText = "background:#f59e0b;color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:bold 11px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.4)"
+      el.textContent = String(i + 1)
+      this.wpMarkers.push(new maplibregl.Marker({ element: el }).setLngLat([w.lon, w.lat]).addTo(this.map))
+    })
+  }
+
+  // Compact snapshot of the current route for a shareable link.
+  routeShareData() {
+    const stops = this.orderedStops()
+    if (stops.length < 2) return null
+    const names = [this.startName, ...this.waypoints.map((w) => w.name), this.destName]
+    return { c: this.costing, s: stops.map((p, i) => [Number(p.lat.toFixed(5)), Number(p.lon.toFixed(5)), names[i] || ""]) }
+  }
+
+  // Rebuild a route from a shared snapshot (start, waypoints, end + mode).
+  restoreRoute(data) {
+    if (!this.map || !data || !Array.isArray(data.s) || data.s.length < 2) return
+    this.active = true
+    this.clear()
+    this.costing = data.c || "pedestrian"
+    const s = data.s
+    const first = s[0]; const last = s[s.length - 1]
+    this.startName = first[2] || null
+    this.manualStart = true
+    this.start = { lat: Number(first[0]), lon: Number(first[1]) }
+    this.addUserMarker([this.start.lon, this.start.lat])
+    this.destName = last[2] || "Destination"
+    this.end = { lat: Number(last[0]), lon: Number(last[1]) }
+    this.endMarker = this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.waypoints = s.slice(1, -1).map((p) => ({ lat: Number(p[0]), lon: Number(p[1]), name: p[2] || "Stop" }))
+    this._syncWpMarkers()
+    this.showState("preview")
+    this.computeRoute(true)
+    this.renderRideLinks()
+    this._emitStops()
+  }
+
+  // Tell the trip planner (place_sheet) to re-render the stop rows.
+  _emitStops() {
+    document.dispatchEvent(new CustomEvent("directions:stops", { detail: {
+      start: { name: this.startName, isMe: !this.manualStart },
+      waypoints: this.waypoints.map((w) => ({ name: w.name })),
+      end: { name: this.destName },
+    } }))
+  }
+
+  // Programmatic "directions to here" — destination = given coords, start =
+  // the user's current location (falls back to map center if unavailable).
+  // The start marker stays draggable so it can be corrected.
+  // Route PREVIEW — 2D overview from current location to the place, with ETA +
+  // mode chips + ride hand-off. No live tracking until the user taps Start.
+  async preview(lat, lon, name) {
+    if (!this.map) return
+    this.active = true
+    this.clear()
+    this.costing = "pedestrian" // each new place opens in Walk
+    this.destName = name || "Destination"
+    this.startName = null
+    this.end = { lat: Number(lat), lon: Number(lon) }
+    this.endMarker = this.addMarker([this.end.lon, this.end.lat], "#ef4444", "B")
+    this.setStatus("Locating you…")
+    this.start = await this.currentLocation()
+    this.addUserMarker([this.start.lon, this.start.lat])
+    this.showState("preview")
+    this.computeRoute(true) // tracking off → 2D whole-route fit
+    this.renderRideLinks()
+    this._emitStops()
+  }
+
+  // Back-compat: older callers may still invoke routeTo.
+  routeTo(lat, lon) { return this.preview(lat, lon) }
+
+  // Preview → live 3D turn-by-turn navigation.
+  startNav() {
+    if (!this.end || !this.start) return
+    this.flatView = false
+    this._spoken = {}
+    const t = document.getElementById("directions-2d-toggle")
+    if (t) t.textContent = "⊞ 2D"
+    this.ensureVoiceButton()
+    this.enterNav()
+    this.startTracking()
+    this.showState("nav")
+    if (this.voiceOn) this.speak("Starting navigation", true)
+    this.computeRoute(true) // tracking on → 3D follow-cam + guidance
+  }
+
+  // End navigation → back to the 2D route preview (keeps the route on screen).
+  stopNav() {
+    try { window.speechSynthesis?.cancel() } catch (e) { /* noop */ }
+    this.stopTracking()
+    this.exitNav()
+    this.showState("preview")
+    this.flatView = false
+    // Instant flatten (setPitch is reliable where fitBounds' pitch option is not),
+    // then frame the whole route flat.
+    if (this.map) { this.map.setPitch(0); this.map.setBearing(0) }
+    if (this.routeCoords.length) this.fitRoute(this.routeCoords)
+    this.updateGuidance(false)
+  }
+
+  // Flip the nav camera between 3D (tilted) and flat 2D.
+  toggleDimension() {
+    this.flatView = !this.flatView
+    const btn = document.getElementById("directions-2d-toggle")
+    if (btn) btn.textContent = this.flatView ? "⊟ 3D" : "⊞ 2D"
+    if (!this.map) return
+    if (this.tracking && !this.userPanned) this.updateGuidance(true)
+    else this.map.easeTo({ pitch: this.flatView ? 0 : 58, duration: 400 })
+  }
+
+  // Show/hide the preview vs nav control groups. These are flex rows with inline
+  // display, so toggle style.display (the [hidden] attribute would lose to it).
+  showState(state) {
+    const nav = state === "nav"
+    const set = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? "flex" : "none" }
+    set("directions-preview-header", !nav)
+    set("directions-preview-actions", !nav)
+    set("directions-nav-controls", nav)
+    const trip = document.getElementById("directions-trip"); if (trip) trip.style.display = nav ? "none" : "block"
+    if (nav) { const rc = document.getElementById("directions-routes"); if (rc) rc.style.display = "none" }
+    if (!nav) set("directions-nav-banner", false)
+  }
+
+  // Build ride-hailing hand-off links (opens the provider app with the route
+  // preset). Pure deep links — no API, no data leaves beyond the two coords.
+  // Only providers that actually operate at the pickup are shown (server checks
+  // the country); both stay hidden until confirmed available.
+  async renderRideLinks() {
+    const uber = document.getElementById("ride-uber")
+    const bolt = document.getElementById("ride-bolt")
+    if (uber) uber.style.display = "none"
+    if (bolt) bolt.style.display = "none"
+    // Ride-hailing only makes sense when driving — hide for walk/bike/transit.
+    if (this.costing !== "auto") return
+    if (!this.start || !this.end) return
+    const s = this.start, e = this.end
+    const name = encodeURIComponent(this.destName || "Destination")
+    if (uber) uber.href = `https://m.uber.com/ul/?action=setPickup&pickup[latitude]=${s.lat}&pickup[longitude]=${s.lon}&dropoff[latitude]=${e.lat}&dropoff[longitude]=${e.lon}&dropoff[nickname]=${name}`
+    // Bolt app scheme (mobile, app installed). Best-effort — no public web fallback.
+    if (bolt) bolt.href = `bolt://action/rideHailing?pickup_lat=${s.lat}&pickup_lng=${s.lon}&destination_lat=${e.lat}&destination_lng=${e.lon}`
+    try {
+      const res = await fetch(`/api/v1/ride_providers?lat=${s.lat}&lon=${s.lon}&api_key=${encodeURIComponent(this.apiKey)}`)
+      if (!res.ok) return
+      const avail = (await res.json()).providers || []
+      if (uber && avail.includes("uber")) uber.style.display = ""
+      if (bolt && avail.includes("bolt")) bolt.style.display = ""
+    } catch (_) { /* leave hidden on error — only show where confirmed available */ }
+  }
+
+  // Enter navigation view: tilt to 3D, extrude buildings, watch for the user
+  // panning away (so we can offer a re-center button instead of fighting them).
+  enterNav() {
+    this.userPanned = false
+    this.add3DBuildings()
+    this.map?.on("dragstart", this.boundPanStart)
+  }
+
+  exitNav() {
+    this.map?.off("dragstart", this.boundPanStart)
+    this.remove3DBuildings()
+    if (this.maneuverMarker) { this.maneuverMarker.remove(); this.maneuverMarker = null }
+    this.showRecenter(false)
+    const bn = this.navBanner(); if (bn) bn.style.display = "none"
+    this.userPanned = false
+  }
+
+  // Extrude the basemap's "buildings" layer for a 3D city feel under nav.
+  add3DBuildings() {
+    if (!this.map || this.nav3d) return
+    try {
+      if (!this.map.getSource("protomaps")) return
+      if (this.map.getLayer("directions-buildings-3d")) return
+      const before = this.map.getLayer("buildings") ? "buildings" : undefined
+      this.map.addLayer({
+        id: "directions-buildings-3d",
+        type: "fill-extrusion",
+        source: "protomaps",
+        "source-layer": "buildings",
+        minzoom: 14,
+        paint: {
+          "fill-extrusion-color": "#7c8597",
+          "fill-extrusion-height": ["coalesce", ["get", "height"], ["get", "render_height"], 6],
+          "fill-extrusion-base": ["coalesce", ["get", "min_height"], ["get", "render_min_height"], 0],
+          "fill-extrusion-opacity": 0.55,
+        },
+      }, before)
+      this.nav3d = true
+    } catch (e) { /* basemap lacks building heights — pitch alone still reads as 3D */ }
+  }
+
+  remove3DBuildings() {
+    try { if (this.map?.getLayer("directions-buildings-3d")) this.map.removeLayer("directions-buildings-3d") } catch (_) {}
+    this.nav3d = false
+  }
+
+  recenter() {
+    this.userPanned = false
+    this.showRecenter(false)
+    this.updateGuidance(true)
+  }
+
+  // Resolve the user's position; resolve to map center on denial/timeout.
+  currentLocation() {
+    const center = () => {
+      const c = this.map.getCenter()
+      return { lat: c.lat, lon: c.lng }
+    }
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(center())
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => resolve(center()),
+        { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 },
+      )
+    })
+  }
+
+  // Live "you are here" puck — Google-style blue dot. Doubles as the route
+  // origin and follows the device as it moves (see startTracking). Draggable so
+  // the user can override the origin; dragging stops the GPS auto-follow.
+  addUserMarker(lngLat) {
+    this.ensurePuckStyle()
+    const el = document.createElement("div")
+    el.className = "dw-loc-puck"
+    el.innerHTML = `<span class="dw-loc-pulse"></span><span class="dw-loc-dot"></span>`
+    el.style.cursor = "grab"
+    const marker = new maplibregl.Marker({ element: el, draggable: true })
+      .setLngLat(lngLat)
+      .addTo(this.map)
+    marker.on("dragstart", () => { this.manualStart = true })
+    marker.on("dragend", () => {
+      const ll = marker.getLngLat()
+      this.start = { lat: ll.lat, lon: ll.lng }
+      if (this.end) this.computeRoute(true)
+    })
+    this.markers.push(marker)
+    this.userMarker = marker
+  }
+
+  // Inject the puck CSS once (pulsing halo + solid dot).
+  ensurePuckStyle() {
+    if (document.getElementById("dw-loc-puck-style")) return
+    const s = document.createElement("style")
+    s.id = "dw-loc-puck-style"
+    s.textContent = `
+      .dw-loc-puck{position:relative;width:22px;height:22px}
+      .dw-loc-dot{position:absolute;inset:4px;border-radius:50%;background:#1a73e8;
+        border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+      .dw-loc-pulse{position:absolute;inset:0;border-radius:50%;background:rgba(26,115,232,.30);
+        animation:dwLocPulse 1.8s ease-out infinite}
+      @keyframes dwLocPulse{0%{transform:scale(.6);opacity:.8}100%{transform:scale(2.2);opacity:0}}`
+    document.head.appendChild(s)
+  }
+
+  // Begin following the device location while directions are open.
+  startTracking() {
+    if (this.tracking || !navigator.geolocation) return
+    this.tracking = true
+    try {
+      this.watchId = navigator.geolocation.watchPosition(
+        this.boundPosition,
+        () => { /* permission/timeout — keep the static route */ },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+      )
+    } catch (_) {
+      this.tracking = false
+    }
+  }
+
+  stopTracking() {
+    if (this.watchId != null && navigator.geolocation) {
+      try { navigator.geolocation.clearWatch(this.watchId) } catch (_) {}
+    }
+    this.watchId = null
+    this.tracking = false
+    if (this.recomputeTimer) { clearTimeout(this.recomputeTimer); this.recomputeTimer = null }
+    if (this._resumeTimer) { clearTimeout(this._resumeTimer); this._resumeTimer = null }
+  }
+
+  // New GPS fix: move the puck and (throttled) recompute the route.
+  onPosition(pos) {
+    if (this.manualStart || !this.active) return
+    const here = { lat: pos.coords.latitude, lon: pos.coords.longitude }
+    this.start = here
+    if (this.userMarker) this.userMarker.setLngLat([here.lon, here.lat])
+    // Smoothly update the banner + follow-cam every fix; recompute the actual
+    // route only when throttled (below).
+    this.updateGuidance(true)
+    // Off-route → reroute now instead of waiting for the throttle.
+    const dev = this.deviationFromRoute(here)
+    if (dev != null && dev > 45 && !this._rerouting) {
+      this._rerouting = true
+      this.setStatus("Rerouting…")
+      Promise.resolve(this.computeRoute(false)).finally(() => { this._rerouting = false })
+    } else {
+      this.scheduleRecompute()
+    }
+  }
+
+  // Metres from the user to the nearest point on the active route (approx, by
+  // nearest polyline vertex). null when there's no route yet.
+  deviationFromRoute(here) {
+    if (!this.routeCoords.length) return null
+    const idx = this.nearestVertexIndex([here.lon, here.lat])
+    return this.havLL(this.routeCoords[idx], [here.lon, here.lat])
+  }
+
+  // Recompute only when the user has actually moved (>25 m) and at most once
+  // every few seconds — avoids spamming Valhalla on GPS jitter.
+  scheduleRecompute() {
+    if (!this.end || !this.start) return
+    if (this.lastRouteFrom) {
+      const moved = this.haversine(this.start, this.lastRouteFrom)
+      if (moved < DirectionsManager.MOVE_THRESHOLD_M) return
+    }
+    const now = (typeof performance !== "undefined" ? performance.now() : Date.now())
+    const wait = Math.max(0, DirectionsManager.RECOMPUTE_INTERVAL_MS - (now - this.lastRouteAt))
+    if (this.recomputeTimer) return // one pending recompute is enough
+    this.recomputeTimer = setTimeout(() => {
+      this.recomputeTimer = null
+      if (this.active && !this.manualStart) this.computeRoute(false)
+    }, wait)
+  }
+
+  // Metres between two {lat,lon} points.
+  haversine(a, b) {
+    const R = 6371000, toRad = (d) => (d * Math.PI) / 180
+    const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon)
+    const s = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2
+    return 2 * R * Math.asin(Math.sqrt(s))
+  }
+
+  // fit=true frames the whole route (initial open / mode change). Live
+  // recomputes pass fit=false so the camera doesn't jerk while you move.
+  async computeRoute(fit = false) {
+    this.setStatus("Routing…")
+    try {
+      const res = await fetch(`/api/v1/directions?api_key=${encodeURIComponent(this.apiKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locations: this.orderedStops(), costing: this.costing }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        this.setStatus(`No route: ${err.error || res.status}`)
+        return
+      }
+      const data = await res.json()
+      // New shape: {routes:[Feature,...]}; tolerate a bare Feature (back-compat).
+      this.routes = Array.isArray(data.routes) ? data.routes : (data.type === "Feature" ? [data] : [])
+      if (!this.routes.length) { this.setStatus("No route found"); return }
+      this.selectedRouteIdx = 0
+      // Render steps are isolated: a hiccup in one (a stale layer/source after
+      // a basemap swap, say) used to abort the whole method — which left the
+      // error text on screen AND skipped updateGuidance, so the follow-camera
+      // silently stopped for the rest of the drive. Never again.
+      const step = (name, fn) => {
+        try { fn() } catch (e) { console.error(`[Directions] ${name} failed:`, e) }
+      }
+      step("applySelectedRoute", () => this.applySelectedRoute())
+      step("drawRoutes", () => this.drawRoutes())
+      step("renderRouteChoices", () => this.renderRouteChoices())
+      this.setStatus("")
+      this.lastRouteFrom = this.start ? { ...this.start } : null
+      this.lastRouteAt = (typeof performance !== "undefined" ? performance.now() : Date.now())
+      // Camera: nav follow-cam when tracking live; whole-route fit otherwise.
+      step("camera", () => {
+        if (fit && this.tracking) this.updateGuidance(true)
+        else if (fit) { this.fitRoute(this.routeCoords); this.updateGuidance(false) }
+        else this.updateGuidance(false)
+      })
+    } catch (e) {
+      this.setStatus(`Routing failed: ${e.message}`)
+    }
+  }
+
+  // Read coords/maneuvers/summary/turns from the currently selected route.
+  applySelectedRoute() {
+    const f = this.routes[this.selectedRouteIdx]
+    if (!f) return
+    const p = f.properties || {}
+    this.routeCoords = f.geometry?.coordinates || []
+    this.maneuvers = p.maneuvers || []
+    const km = (p.distance_km ?? 0).toFixed(1)
+    const mins = Math.round((p.duration_s ?? 0) / 60)
+    const live = this.tracking && !this.manualStart ? `  <span style="color:#16a34a">● Live</span>` : ""
+    const arrive = this.arrivalClock(p.duration_s)
+    this.setSummary(`${km} km · ${mins} min${arrive}${live}`, true)
+    this.setTurns(this.maneuvers)
+  }
+
+  // "· arrive 14:32" — the live ETA Google shows. Only for a known duration.
+  arrivalClock(durationS) {
+    if (!durationS) return ""
+    const t = new Date(Date.now() + durationS * 1000)
+    const hh = String(t.getHours()).padStart(2, "0")
+    const mm = String(t.getMinutes()).padStart(2, "0")
+    return ` · <span style="color:#6b7280;font-weight:600">arrive ${hh}:${mm}</span>`
+  }
+
+  // Download the selected route as a GPX track (opens in Komoot/OsmAnd/Garmin).
+  exportGpx() {
+    const coords = this.routeCoords
+    if (!coords || coords.length < 2) return
+    const name = this.destName || "Route"
+    const pts = coords.map(([lon, lat]) => `<trkpt lat="${Number(lat).toFixed(6)}" lon="${Number(lon).toFixed(6)}"></trkpt>`).join("")
+    const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Dawarich" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>${this.esc(name)}</name><trkseg>${pts}</trkseg></trk></gpx>`
+    const blob = new Blob([gpx], { type: "application/gpx+xml" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `${name.replace(/[^\w.-]+/g, "_").slice(0, 50) || "route"}.gpx`
+    document.body.appendChild(a); a.click()
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove() }, 1000)
+  }
+
+  // Pick an alternative route (from the preview chooser) without refetching.
+  selectRoute(i) {
+    if (i < 0 || i >= this.routes.length) return
+    this.selectedRouteIdx = i
+    this.applySelectedRoute()
+    this.drawRoutes()
+    this.renderRouteChoices()
+    this.updateGuidance(false)
+    if (!this.tracking && this.routeCoords.length) this.fitRoute(this.routeCoords)
+  }
+
+  // Render the route chooser chips (only when there's more than one option).
+  renderRouteChoices() {
+    const el = document.getElementById("directions-routes")
+    if (!el) return
+    // Chooser is a preview-only affordance — not shown during active nav.
+    if (this.routes.length < 2 || this.tracking) { el.style.display = "none"; el.innerHTML = ""; return }
+    el.style.display = "flex"
+    el.innerHTML = ""
+    this.routes.forEach((f, i) => {
+      const p = f.properties || {}
+      const km = (p.distance_km ?? 0).toFixed(1)
+      const mins = Math.round((p.duration_s ?? 0) / 60)
+      const on = i === this.selectedRouteIdx
+      const btn = document.createElement("button")
+      btn.type = "button"
+      btn.textContent = `${i === 0 ? "Best" : "Alt " + i} · ${km} km · ${mins} min`
+      btn.style.cssText = `border:1px solid ${on ? "#1a73e8" : "rgba(128,128,128,.4)"};color:${on ? "#fff" : "inherit"};background:${on ? "#1a73e8" : "transparent"};border-radius:999px;padding:5px 11px;font-size:.78rem;font-weight:600;cursor:pointer`
+      btn.addEventListener("click", () => this.selectRoute(i))
+      el.appendChild(btn)
+    })
+  }
+
+  // Draw all routes: alternatives in grey underneath, selected in blue on top.
+  drawRoutes() {
+    this.removeRoute()
+    this.routes.forEach((f, i) => {
+      if (i === this.selectedRouteIdx) return
+      const id = `directions-alt-${i}`
+      this.map.addSource(id, { type: "geojson", data: f })
+      this.map.addLayer({
+        id, type: "line", source: id,
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#9aa0a6", "line-width": 5, "line-opacity": 0.85 },
+      })
+      this.map.on("click", id, () => this.selectRoute(i))
+      this.map.on("mouseenter", id, () => { this.map.getCanvas().style.cursor = "pointer" })
+      this.map.on("mouseleave", id, () => { this.map.getCanvas().style.cursor = "" })
+    })
+    const sel = this.routes[this.selectedRouteIdx]
+    if (!sel) return
+    this.map.addSource("directions-route", { type: "geojson", data: sel })
+    this.map.addLayer({
+      id: "directions-route-casing", type: "line", source: "directions-route",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#1d4ed8", "line-width": 8, "line-opacity": 0.4 },
+    })
+    this.map.addLayer({
+      id: "directions-route-line", type: "line", source: "directions-route",
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": "#3b82f6", "line-width": 4 },
+    })
+  }
+
+  removeRoute() {
+    ;["directions-route-line", "directions-route-casing"].forEach((id) => {
+      if (this.map?.getLayer(id)) this.map.removeLayer(id)
+    })
+    if (this.map?.getSource("directions-route")) this.map.removeSource("directions-route")
+    // Remove any alternate layers/sources from a previous draw.
+    const style = this.map?.getStyle?.()
+    if (style?.layers) {
+      style.layers.filter((l) => l.id.startsWith("directions-alt-")).forEach((l) => {
+        if (this.map.getLayer(l.id)) this.map.removeLayer(l.id)
+        if (this.map.getSource(l.id)) this.map.removeSource(l.id)
+      })
+    }
+  }
+
+  fitRoute(coords) {
+    if (!coords || coords.length < 2) return
+    const b = coords.reduce((acc, c) => acc.extend(c), new maplibregl.LngLatBounds(coords[0], coords[0]))
+    // Reserve the area the place sheet covers so the route fits in the VISIBLE
+    // part of the map (above the sheet), not hidden behind it.
+    const sheet = document.querySelector('[data-controller~="place-sheet"]')
+    const bottom = sheet && getComputedStyle(sheet).transform !== "none" ? sheet.offsetHeight + 24 : 60
+    // Callers flatten the camera (setPitch 0) first; fitBounds preserves pitch,
+    // so the overview comes out flat north-up.
+    this.map.fitBounds(b, { padding: { top: 80, left: 40, right: 40, bottom }, duration: 600 })
+  }
+
+  // --- UI hooks (panel rendered by _directions_panel.html.erb) ---
+  panel() { return document.getElementById("directions-panel") }
+  setStatus(t) { const el = document.getElementById("directions-status"); if (el) el.textContent = t }
+  setSummary(t, html = false) { const el = document.getElementById("directions-summary"); if (el) el[html ? "innerHTML" : "textContent"] = t }
+  setTurns(list) {
+    const el = document.getElementById("directions-turns")
+    if (!el) return
+    el.innerHTML = ""
+    list.forEach((m, i) => {
+      if (!m.instruction) return
+      const li = document.createElement("li")
+      li.className = "text-sm py-1 border-b border-base-300"
+      li.dataset.mi = i
+      const dist = m.length_km ? ` (${m.length_km.toFixed(1)} km)` : ""
+      li.textContent = m.instruction + dist
+      el.appendChild(li)
+    })
+  }
+
+  // --- live guidance: next manoeuvre banner, highlight, follow-camera ---
+  navBanner() { return document.getElementById("directions-nav-banner") }
+  showRecenter(on) {
+    const b = document.getElementById("directions-recenter")
+    if (b) b.hidden = !on
+  }
+
+  // Compute progress along the route from the current origin and refresh the
+  // next-manoeuvre banner + on-map highlight; optionally move the nav camera.
+  updateGuidance(moveCamera) {
+    if (!this.routeCoords.length || !this.maneuvers.length || !this.start) {
+      const bn = this.navBanner(); if (bn) bn.style.display = "none"
+      return
+    }
+    const here = [this.start.lon, this.start.lat]
+    const idx = this.nearestVertexIndex(here)
+    // Next manoeuvre = first one whose turn point is ahead of us on the line.
+    let next = this.maneuvers.find((m) => (m.begin_shape_index ?? 0) > idx)
+    if (!next) next = this.maneuvers[this.maneuvers.length - 1]
+    const turnIdx = Math.min(next.begin_shape_index ?? this.routeCoords.length - 1, this.routeCoords.length - 1)
+    const turnCoord = this.routeCoords[turnIdx]
+    const dist = this.alongDistance(idx, turnIdx)
+
+    // Spoken guidance (once per maneuver, at ~far then imminent distance).
+    if (this.tracking && this.voiceOn) this.voiceCue(this.maneuvers.indexOf(next), next, dist)
+
+    // Banner
+    const banner = this.navBanner()
+    if (banner && this.tracking) {
+      banner.style.display = "flex"
+      const arrow = document.getElementById("directions-nav-arrow")
+      const dEl = document.getElementById("directions-nav-dist")
+      const iEl = document.getElementById("directions-nav-instr")
+      if (arrow) arrow.textContent = this.arrowFor(next)
+      if (dEl) dEl.textContent = this.fmtDist(dist)
+      if (iEl) iEl.textContent = next.instruction || ""
+    }
+    // Bold the active step in the list
+    const list = document.getElementById("directions-turns")
+    if (list) {
+      const activeMi = String(this.maneuvers.indexOf(next))
+      list.querySelectorAll("li").forEach((li) => {
+        const on = li.dataset.mi === activeMi
+        li.style.fontWeight = on ? "700" : ""
+        li.style.color = on ? "#1a73e8" : ""
+      })
+    }
+    // On-map highlight at the next turn
+    this.highlightManeuver(turnCoord)
+
+    // Follow-camera (3D, facing travel) unless the user panned away.
+    if (moveCamera && this.tracking && !this.manualStart && !this.userPanned) {
+      const ahead = this.routeCoords[Math.min(idx + 1, this.routeCoords.length - 1)]
+      const bearing = this.bearingDeg(here, ahead)
+      this.navCamera(here, bearing)
+    }
+  }
+
+  highlightManeuver(coord) {
+    if (!coord) return
+    if (!this.maneuverMarker) {
+      const el = document.createElement("div")
+      el.style.cssText = "width:18px;height:18px;border-radius:50%;background:#fbbc04;border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"
+      this.maneuverMarker = new maplibregl.Marker({ element: el }).setLngLat(coord).addTo(this.map)
+    } else {
+      this.maneuverMarker.setLngLat(coord)
+    }
+  }
+
+  // --- voice guidance (Web Speech, on-device, no network) ---
+  // Announce each maneuver once at ~far range ("In 200 meters, turn left") and
+  // once when imminent ("Turn left"). Deduped per maneuver via this._spoken.
+  voiceCue(mi, man, dist) {
+    if (mi < 0 || !man?.instruction) return
+    if (dist <= 55 && !this._spoken[`${mi}:now`]) {
+      this._spoken[`${mi}:now`] = 1
+      this.speak(man.instruction)
+    } else if (dist > 55 && dist <= 380 && !this._spoken[`${mi}:far`]) {
+      this._spoken[`${mi}:far`] = 1
+      const step = dist >= 150 ? 50 : 10
+      this.speak(`In ${Math.round(dist / step) * step} meters, ${man.instruction}`)
+    }
+  }
+
+  speak(text, force = false) {
+    if (!text || (!force && !this.voiceOn)) return
+    try {
+      const s = window.speechSynthesis
+      if (!s) return
+      const u = new SpeechSynthesisUtterance(text)
+      u.rate = 1.05
+      u.lang = "en-US"
+      s.speak(u)
+    } catch (e) { /* noop */ }
+  }
+
+  toggleVoice() {
+    this.voiceOn = !this.voiceOn
+    try { localStorage.setItem("dawarichNavVoice", this.voiceOn ? "on" : "off") } catch (e) { /* noop */ }
+    if (!this.voiceOn) { try { window.speechSynthesis?.cancel() } catch (e) { /* noop */ } }
+    this.updateVoiceButton()
+    if (this.voiceOn) this.speak("Voice on", true)
+  }
+
+  // Inject a 🔊/🔇 toggle at the front of the nav controls row (once).
+  ensureVoiceButton() {
+    if (document.getElementById("directions-voice-btn")) { this.updateVoiceButton(); return }
+    const controls = document.getElementById("directions-nav-controls")
+    if (!controls) return
+    const b = document.createElement("button")
+    b.id = "directions-voice-btn"
+    b.type = "button"
+    b.className = "btn btn-outline btn-sm"
+    b.addEventListener("click", () => this.toggleVoice())
+    controls.insertBefore(b, controls.firstChild)
+    this.updateVoiceButton()
+  }
+
+  updateVoiceButton() {
+    const b = document.getElementById("directions-voice-btn")
+    if (!b) return
+    b.textContent = this.voiceOn ? "🔊" : "🔇"
+    b.setAttribute("aria-label", this.voiceOn ? "Mute voice guidance" : "Unmute voice guidance")
+    b.setAttribute("aria-pressed", this.voiceOn ? "true" : "false")
+  }
+
+  // Tilted camera centred on the user, facing the direction of travel, with the
+  // sheet area reserved so the puck sits in the visible map above it.
+  navCamera(center, bearing) {
+    if (!this.map) return
+    const sheet = document.querySelector('[data-controller~="place-sheet"]')
+    const bottom = sheet && getComputedStyle(sheet).transform !== "none" ? sheet.offsetHeight + 40 : 80
+    this.map.easeTo({
+      center,
+      bearing: this.flatView ? 0 : (Number.isFinite(bearing) ? bearing : this.map.getBearing()),
+      pitch: this.flatView ? 0 : 58,
+      zoom: Math.max(this.map.getZoom(), 16.5),
+      padding: { top: 140, bottom, left: 0, right: 0 },
+      duration: 900,
+    })
+  }
+
+  resetCamera() {
+    try { this.map?.easeTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 500 }) } catch (_) {}
+  }
+
+  // Index of the route vertex nearest the given [lon,lat].
+  nearestVertexIndex(lonlat) {
+    let best = 0, bestD = Infinity
+    for (let i = 0; i < this.routeCoords.length; i++) {
+      const d = this.havLL(this.routeCoords[i], lonlat)
+      if (d < bestD) { bestD = d; best = i }
+    }
+    return best
+  }
+
+  // Distance in metres along the polyline between vertex indices i and j.
+  alongDistance(i, j) {
+    let d = 0
+    for (let k = i; k < j; k++) d += this.havLL(this.routeCoords[k], this.routeCoords[k + 1])
+    return d
+  }
+
+  // Initial bearing (degrees) from a→b, both [lon,lat].
+  bearingDeg(a, b) {
+    const toRad = (x) => (x * Math.PI) / 180, toDeg = (x) => (x * 180) / Math.PI
+    const φ1 = toRad(a[1]), φ2 = toRad(b[1]), Δλ = toRad(b[0] - a[0])
+    const y = Math.sin(Δλ) * Math.cos(φ2)
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+    return (toDeg(Math.atan2(y, x)) + 360) % 360
+  }
+
+  havLL(a, b) { return this.haversine({ lon: a[0], lat: a[1] }, { lon: b[0], lat: b[1] }) }
+
+  fmtDist(m) {
+    if (m < 1000) return `${Math.max(0, Math.round(m / 10) * 10)} m`
+    return `${(m / 1000).toFixed(1)} km`
+  }
+
+  // Arrow glyph for the manoeuvre (from instruction text — robust across types).
+  arrowFor(m) {
+    const t = (m?.instruction || "").toLowerCase()
+    if (/roundabout|rotary/.test(t)) return "⟳"
+    if (/destination|arrive|arrived/.test(t)) return "📍"
+    if (/sharp left/.test(t)) return "↰"
+    if (/sharp right/.test(t)) return "↱"
+    if (/left/.test(t)) return "←"
+    if (/right/.test(t)) return "→"
+    if (/u-turn|uturn|make a u/.test(t)) return "⤺"
+    return "↑"
+  }
+}

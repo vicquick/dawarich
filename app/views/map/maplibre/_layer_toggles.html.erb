@@ -1,0 +1,350 @@
+<%# vicquick fork: the map's data layers. Extracted verbatim from the old
+    "Layers" tab of _settings_panel so there is ONE source of truth — the
+    custom Layers control renders this, and the native panel's Layers tab is
+    gone. Markup/wiring is unchanged: every toggle still binds to the same
+    `maps--maplibre` targets/actions, which keep resolving because this partial
+    still renders inside that controller's element. %>
+<div class="space-y-4">
+  <div class="layers-panel__section-title">My data</div>
+          <!-- Points Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="pointsToggle"
+                     data-action="change->maps--maplibre#togglePoints" />
+              <span class="label-text font-medium">Points</span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show individual location points</p>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Routes Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="routesToggle"
+                     data-action="change->maps--maplibre#toggleRoutes" />
+              <span class="label-text font-medium">Routes</span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show connected route lines</p>
+          </div>
+
+          <!-- Speed-Colored Routes Options (conditionally shown) -->
+          <div class="ml-14 space-y-3" data-maps--maplibre-target="routesOptions" style="display: none;">
+            <div class="form-control">
+              <label class="label cursor-pointer py-2">
+                <span class="label-text text-sm">Color by speed</span>
+                <input type="checkbox"
+                       class="toggle toggle-sm toggle-primary"
+                       data-maps--maplibre-target="speedColoredToggle"
+                       data-action="change->maps--maplibre#toggleSpeedColoredRoutes" />
+              </label>
+            </div>
+
+            <!-- Speed Color Scale Editor (shown when speed colors enabled) -->
+            <div class="hidden" data-maps--maplibre-target="speedColorScaleContainer">
+              <button type="button"
+                      class="btn btn-sm btn-outline w-full"
+                      data-action="click->maps--maplibre#openSpeedColorEditor">
+                <%= icon 'palette', class: 'h-4 w-4 mr-2' %>
+                Edit Color Gradient
+              </button>
+              <input type="hidden" data-maps--maplibre-target="speedColorScaleInput" value="" />
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Tracks Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="tracksToggle"
+                     data-action="change->maps--maplibre#toggleTracks" />
+              <span class="label-text font-medium">Tracks</span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show backend-calculated tracks</p>
+            <%# vicquick fork: filter tracks by SOURCE — live Dawarich tracking
+                vs individual imported GPX files. Not extra layers: the same
+                tracks layer, filtered. Only shown when GPX imports exist. %>
+            <% gpx_imports = current_user.imports.where(source: %w[gpx kml kmz tcx fit]).order(created_at: :desc).select(:id, :name) %>
+            <% if gpx_imports.any? %>
+              <details class="ml-14 mt-1 track-source-filter">
+                <summary class="text-xs opacity-70 cursor-pointer select-none">Filter by source</summary>
+                <div class="mt-1 space-y-1">
+                  <label class="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary"
+                           data-track-source="tracking"
+                           data-action="change->maps--maplibre#toggleTrackSource" />
+                    <span>Dawarich tracking</span>
+                  </label>
+                  <% gpx_imports.each do |imp| %>
+                    <label class="flex items-center gap-2 text-xs cursor-pointer">
+                      <input type="checkbox" checked class="checkbox checkbox-xs checkbox-primary"
+                             data-track-source="<%= imp.id %>"
+                             data-action="change->maps--maplibre#toggleTrackSource" />
+                      <span class="truncate"><%= imp.name %></span>
+                    </label>
+                  <% end %>
+                </div>
+              </details>
+            <% end %>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Visits Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="visitsToggle"
+                     data-action="change->maps--maplibre#toggleVisits" />
+              <span class="label-text font-medium">Visits</span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show detected area visits</p>
+          </div>
+
+          <!-- Visits Search (conditionally shown) -->
+          <div class="ml-14 space-y-2" data-maps--maplibre-target="visitsSearch" style="display: none;">
+            <input type="text"
+                   id="visits-search"
+                   placeholder="Filter by name..."
+                   class="input input-sm input-bordered w-full"
+                   data-action="input->maps--maplibre#searchVisits" />
+
+            <select class="select select-bordered w-full"
+                    data-action="change->maps--maplibre#filterVisits">
+              <option value="all">All Visits</option>
+              <option value="confirmed">Confirmed Only</option>
+              <option value="suggested">Suggested Only</option>
+            </select>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Places Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="placesToggle"
+                     data-action="change->maps--maplibre#togglePlaces" />
+              <span class="label-text font-medium">Places</span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show your saved places</p>
+          </div>
+
+          <!-- Places Tags (conditionally shown) -->
+          <div class="ml-14 space-y-2" data-maps--maplibre-target="placesFilters" style="display: none;">
+            <div class="form-control">
+              <label class="label cursor-pointer justify-start gap-2">
+                <input type="checkbox"
+                       class="toggle toggle-sm"
+                       data-maps--maplibre-target="enableAllPlaceTagsToggle"
+                       data-action="change->maps--maplibre#toggleAllPlaceTags">
+                <span class="label-text text-sm">Enable All Tags</span>
+              </label>
+            </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text text-sm">Filter by Tags</span>
+              </label>
+              <div class="flex flex-wrap gap-2">
+                <!-- Untagged option -->
+                <label class="cursor-pointer">
+                  <input type="checkbox"
+                         name="place_tag_ids[]"
+                         value="untagged"
+                         class="checkbox checkbox-xs hidden peer"
+                         data-action="change->maps--maplibre#filterPlacesByTags">
+                  <span class="badge badge-sm badge-outline transition-all peer-checked:scale-105"
+                        style="border-color: #94a3b8; color: #94a3b8;"
+                        data-checked-style="background-color: #94a3b8; color: white;">
+                    🏷️ Untagged
+                  </span>
+                </label>
+
+                <% current_user.tags.ordered.each do |tag| %>
+                  <label class="cursor-pointer">
+                    <input type="checkbox"
+                           name="place_tag_ids[]"
+                           value="<%= tag.id %>"
+                           class="checkbox checkbox-xs hidden peer"
+                           data-action="change->maps--maplibre#filterPlacesByTags">
+                    <span class="badge badge-sm badge-outline transition-all peer-checked:scale-105"
+                          style="border-color: <%= tag.color %>; color: <%= tag.color %>;"
+                          data-checked-style="background-color: <%= tag.color %>; color: white;">
+                      <%= tag.icon %> #<%= tag.name %>
+                    </span>
+                  </label>
+                <% end %>
+              </div>
+              <label class="label">
+                <span class="label-text-alt">Click tags to filter places</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Areas Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="areasToggle"
+                     data-action="change->maps--maplibre#toggleAreas" />
+              <span class="label-text font-medium">Areas</span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show defined areas</p>
+          </div>
+
+          <div class="divider"></div>
+
+  <div class="layers-panel__divider"></div>
+  <div class="layers-panel__section-title">Photos</div>
+          <!-- Photos Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="photosToggle"
+                     data-action="change->maps--maplibre#togglePhotos" />
+              <span class="label-text font-medium">Photos <span class="opacity-60 font-normal">· selected dates</span></span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Geotagged photos in the current date range. For every photo, use Layers → Photos.</p>
+          </div>
+
+          <div class="divider"></div>
+
+  <div class="layers-panel__divider"></div>
+  <%# Rare / heavy layers stay one tap away rather than padding the list. %>
+  <details class="layers-advanced">
+    <summary class="layers-panel__section-title layers-advanced__summary">Advanced</summary>
+    <div class="space-y-4 layers-advanced__body">
+          <!-- Anomalies Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-warning"
+                     data-maps--maplibre-target="anomaliesToggle"
+                     data-action="change->maps--maplibre#toggleAnomalies" />
+              <span class="label-text font-medium">Anomalies</span>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show filtered GPS noise points</p>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Heatmap Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="heatmapToggle"
+                     data-action="change->maps--maplibre#toggleHeatmap" />
+              <span class="label-text font-medium">Heatmap</span>
+              <%= pro_badge_tag %>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show density heatmap</p>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Hexagons Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-testid="hexagons-toggle"
+                     data-maps--maplibre-target="hexagonsToggle"
+                     data-action="change->maps--maplibre#toggleHexagons" />
+              <span class="label-text font-medium">Hexagons</span>
+              <%= pro_badge_tag %>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show point density as hexagonal cells</p>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Fog of War Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="fogToggle"
+                     data-action="change->maps--maplibre#toggleFog" />
+              <span class="label-text font-medium">Fog of War</span>
+              <%= pro_badge_tag %>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show explored areas</p>
+            <div class="flex gap-4 ml-14 mt-1">
+              <label class="label cursor-pointer gap-2 py-0">
+                <input type="radio"
+                       name="fogOfWarMode"
+                       value="points"
+                       class="radio radio-sm"
+                       <%= 'checked' if current_user.safe_settings.fog_of_war_mode == 'points' %>
+                       data-action="change->maps--maplibre#updateFogMode" />
+                <span class="label-text text-sm">Per point</span>
+              </label>
+              <label class="label cursor-pointer gap-2 py-0">
+                <input type="radio"
+                       name="fogOfWarMode"
+                       value="hexagons"
+                       class="radio radio-sm"
+                       <%= 'checked' if current_user.safe_settings.fog_of_war_mode == 'hexagons' %>
+                       data-action="change->maps--maplibre#updateFogMode" />
+                <span class="label-text text-sm">Per hexagon</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Scratch Map Layer -->
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox"
+                     class="toggle toggle-primary"
+                     data-maps--maplibre-target="scratchToggle"
+                     data-action="change->maps--maplibre#toggleScratch" />
+              <span class="label-text font-medium">Scratch Map</span>
+              <%= pro_badge_tag %>
+            </label>
+            <p class="text-sm text-base-content/60 ml-14">Show scratched countries</p>
+          </div>
+
+          <% if DawarichSettings.family_feature_enabled? %>
+            <div class="divider"></div>
+
+            <!-- Family Members Layer -->
+            <div class="form-control">
+              <label class="label cursor-pointer justify-start gap-3">
+                <input type="checkbox"
+                       class="toggle toggle-primary"
+                       data-maps--maplibre-target="familyToggle"
+                       data-action="change->maps--maplibre#toggleFamily" />
+                <span class="label-text font-medium">Family Members</span>
+              </label>
+              <p class="text-sm text-base-content/60 ml-14">Show family member locations</p>
+            </div>
+
+            <!-- Family Members List (conditionally shown) -->
+            <div class="ml-14 space-y-2" data-maps--maplibre-target="familyMembersList" style="display: none;">
+              <div class="text-xs text-base-content/60 mb-2">
+                Click to center on member
+              </div>
+              <div data-maps--maplibre-target="familyMembersContainer" class="space-y-1">
+                <!-- Family members will be dynamically inserted here -->
+              </div>
+            </div>
+          <% end %>
+    </div>
+  </details>
+</div>

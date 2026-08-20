@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title><%= @bundle[:title] %> — a journey</title>
+  <%= stylesheet_link_tag "maplibre-gl" %>
+  <%= javascript_importmap_tags "stories_player" %>
+  <style>
+    @font-face {
+      font-family: "Space Grotesk";
+      font-style: normal; font-weight: 300 700; font-display: swap;
+      src: url("/fonts/SpaceGrotesk.woff2") format("woff2-variations");
+    }
+    :root { --story-accent: #f97316; }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      background: #0b0e13; color: #e8eaed; overflow: hidden;
+    }
+    #story-map { position: fixed; inset: 0; }
+
+    #story-title-card {
+      position: fixed; inset: 0; z-index: 30; display: grid; place-items: center;
+      background: radial-gradient(ellipse at center, rgba(11,14,19,.25), rgba(11,14,19,.78));
+      text-align: center; padding: 2rem; pointer-events: none;
+      transition: opacity 1.2s ease;
+    }
+    #story-title-card.dismissed { opacity: 0; }
+    #story-title-card h1 {
+      font-size: clamp(2rem, 7vw, 4.2rem); font-weight: 700; letter-spacing: -0.02em;
+      text-shadow: 0 2px 24px rgba(0,0,0,.55);
+    }
+    #story-title-card p { margin-top: .6rem; font-size: clamp(.95rem, 3vw, 1.2rem); opacity: .85; }
+
+    #story-dock {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+      padding: .6rem .9rem calc(.9rem + env(safe-area-inset-bottom));
+      background: linear-gradient(transparent, rgba(11,14,19,.88) 30%);
+    }
+    #story-elev { width: 100%; height: 64px; display: block; }
+    .story-controls { display: flex; align-items: center; gap: .7rem; margin-top: .4rem; }
+    #btn-play {
+      width: 3rem; height: 3rem; border-radius: 50%; border: 0; cursor: pointer;
+      background: var(--story-accent); color: #fff; font-size: 1.15rem; flex: 0 0 auto;
+      display: grid; place-items: center; box-shadow: 0 4px 18px color-mix(in srgb, var(--story-accent) 40%, transparent);
+      transition: transform .15s cubic-bezier(.32,.72,0,1);
+    }
+    #btn-play:active { transform: scale(.92); }
+    #btn-play::before { content: "▶"; margin-left: 2px; }
+    #btn-play.playing::before { content: "⏸"; margin-left: 0; }
+    #story-scrub {
+      -webkit-appearance: none; appearance: none; flex: 1 1 auto; height: 4px;
+      border-radius: 2px; background: rgba(255,255,255,.25); cursor: pointer;
+    }
+    #story-scrub::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+      background: #fff; border: 2.5px solid var(--story-accent);
+    }
+    .story-btn {
+      border: 1px solid rgba(255,255,255,.25); background: transparent; color: inherit;
+      border-radius: 999px; padding: .3rem .7rem; font: 600 .8rem "Space Grotesk", sans-serif;
+      cursor: pointer; flex: 0 0 auto;
+    }
+    .story-hud {
+      display: flex; gap: 1rem; font-size: .78rem; opacity: .85; margin-top: .35rem;
+      font-variant-numeric: tabular-nums; flex-wrap: wrap;
+    }
+    .story-hud b { font-weight: 600; color: var(--story-accent); }
+
+    /* flags: MapLibre owns the marker element's inline transform, so every
+       animation lives on an inner element — the pin never leaves its coordinate */
+    .story-flag { position: relative; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+    .story-flag .cloth {
+      transform-box: fill-box; transform-origin: left center;
+      animation: flagwave 1.9s ease-in-out infinite;
+    }
+    .story-flag--end .cloth { animation-duration: 2.4s; }
+    @keyframes flagwave {
+      0%, 100% { transform: skewY(0deg) scaleX(1); }
+      30% { transform: skewY(-6deg) scaleX(.96); }
+      65% { transform: skewY(4deg) scaleX(1.02); }
+    }
+    .story-confetti {
+      position: absolute; left: 50%; top: 20%; width: 6px; height: 9px;
+      border-radius: 1px; pointer-events: none;
+      animation: confettifly 1.5s ease-out forwards;
+    }
+    @keyframes confettifly {
+      from { opacity: 1; transform: translate(0, 0) rotate(0); }
+      to { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+    }
+    .story-puck {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: var(--story-accent); border: 3px solid #fff;
+      box-shadow: 0 0 0 6px color-mix(in srgb, var(--story-accent) 25%, transparent), 0 2px 8px rgba(0,0,0,.5);
+    }
+    .story-photo {
+      width: 56px; height: 56px; border-radius: 8px; overflow: hidden;
+      border: 3px solid #fff; box-shadow: 0 4px 14px rgba(0,0,0,.45);
+      transform: scale(0) rotate(-8deg); transition: transform .5s cubic-bezier(.32,.72,0,1);
+      cursor: pointer; position: relative; background: #222;
+    }
+    .story-photo--lg { width: 84px; height: 84px; }
+    .story-photo.pop { transform: scale(1) rotate(-3deg); }
+    .story-photo:nth-child(even) { transform: scale(0) rotate(8deg); }
+    .story-photo.pop:hover { transform: scale(1.6) rotate(0); z-index: 5; }
+    .story-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .story-photo__play {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      color: #fff; font-size: 1rem; background: rgba(0,0,0,.25);
+    }
+
+    #story-lightbox {
+      position: fixed; inset: 0; z-index: 60; display: none; place-items: center;
+      background: rgba(0,0,0,.85); cursor: zoom-out; padding: 2rem;
+    }
+    #story-lightbox.open { display: grid; }
+    #story-lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; }
+
+    /* ---------- Builder drawer (owner only) ---------- */
+    #builder-fab {
+      position: fixed; top: .9rem; right: .9rem; z-index: 55;
+      width: 2.7rem; height: 2.7rem; border-radius: 50%; border: 0; cursor: pointer;
+      background: rgba(11,14,19,.85); color: #fff; font-size: 1.1rem;
+      border: 1px solid rgba(255,255,255,.2); backdrop-filter: blur(8px);
+    }
+    #builder {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 56;
+      width: min(92vw, 21rem); overflow-y: auto; overscroll-behavior: contain;
+      background: rgba(11,14,19,.94); backdrop-filter: blur(14px);
+      border-left: 1px solid rgba(255,255,255,.12);
+      padding: 1rem 1rem calc(1.2rem + env(safe-area-inset-bottom));
+      transform: translateX(105%); transition: transform .32s cubic-bezier(.32,.72,0,1);
+      font-size: .85rem;
+    }
+    #builder.open { transform: translateX(0); }
+    #builder h2 { font-size: 1rem; margin-bottom: .8rem; display: flex; justify-content: space-between; align-items: center; }
+    #builder h2 button { background: none; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; }
+    .b-section { margin-bottom: 1.1rem; }
+    .b-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; opacity: .55; margin-bottom: .4rem; }
+    .b-row { display: flex; gap: .4rem; flex-wrap: wrap; }
+    .b-chip {
+      border: 1px solid rgba(255,255,255,.22); background: transparent; color: inherit;
+      border-radius: 999px; padding: .3rem .75rem; font: 600 .78rem "Space Grotesk", sans-serif;
+      cursor: pointer;
+    }
+    .b-chip.on { background: var(--story-accent); border-color: var(--story-accent); color: #fff; }
+    .b-swatch {
+      width: 1.7rem; height: 1.7rem; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0;
+    }
+    .b-swatch.on { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+    #builder input[type="text"] {
+      width: 100%; background: rgba(255,255,255,.08); color: inherit;
+      border: 1px solid rgba(255,255,255,.18); border-radius: .5rem; padding: .45rem .6rem;
+      font: inherit;
+    }
+    .b-pub {
+      width: 100%; border: 0; border-radius: .6rem; padding: .6rem; cursor: pointer;
+      font: 700 .9rem "Space Grotesk", sans-serif; color: #fff;
+    }
+    .b-pub--publish { background: #16a34a; }
+    .b-pub--unpublish { background: #b45309; }
+    .b-note { font-size: .7rem; opacity: .55; margin-top: .35rem; line-height: 1.35; }
+    .b-file { font-size: .78rem; width: 100%; }
+    .b-link-row { display: flex; gap: .4rem; }
+    .b-link-row input { flex: 1; font-size: .72rem !important; }
+
+    /* ---------- sky / stars (day-night cycle) ---------- */
+    #story-sky { position: fixed; inset: 0; z-index: 10; pointer-events: none; transition: background 1.5s linear, box-shadow 1.5s linear; }
+    #story-stars {
+      position: fixed; inset: 0; z-index: 11; pointer-events: none; opacity: 0; transition: opacity 2s linear;
+      background-image:
+        radial-gradient(1px 1px at 12% 18%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 34% 8%, #fff, transparent),
+        radial-gradient(1px 1px at 58% 22%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 76% 12%, #fff, transparent),
+        radial-gradient(1px 1px at 89% 28%, #fff, transparent),
+        radial-gradient(1px 1px at 22% 34%, #fff, transparent),
+        radial-gradient(1.2px 1.2px at 47% 15%, #fff, transparent);
+      background-repeat: no-repeat;
+    }
+
+    /* ---------- photo slideshow ---------- */
+    #story-photos { position: fixed; z-index: 20; pointer-events: none; opacity: 0; transition: opacity .8s ease; overflow: hidden; }
+    #story-photos.active { opacity: 1; }
+    #story-photos img {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+      opacity: 0; transition: opacity 1.1s ease; transform: scale(1.04);
+    }
+    #story-photos img.show { opacity: 1; animation: kenburns 7s ease-out forwards; }
+    @keyframes kenburns { from { transform: scale(1.12); } to { transform: scale(1.0); } }
+    /* split: right panel on landscape, top panel on portrait */
+    #story-photos.mode-split { right: 0; top: 0; bottom: 0; width: 38vw; border-left: 3px solid rgba(255,255,255,.55); }
+    @media (max-aspect-ratio: 1/1) {
+      #story-photos.mode-split { left: 0; right: 0; top: 0; bottom: auto; width: auto; height: 34vh; border-left: 0; border-bottom: 3px solid rgba(255,255,255,.55); }
+    }
+    /* full: photo takes the stage, journey continues underneath */
+    #story-photos.mode-full { inset: 0; }
+    #story-photos.mode-full img.show { animation: fullfade 7s ease-in-out forwards; }
+    @keyframes fullfade { 0% { opacity: 0; } 12% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: .0; } }
+
+    /* ---------- pack-horse caravan ----------
+       .story-caravan is an INNER wrapper (marker root stays untouched for
+       MapLibre), so flip/walk transforms actually apply. Each horse gets its
+       own gait speed + phase so the four never march as clones. */
+    .story-caravan { position: relative; display: flex; gap: 2px; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); }
+    .story-caravan.flip { transform: scaleX(-1); }
+    .story-caravan .horse:nth-child(1) { --gait: .55s; --lag: 0s; }
+    .story-caravan .horse:nth-child(2) { --gait: .59s; --lag: .14s; transform: translateY(2px); }
+    .story-caravan .horse:nth-child(3) { --gait: .53s; --lag: .07s; transform: translateY(-1px); }
+    .story-caravan .horse:nth-child(4) { --gait: .57s; --lag: .21s; transform: translateY(1px); }
+    .story-caravan .leg { transform-box: fill-box; transform-origin: top center; }
+    .story-caravan .tail, .story-caravan .luggage { transform-box: fill-box; }
+    .story-caravan .tail { transform-origin: top left; }
+    .story-caravan .luggage { transform-origin: bottom center; }
+    .story-caravan.walking .leg-a { animation: legswing var(--gait) ease-in-out var(--lag) infinite; }
+    .story-caravan.walking .leg-b { animation: legswing var(--gait) ease-in-out var(--lag) infinite reverse; }
+    .story-caravan.walking .horse-body { animation: bodybob var(--gait) ease-in-out var(--lag) infinite; }
+    .story-caravan.walking .tail { animation: tailsway calc(var(--gait) * 2.6) ease-in-out var(--lag) infinite; }
+    .story-caravan.walking .luggage { animation: lugsway calc(var(--gait) * 2) ease-in-out var(--lag) infinite; }
+    @keyframes legswing { 0%,100% { transform: rotate(16deg); } 50% { transform: rotate(-16deg); } }
+    @keyframes bodybob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.4px); } }
+    @keyframes tailsway { 50% { transform: rotate(9deg); } }
+    @keyframes lugsway { 50% { transform: rotate(-2.5deg); } }
+    .story-dust {
+      position: absolute; bottom: 0; width: 7px; height: 7px; border-radius: 50%;
+      background: rgba(214, 200, 180, .5); pointer-events: none;
+      animation: dustpuff .9s ease-out forwards;
+    }
+    @keyframes dustpuff {
+      from { opacity: .65; transform: translate(0, 0) scale(.5); }
+      to { opacity: 0; transform: translate(-15px, -9px) scale(1.7); }
+    }
+
+    /* ---------- ambient scene: sun, moon, clouds, birds ---------- */
+    #story-ambient { position: fixed; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; }
+    .sky-orb { position: absolute; top: 0; left: 0; opacity: 0; will-change: transform; transition: opacity 1.5s linear; }
+    #story-sun {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: radial-gradient(circle at 42% 40%, #fff7d6, #ffd24a 55%, rgba(255,180,40,0) 72%);
+      box-shadow: 0 0 60px 22px rgba(255, 190, 60, .3);
+    }
+    #story-moon {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: radial-gradient(circle at 38% 36%, #f6f7fb, #c9cede 70%);
+      box-shadow: 0 0 34px 10px rgba(200, 210, 255, .22);
+    }
+    #story-moon::after {
+      content: ""; position: absolute; inset: 0; border-radius: 50%;
+      background:
+        radial-gradient(6px 6px at 60% 40%, rgba(120,130,160,.4), transparent 70%),
+        radial-gradient(4px 4px at 40% 66%, rgba(120,130,160,.35), transparent 70%),
+        radial-gradient(3px 3px at 70% 68%, rgba(120,130,160,.3), transparent 70%);
+    }
+    .story-cloud {
+      position: absolute; width: 220px; height: 60px; filter: blur(2px);
+      opacity: calc(.5 - var(--night, 0) * .38);
+      animation: clouddrift linear infinite; will-change: transform;
+    }
+    .story-cloud::before {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(60px 36px at 30% 66%, rgba(255,255,255,.85), transparent 70%),
+        radial-gradient(80px 44px at 55% 45%, rgba(255,255,255,.8), transparent 70%),
+        radial-gradient(55px 32px at 78% 62%, rgba(255,255,255,.75), transparent 70%);
+    }
+    @keyframes clouddrift { from { transform: translateX(-30vw); } to { transform: translateX(130vw); } }
+    .story-flock { position: absolute; display: flex; gap: 5px; animation: flyacross var(--fly, 11s) linear forwards; will-change: transform; }
+    .story-flock svg { animation: flap .5s ease-in-out infinite; filter: drop-shadow(0 0 2px rgba(255,255,255,.45)); }
+    .story-flock svg:nth-child(2) { margin-top: 7px; animation-delay: .12s; }
+    .story-flock svg:nth-child(3) { margin-top: 2px; animation-delay: .24s; }
+    .story-flock svg:nth-child(4) { margin-top: 10px; animation-delay: .06s; }
+    .story-flock svg:nth-child(5) { margin-top: 5px; animation-delay: .18s; }
+    @keyframes flyacross { from { transform: translateX(-15vw); } to { transform: translateX(115vw); } }
+    @keyframes flap { 50% { transform: scaleY(.5); } }
+
+    /* ---------- kinetic day banner ---------- */
+    #day-banner {
+      position: fixed; top: 13vh; left: 50%; z-index: 25; pointer-events: none;
+      transform: translateX(-50%); text-align: center; opacity: 0;
+    }
+    #day-banner.show { animation: bannerpop 3.4s cubic-bezier(.22, 1, .36, 1) forwards; }
+    #day-banner .db-num {
+      font-size: clamp(1.6rem, 5vw, 2.6rem); font-weight: 700; line-height: 1.1;
+      letter-spacing: -.02em; color: var(--db-color, #fff);
+      text-shadow: 0 2px 18px rgba(0,0,0,.6);
+    }
+    #day-banner .db-date { font-size: .95rem; opacity: .85; margin-top: .15rem; text-shadow: 0 1px 8px rgba(0,0,0,.7); }
+    #day-banner .db-rule { width: 3.2rem; height: 3px; margin: .45rem auto 0; border-radius: 2px; background: var(--db-color, #fff); }
+    @keyframes bannerpop {
+      0% { opacity: 0; transform: translateX(-50%) translateY(14px) scale(.92); }
+      12% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+      80% { opacity: 1; }
+      100% { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(.98); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #story-ambient, .story-dust { display: none; }
+      .story-flag .cloth, .story-caravan .leg, .story-caravan .horse-body,
+      .story-caravan .tail, .story-caravan .luggage { animation: none !important; }
+    }
+
+    /* ---------- v3: explore mode (investigate + legend) ---------- */
+    /* the compass button glows while exploring; photo panel steps aside so the
+       map is fully grabbable */
+    body.exploring #btn-explore { background: var(--story-accent); border-color: var(--story-accent); color: #fff; }
+    body.exploring #story-photos { opacity: 0 !important; pointer-events: none; }
+    body.exploring #story-ambient { opacity: .35; }
+
+    /* bottom-sheet investigate card */
+    #investigate-sheet {
+      position: fixed; left: 50%; bottom: 0; z-index: 45; width: min(30rem, 94vw);
+      transform: translate(-50%, 110%); transition: transform .34s cubic-bezier(.32,.72,0,1);
+      background: rgba(17,20,27,.96); backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,.12); border-bottom: 0;
+      border-radius: 1.1rem 1.1rem 0 0; overflow: hidden;
+      box-shadow: 0 -12px 40px rgba(0,0,0,.5);
+      margin-bottom: calc(6.5rem + env(safe-area-inset-bottom));
+    }
+    #investigate-sheet.open { transform: translate(-50%, 0); }
+    #investigate-sheet .sheet-x {
+      position: absolute; top: .5rem; right: .5rem; z-index: 2; width: 1.9rem; height: 1.9rem;
+      border-radius: 50%; border: 0; cursor: pointer; font-size: .9rem;
+      background: rgba(0,0,0,.45); color: #fff; backdrop-filter: blur(4px);
+    }
+    #investigate-sheet .sheet-photo { width: 100%; height: 9rem; object-fit: cover; display: block; }
+    #investigate-sheet .sheet-body { padding: .8rem 1rem 1rem; }
+    #investigate-sheet .sheet-day { font-weight: 700; font-size: .95rem; }
+    #investigate-sheet .sheet-date { opacity: .7; font-size: .82rem; margin-top: .1rem; }
+    #investigate-sheet .sheet-stats { display: flex; gap: 1.2rem; margin-top: .5rem; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    #investigate-sheet .sheet-stats b { color: var(--story-accent); }
+    #investigate-sheet .sheet-jump {
+      margin-top: .8rem; width: 100%; padding: .55rem; border: 0; border-radius: .6rem; cursor: pointer;
+      background: var(--story-accent); color: #fff; font: 700 .85rem "Space Grotesk", sans-serif;
+    }
+
+    /* day legend / jump panel */
+    #story-legend {
+      position: fixed; top: 0; left: 0; bottom: 0; z-index: 46; width: min(17rem, 82vw);
+      background: rgba(11,14,19,.94); backdrop-filter: blur(14px);
+      border-right: 1px solid rgba(255,255,255,.12);
+      padding: 1rem .8rem calc(1rem + env(safe-area-inset-bottom));
+      transform: translateX(-105%); transition: transform .32s cubic-bezier(.32,.72,0,1);
+      overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column;
+    }
+    #story-legend.open { transform: translateX(0); }
+    #story-legend .legend-head {
+      display: flex; justify-content: space-between; align-items: center;
+      font-weight: 700; font-size: 1rem; margin-bottom: .7rem;
+    }
+    #story-legend .legend-head button { background: none; border: 0; color: inherit; font-size: 1rem; cursor: pointer; }
+    #story-legend .legend-days { display: flex; flex-direction: column; gap: .15rem; }
+    .legend-day {
+      display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left;
+      background: none; border: 0; color: inherit; cursor: pointer;
+      padding: .45rem .4rem; border-radius: .5rem; font: inherit;
+    }
+    .legend-day:hover { background: rgba(255,255,255,.07); }
+    .legend-swatch { width: .85rem; height: .85rem; border-radius: 3px; flex: 0 0 auto; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+    .legend-label { font-size: .85rem; font-weight: 600; line-height: 1.15; display: flex; flex-direction: column; }
+    .legend-label small { font-weight: 400; opacity: .6; font-size: .72rem; }
+    #story-legend .legend-row { display: flex; align-items: center; gap: .5rem; margin-top: .9rem; font-size: .82rem; cursor: pointer; }
+    #story-legend .legend-hint { margin-top: auto; padding-top: .9rem; font-size: .72rem; opacity: .5; line-height: 1.35; }
+  </style>
+</head>
+<body>
+  <div id="story-map"></div>
+  <div id="story-sky" aria-hidden="true"></div>
+  <div id="story-stars" aria-hidden="true"></div>
+  <div id="story-ambient" aria-hidden="true">
+    <div id="story-sun" class="sky-orb"></div>
+    <div id="story-moon" class="sky-orb"></div>
+    <div class="story-cloud" style="top: 8vh; animation-duration: 150s; animation-delay: -40s"></div>
+    <div class="story-cloud" style="top: 17vh; width: 160px; animation-duration: 210s; animation-delay: -120s"></div>
+    <div class="story-cloud" style="top: 4vh; width: 280px; animation-duration: 110s; animation-delay: -15s"></div>
+  </div>
+  <div id="day-banner" aria-hidden="true">
+    <div class="db-num"></div>
+    <div class="db-date"></div>
+    <div class="db-rule"></div>
+  </div>
+
+  <div id="story-photos" aria-hidden="true">
+    <img id="slide-a" alt="">
+    <img id="slide-b" alt="">
+  </div>
+
+  <div id="story-title-card">
+    <div>
+      <h1><%= @bundle[:title] %></h1>
+      <p><%= @bundle.dig(:config, 'subtitle').presence || @bundle[:date_label] %></p>
+      <p id="hud-total" style="margin-top:1rem; font-size:.9rem; opacity:.7"></p>
+      <p style="margin-top:1.6rem; font-size:.85rem; opacity:.6">press play</p>
+    </div>
+  </div>
+
+  <% if @owner %>
+    <% if @story.password_digest.present? %>
+      <div style="position:fixed; top:.9rem; left:.9rem; z-index:55; font: 600 .7rem 'Space Grotesk', sans-serif;
+                  background:rgba(11,14,19,.85); border:1px solid rgba(255,255,255,.2); border-radius:999px;
+                  padding:.35rem .7rem; backdrop-filter: blur(8px);">
+        👁 Owner preview — visitors get the password gate
+      </div>
+    <% end %>
+    <button id="builder-fab" title="Story settings" onclick="document.getElementById('builder').classList.toggle('open')">🎬</button>
+    <aside id="builder">
+      <h2>Story builder <button onclick="document.getElementById('builder').classList.remove('open')">✕</button></h2>
+
+      <%= form_with url: story_path(@story), method: :patch, id: "builder-form" do %>
+        <div class="b-section">
+          <div class="b-label">Title</div>
+          <input type="text" name="story[title]" value="<%= @story.title %>" placeholder="<%= @story.trip.name %>">
+        </div>
+        <div class="b-section">
+          <div class="b-label">Subtitle</div>
+          <input type="text" name="story[config][subtitle]" value="<%= @story.config['subtitle'] %>" placeholder="<%= @bundle[:date_label] %>">
+        </div>
+
+        <% builder_chips = lambda do |label, key, options, current| %>
+          <div class="b-section">
+            <div class="b-label"><%= label %></div>
+            <div class="b-row">
+              <% options.each do |val, text| %>
+                <label class="b-chip <%= 'on' if current == val || (current.blank? && val == options.first[0]) %>">
+                  <input type="radio" name="story[config][<%= key %>]" value="<%= val %>"
+                         <%= 'checked' if current == val || (current.blank? && val == options.first[0]) %>
+                         hidden onchange="this.form.requestSubmit()">
+                  <%= text %>
+                </label>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+
+        <% builder_chips.call('Theme', 'theme',
+              [%w[midnight Midnight], %w[paper Paper], %w[satellite Satellite]], @story.config['theme']) %>
+        <% builder_chips.call('Camera', 'camera',
+              [%w[follow Follow], %w[drone Drone], %w[overview Overview]], @story.config['camera']) %>
+        <% builder_chips.call('Length', 'duration',
+              [%w[auto Auto], %w[45 Short], %w[90 Medium], %w[180 Long]], @story.config['duration']) %>
+        <% builder_chips.call('Line', 'line_style',
+              [%w[solid Solid], %w[glow Glow]], @story.config['line_style']) %>
+        <% builder_chips.call('Photos', 'photo_mode',
+              [%w[split Split], %w[full Full], %w[off Off]], @story.config['photo_mode']) %>
+        <% builder_chips.call('Day & night', 'day_night',
+              [%w[on On], %w[off Off]], @story.config['day_night']) %>
+        <% builder_chips.call('Elevation', 'show_elevation',
+              [%w[on On], %w[off Off]], @story.config['show_elevation']) %>
+
+        <div class="b-section">
+          <div class="b-label">Accent</div>
+          <div class="b-row">
+            <% %w[#f97316 #3b82f6 #10b981 #ec4899 #eab308 #a855f7].each do |c| %>
+              <label class="b-swatch <%= 'on' if (@story.config['accent'] || '#f97316') == c %>" style="background: <%= c %>">
+                <input type="radio" name="story[config][accent]" value="<%= c %>"
+                       <%= 'checked' if (@story.config['accent'] || '#f97316') == c %>
+                       hidden onchange="this.form.requestSubmit()">
+              </label>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+
+      <div class="b-section">
+        <div class="b-label">Soundtrack</div>
+        <%= form_with url: story_path(@story), method: :patch, multipart: true do %>
+          <input type="file" name="story[audio]" accept="audio/*" class="b-file"
+                 onchange="this.form.requestSubmit()">
+        <% end %>
+        <% if @story.audio.attached? %>
+          <div class="b-note">🎵 <%= @story.audio.filename %></div>
+          <%= form_with url: story_path(@story), method: :patch do %>
+            <%= hidden_field_tag 'story[remove_audio]', 'true' %>
+            <button type="submit" class="b-chip" style="margin-top:.3rem">Remove music</button>
+          <% end %>
+        <% end %>
+      </div>
+
+      <div class="b-section">
+        <div class="b-label">Sharing</div>
+        <%= form_with url: story_path(@story), method: :patch do %>
+          <%= hidden_field_tag 'story[published]', (!@story.published?).to_s %>
+          <button type="submit" class="b-pub <%= @story.published? ? 'b-pub--unpublish' : 'b-pub--publish' %>">
+            <%= @story.published? ? 'Unpublish' : 'Publish' %>
+          </button>
+        <% end %>
+        <div class="b-note">
+          <%= @story.published? ? '🌍 Anyone with the link can watch.' : '🔒 Private — only you see this page.' %>
+        </div>
+        <div class="b-link-row" style="margin-top:.5rem">
+          <input type="text" readonly value="<%= story_public_url(@story.token) %>" id="share-url">
+          <button type="button" class="b-chip"
+                  onclick="navigator.clipboard.writeText(document.getElementById('share-url').value).then(() => { this.textContent = '✓'; setTimeout(() => this.textContent = 'Copy', 1400) })">Copy</button>
+        </div>
+        <div class="b-label" style="margin-top:.8rem">Password</div>
+        <% if @story.password_digest.present? %>
+          <div class="b-note">🔐 Link is password-protected.</div>
+          <%= form_with url: story_path(@story), method: :patch do %>
+            <%= hidden_field_tag 'story[remove_password]', 'true' %>
+            <button type="submit" class="b-chip" style="margin-top:.3rem">Remove password</button>
+          <% end %>
+        <% else %>
+          <%= form_with url: story_path(@story), method: :patch do %>
+            <div class="b-link-row">
+              <input type="text" name="story[password]" placeholder="set a password" autocomplete="new-password">
+              <button type="submit" class="b-chip">Set</button>
+            </div>
+          <% end %>
+          <div class="b-note">Viewers must enter it once per device (Immich-style).</div>
+        <% end %>
+      </div>
+    </aside>
+  <% end %>
+
+  <div id="story-dock">
+    <canvas id="story-elev"></canvas>
+    <div class="story-controls">
+      <button id="btn-play" aria-label="Play"></button>
+      <input id="story-scrub" type="range" min="0" max="1000" step="1" value="0" aria-label="Timeline">
+      <button id="btn-explore" class="story-btn" title="Explore the map" aria-label="Explore">🧭</button>
+      <button id="btn-legend" class="story-btn" title="Days & layers" aria-label="Legend">☰</button>
+      <button id="btn-speed" class="story-btn">1×</button>
+      <button id="btn-mute" class="story-btn" hidden>🔊</button>
+    </div>
+    <div class="story-hud">
+      <span><b id="hud-dist">0 km</b></span>
+      <span><b id="hud-ele">0 m</b></span>
+      <span id="hud-date"></span>
+    </div>
+  </div>
+
+  <div id="story-lightbox"></div>
+
+  <!-- v3: bottom-sheet detail card (populated on click in explore mode) -->
+  <div id="investigate-sheet" aria-live="polite"></div>
+
+  <!-- v3: day legend / jump strip + layer toggles -->
+  <aside id="story-legend" aria-label="Days and layers">
+    <div class="legend-head">
+      <span>Journey</span>
+      <button data-legend-close aria-label="Close legend">✕</button>
+    </div>
+    <div class="legend-days"></div>
+    <label class="legend-row">
+      <input type="checkbox" id="legend-pins" checked>
+      <span>Show photo spots</span>
+    </label>
+    <div class="legend-hint">Tap a day to play from there · tap the map to inspect a spot</div>
+  </aside>
+
+  <script type="application/json" id="story-bundle"><%= raw @bundle.to_json %></script>
+</body>
+</html>

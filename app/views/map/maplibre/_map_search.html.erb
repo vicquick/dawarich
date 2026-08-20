@@ -1,0 +1,248 @@
+<%# Floating Google-Maps-style search (vicquick fork). Owns the top of the map.
+    Tapping it reveals category chips beneath it (replacing the old always-on
+    discovery sheet); typing queries self-hosted Photon. Selecting a result or
+    category opens results, then the place detail sheet. Self-contained. %>
+<div data-controller="map-search"
+     data-map-search-api-key-value="<%= current_user.api_key %>"
+     class="map-search">
+  <div class="map-search__bar">
+    <span class="map-search__icon" aria-hidden="true"><%= icon 'search' %></span>
+    <input type="text"
+           data-map-search-target="input"
+           data-action="input->map-search#onInput keydown->map-search#onKeydown focus->map-search#onFocus"
+           class="map-search__input"
+           placeholder="Search here"
+           autocomplete="off"
+           aria-label="Search places" />
+    <button type="button"
+            data-map-search-target="clear"
+            data-action="click->map-search#clear"
+            class="map-search__clear"
+            hidden aria-label="Clear search">✕</button>
+  </div>
+
+  <div data-map-search-target="panel" class="map-search__panel" hidden>
+    <div data-map-search-target="quick" class="map-search__quick" hidden></div>
+    <div data-map-search-target="chips" class="map-search__chips">
+      <button type="button" class="map-search__chip map-search__chip--toggle" data-action="click->map-search#toggleOpenNow" aria-pressed="false">🟢 Open now</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="restaurant">🍴 Restaurants</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="cafe">☕ Cafés</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="bar">🍺 Bars</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="fast_food">🍔 Fast food</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="supermarket">🛒 Groceries</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="fuel">⛽ Fuel</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="charging">🔌 EV</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="atm">🏧 ATMs</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="pharmacy">💊 Pharmacy</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="hotel">🛏️ Hotels</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="parking">🅿️ Parking</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="park">🌳 Parks</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="hospital">🏥 Health</button>
+      <button type="button" class="map-search__chip" data-action="click->map-search#category" data-category="attraction">📸 Sights</button>
+    </div>
+    <ul data-map-search-target="results" class="map-search__results" hidden></ul>
+  </div>
+
+  <button type="button" data-map-search-target="searchArea" class="map-search__area" hidden
+          data-action="click->map-search#searchThisArea">
+    <span class="map-search__area-icon">⟳</span> Search this area
+  </button>
+</div>
+
+<style>
+  .map-search {
+    position: absolute;
+    top: max(0.75rem, env(safe-area-inset-top));
+    left: 0.75rem;
+    right: 0.75rem;
+    margin: 0 auto;
+    max-width: 30rem;
+    z-index: 560;
+    font: inherit;
+  }
+  .map-search__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 3rem;
+    padding: 0 0.5rem 0 0.9rem;
+    background: oklch(var(--b1));
+    color: oklch(var(--bc));
+    border-radius: 1.6rem;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 16%, transparent);
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.30);
+  }
+  /* Subtle neutral emphasis on focus (no blue). */
+  .map-search__bar:focus-within {
+    border-color: color-mix(in oklch, oklch(var(--bc)) 32%, transparent);
+    box-shadow: 0 3px 18px rgba(0, 0, 0, 0.34);
+  }
+  .map-search__icon { display: flex; opacity: 0.55; }
+  .map-search__icon svg { width: 1.2rem; height: 1.2rem; }
+  .map-search__input {
+    flex: 1 1 auto; min-width: 0;
+    border: 0; background: transparent; color: inherit;
+    font-size: 1rem; outline: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Kill the @tailwindcss/forms blue focus ring (a box-shadow, not an outline). */
+  .map-search__input:focus,
+  .map-search__input:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-color: transparent !important;
+  }
+  .map-search__clear {
+    flex: 0 0 auto; width: 2rem; height: 2rem;
+    border: 0; border-radius: 50%; background: transparent; color: inherit;
+    opacity: 0.55; cursor: pointer; font-size: 0.9rem;
+  }
+  .map-search__clear:hover { background: rgba(128, 128, 128, 0.15); opacity: 0.9; }
+
+  .map-search__panel {
+    margin-top: 0.5rem;
+    background: oklch(var(--b1));
+    color: oklch(var(--bc));
+    border-radius: 1rem;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    overflow: hidden;
+    animation: mapSearchIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes mapSearchIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) { .map-search__panel { animation: none; } }
+
+  /* Empty-state: Home/Work shortcuts + recent searches */
+  .map-search__quick { padding: 0.3rem; border-bottom: 1px solid rgba(128, 128, 128, 0.14); }
+  .map-search__quick-row {
+    display: flex; align-items: center; gap: 0.7rem;
+    width: 100%; padding: 0.6rem 0.7rem;
+    border: 0; border-radius: 0.7rem;
+    background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit;
+  }
+  .map-search__quick-row:hover { background: rgba(128, 128, 128, 0.12); }
+  .map-search__row-dot--ghost { background: rgba(128, 128, 128, 0.10); opacity: 0.75; }
+  .map-search__recent-del {
+    flex: 0 0 auto; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0.4; font-size: 0.8rem;
+  }
+  .map-search__recent-del:hover { opacity: 0.85; background: rgba(128, 128, 128, 0.16); }
+
+  /* Loading row + spinner */
+  .map-search__loading {
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.85rem 0.9rem; opacity: 0.7; font-size: 0.9rem;
+  }
+  .map-search__spinner {
+    width: 1rem; height: 1rem; border-radius: 50%;
+    border: 2px solid rgba(128, 128, 128, 0.3); border-top-color: oklch(var(--bc));
+    animation: mapSearchSpin 0.7s linear infinite;
+  }
+  @keyframes mapSearchSpin { to { transform: rotate(360deg); } }
+  .map-search__row-name b { font-weight: 700; }
+  .map-search__chips {
+    display: flex; gap: 0.45rem;
+    padding: 0.6rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .map-search__chips::-webkit-scrollbar { display: none; }
+  .map-search__chip {
+    flex: 0 0 auto;
+    border: 1px solid rgba(128, 128, 128, 0.25);
+    border-radius: 1.1rem;
+    padding: 0.35rem 0.8rem;
+    background: transparent; color: inherit;
+    font-size: 0.85rem; white-space: nowrap; cursor: pointer;
+  }
+  .map-search__chip:hover, .map-search__chip[aria-pressed="true"] {
+    background: rgba(128, 128, 128, 0.14);
+  }
+  .map-search__results {
+    margin: 0; padding: 0.3rem; list-style: none;
+    max-height: 56vh; overflow: auto;
+    border-top: 1px solid rgba(128, 128, 128, 0.14);
+  }
+  .map-search__row {
+    display: flex; align-items: center; gap: 0.7rem;
+    width: 100%; padding: 0.65rem 0.7rem;
+    border: 0; border-radius: 0.7rem;
+    background: transparent; color: inherit;
+    text-align: left; cursor: pointer; font: inherit;
+  }
+  .map-search__row:hover, .map-search__row[aria-selected="true"] { background: rgba(128, 128, 128, 0.12); }
+  .map-search__row-dot {
+    flex: 0 0 auto; width: 1.9rem; height: 1.9rem;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: rgba(128, 128, 128, 0.14); font-size: 0.95rem;
+  }
+  .map-search__row-text { min-width: 0; flex: 1 1 auto; }
+  .map-search__row-name { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .map-search__row-sub { display: block; font-size: 0.78rem; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .map-search__row-dist { flex: 0 0 auto; font-size: 0.75rem; opacity: 0.55; white-space: nowrap; }
+  .map-search__empty { padding: 0.8rem; opacity: 0.6; font-size: 0.9rem; }
+
+  /* Result-set header (e.g. "✨ Nearby · bed linen") — tells you what matched. */
+  .map-search__head {
+    padding: 0.55rem 0.85rem 0.4rem;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    opacity: 0.55;
+  }
+  /* "Search nearby for X" affordance row — turns any text into a content search. */
+  .map-search__row--action .map-search__row-dot {
+    background: color-mix(in oklch, #1a73e8 16%, transparent); color: #1a73e8;
+  }
+  .map-search__row--action .map-search__row-name { font-weight: 600; }
+  .map-search__row-go {
+    flex: 0 0 auto; font-size: 0.85rem; opacity: 0.35;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 22%, transparent);
+    border-radius: 0.4rem; padding: 0.05rem 0.35rem;
+  }
+
+  /* "Search this area" pill — floats over the map, centered under the bar, and
+     stays visible after the dropdown closes so you can pan then re-query. */
+  .map-search__area {
+    position: absolute;
+    top: 3.6rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(-4px);
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    background: oklch(var(--b1)); color: oklch(var(--bc));
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 14%, transparent);
+    border-radius: 1.4rem;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, 0.28);
+    font-size: 0.85rem; font-weight: 600; white-space: nowrap; cursor: pointer;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 555;
+  }
+  .map-search__area:not([hidden]) { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  .map-search__area:hover { background: color-mix(in oklch, oklch(var(--b1)) 92%, oklch(var(--bc))); }
+  .map-search__area-icon { font-size: 1rem; }
+
+  /* Date control floats as a compact pill just under the search bar, instead of
+     a full-width strip pushing the map down. */
+  .map-date-float {
+    position: absolute;
+    top: 4.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 540;
+    max-width: 94vw;
+    pointer-events: none;
+  }
+  .map-date-float > * { pointer-events: auto; }
+  .map-date-float [data-controller="map-controls"] {
+    background: transparent !important;
+    border: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+  }
+</style>

@@ -3,6 +3,10 @@
 require 'sidekiq/web'
 
 Rails.application.routes.draw do
+  # vicquick fork: dynamic "topo" basemap style (Mapy.com outdoor behind an ENV
+  # key, CyclOSM fallback). Replaces the static public/.../topo.json.
+  get 'maps_maplibre/styles/mapy', to: 'map_styles#topo', defaults: { format: 'json' }
+
   mount ActionCable.server => '/cable'
   mount Rswag::Api::Engine => '/api-docs'
   mount Rswag::Ui::Engine => '/api-docs'
@@ -109,7 +113,7 @@ Rails.application.routes.draw do
   # once the redesign is known-stable so browsers cache the redirect.
   get '/visits', to: redirect(status: 302) { |_params, req|
     status = req.params[:status]
-    base = '/map/v2?panel=timeline&date=today'
+    base = '/map?panel=timeline&date=today'
     status ? "#{base}&status=#{status}" : "#{base}&status=confirmed"
   }
   resources :visits, only: %i[update destroy] do
@@ -131,6 +135,8 @@ Rails.application.routes.draw do
     member do
       post :recalculate
       post :export
+      # vicquick fork: create/find this trip's shareable story
+      post :story, to: 'stories#create'
     end
     resources :notes, controller: 'trips/notes', only: %i[create update destroy]
 
@@ -157,6 +163,11 @@ Rails.application.routes.draw do
       post  :regenerate_phrase
     end
   end
+  resources :stories, only: %i[index update destroy]
+  # vicquick fork: public cinematic story page — tokened, publish-gated
+  get 's/:token', to: 'public/stories#show', as: :story_public
+  post 's/:token/unlock', to: 'public/stories#unlock', as: :story_unlock
+  get 's/:token/photo/:sig', to: 'public/stories#photo', as: :story_photo, sig: %r{[^/]+}
   resources :tags, except: [:show]
 
   # Public shared-link viewer
@@ -264,23 +275,56 @@ Rails.application.routes.draw do
 
   # Map namespace with versioning
   namespace :map do
-    get '/v1', to: redirect(path: '/map/v2')
-    get '/v2', to: 'maplibre#index', as: :v2
+    # vicquick fork: upstream deleted the Leaflet map (Map::LeafletController is
+    # gone as of the 2026-08-20 sync), so /map/v1 can no longer render it —
+    # redirect to our canonical /map instead of booting a missing controller.
+    get '/v1', to: redirect(path: '/map')
+    # vicquick fork: /map is canonical (no version in the URL) — old /map/v2
+    # links redirect there, query string preserved.
+    get '/v2', to: redirect { |_p, req| req.query_string.to_s.empty? ? '/map' : "/map?#{req.query_string}" }, as: :v2_legacy
     resources :timeline_feeds, only: [:index] do
       get :track_info, on: :member
       get :calendar, on: :collection
     end
     resource :residency, only: [:show], controller: 'residency'
+
+    # vicquick fork: CORS-adding tile proxy for basemaps whose servers don't
+    # send Access-Control-Allow-Origin (memomaps ÖPNV, German state DOP WMS) —
+    # MapLibre loads raster tiles with crossOrigin=anonymous, so they'd fail
+    # without this. Same-origin → carries the session cookie (login-gated).
+    get '/tiles/:provider/:z/:x/:y', to: 'tile_proxy#xyz',
+        constraints: { z: /\d+/, x: /\d+/, y: /\d+/, format: /png|jpe?g/ }
+    get '/wms/:provider', to: 'tile_proxy#wms'
   end
 
   # Backward compatibility redirects
-  get '/map', to: 'map/maplibre#index'
-  get '/maps/v2', to: redirect('/map/v2')
+  # vicquick fork: /map renders the MapLibre map directly (no redirect) — it's
+  # the engine we're standardising on. Named :map_v2 because the :map namespace
+  # above already owns the map_* prefix; preferred_map_path() calls map_v2_path.
+  get '/map', to: 'map/maplibre#index', as: :map_v2
+  # PWA share target — Android "share to Dawarich" lands here (vicquick fork).
+  get '/share', to: 'share#receive', as: :share_target
+  get '/maps/v2', to: redirect('/map')
 
   namespace :api do
     namespace :v1 do
       get   'photos', to: 'photos#index'
       get   'health', to: 'health#index'
+      # Directions/routing proxy to self-hosted Valhalla (vicquick fork)
+      post  'directions', to: 'routing#directions'
+      get   'directions', to: 'routing#directions'
+      get   'ride_providers', to: 'routing#providers'
+      post  'transit', to: 'routing#transit'
+      get   'traffic/incidents', to: 'routing#traffic_incidents'
+      # Discovery: nearby POIs (Photon) + place info (OSM tags) — vicquick fork
+      get   'nearby',     to: 'discovery#nearby'
+      get   'place_info', to: 'discovery#place_info'
+      get   'photo_proxy', to: 'discovery#photo_proxy'
+      get   'resolve_link', to: 'discovery#resolve_link'
+      # Rain radar timeline — proxied so radar CDNs never see the viewer's IP
+      # alongside the tile coords they asked for. vicquick fork.
+      get   'weather/frames', to: 'weather#frames'
+      get   'weather/tile',   to: 'weather#tile'
       patch 'settings', to: 'settings#update'
       get   'settings', to: 'settings#index'
       get   'settings/transportation_recalculation_status', to: 'settings#transportation_recalculation_status'
@@ -398,6 +442,9 @@ Rails.application.routes.draw do
       namespace :immich do
         post 'enrich/scan', to: 'enrich#scan'
         post 'enrich', to: 'enrich#create'
+        # Native photos-on-map (vicquick fork): clustered markers + key-safe thumbnails
+        get 'markers', to: 'markers#index'
+        get 'thumb/:id', to: 'markers#thumb', constraints: { id: %r{[^/]+} }
       end
 
       namespace :families do

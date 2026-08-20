@@ -1,5 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 import { formatNumber, translate } from "i18n"
+import maplibregl from "maplibre-gl"
+import { getCurrentTheme } from "maps_maplibre/utils/popup_theme"
 import { Toast } from "maps_maplibre/components/toast"
 import { ReplayPanel } from "maps_maplibre/managers/replay_panel"
 import { ApiClient } from "maps_maplibre/services/api_client"
@@ -11,6 +13,7 @@ import { performanceMonitor } from "maps_maplibre/utils/performance_monitor"
 import { SearchManager } from "maps_maplibre/utils/search_manager"
 import { SettingsManager } from "maps_maplibre/utils/settings_manager"
 import { AreaSelectionManager } from "./maplibre/area_selection_manager"
+import { DirectionsManager } from "./maplibre/directions_manager"
 import { DataLoader } from "./maplibre/data_loader"
 import { DateManager } from "./maplibre/date_manager"
 import { EventHandlers } from "./maplibre/event_handlers"
@@ -18,7 +21,15 @@ import { FilterManager } from "./maplibre/filter_manager"
 import { LayerManager } from "./maplibre/layer_manager"
 import { MapDataManager } from "./maplibre/map_data_manager"
 import { MapInitializer } from "./maplibre/map_initializer"
+import { installMapPadding } from "./maplibre/map_overlay_padding"
+import { ImmichManager } from "./maplibre/immich_manager"
+import { WeatherManager } from "./maplibre/weather_manager"
+import { TrackProfileManager } from "./maplibre/track_profile"
+import { TrailsManager } from "./maplibre/trails_manager"
+import { DopManager } from "./maplibre/dop_manager"
 import { PlacesManager } from "./maplibre/places_manager"
+import { POIsManager } from "./maplibre/pois_manager"
+import { StreetView } from "./maplibre/street_view"
 import { RoutesManager } from "./maplibre/routes_manager"
 import { SettingsController } from "./maplibre/settings_manager"
 import { VisitsManager } from "./maplibre/visits_manager"
@@ -36,6 +47,9 @@ export default class extends Controller {
     userPlan: { type: String, default: "pro" },
     upgradeUrl: { type: String, default: "" },
     importId: { type: String, default: "" },
+    // vicquick fork: open centred on the most recent tracked point.
+    initialLat: Number,
+    initialLon: Number,
   }
 
   static targets = [
@@ -180,6 +194,16 @@ export default class extends Controller {
     // Sync toggle states with loaded settings
     this.settingsController.syncToggleStates()
 
+    // vicquick fork: reflect the persisted track-source filter in its
+    // checkboxes (the filter itself re-applies inside the tracks layer).
+    try {
+      const hidden = JSON.parse(localStorage.getItem("dawarichTrackSourceHidden") || "[]")
+      document.querySelectorAll("[data-track-source]").forEach((cb) => {
+        const key = cb.dataset.trackSource === "tracking" ? -1 : Number(cb.dataset.trackSource)
+        cb.checked = !hidden.includes(key)
+      })
+    } catch (_) { /* defaults stay checked */ }
+
     await this.initializeMap()
     // initializeMap bails without setting this.map if the controller
     // disconnected mid-init (fast Turbo nav); don't build managers on a
@@ -211,7 +235,80 @@ export default class extends Controller {
       this.visitsManager.attachViewportRefetch()
     }
     this.placesManager = new PlacesManager(this)
+    // vicquick fork: surgically update ONE place marker after re-tagging — no
+    // full reload (which was wiping every point). `place` is a serialized place
+    // ({id,name,latitude,longitude,note,tags,color}); null colour removes it.
+    window.dawarichUpsertPlace = (place) => {
+      try {
+        const layer = this.layerManager.getLayer("places")
+        if (!layer || !place) return
+        const fc = layer.data || { type: "FeatureCollection", features: [] }
+        const features = (fc.features || []).filter(
+          (f) => String(f.properties?.id) !== String(place.id),
+        )
+        if (place.color) {
+          features.push({
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [place.longitude, place.latitude] },
+            properties: {
+              id: place.id,
+              name: place.name,
+              latitude: place.latitude,
+              longitude: place.longitude,
+              note: place.note,
+              tags: JSON.stringify(place.tags || []),
+              color: place.color,
+            },
+          })
+        }
+        layer.update({ type: "FeatureCollection", features })
+      } catch (e) { /* noop */ }
+    }
     this.routesManager = new RoutesManager(this)
+    this.directionsManager = new DirectionsManager(this)
+    window.dawarichDirections = this.directionsManager
+
+    // vicquick fork: interactive basemap POIs (tap desktop / long-press mobile).
+    this.poisManager = new POIsManager(this)
+    // Both branches must restore BOTH kinds of shared link. Previously the
+    // place restore only ran when the style happened to be loaded already —
+    // i.e. never on a cold load — so ?p= links silently did nothing.
+    const restoreShared = () => {
+      this.poisManager.setup()
+      this.restoreSharedRouteFromUrl()
+      this.restoreSharedPlaceFromUrl()
+    }
+    if (this.map.isStyleLoaded()) restoreShared()
+    else this.map.once("load", restoreShared)
+
+    // vicquick fork: Panoramax Street View (free open imagery, no backend).
+    this.streetView = new StreetView(this)
+    window.dawarichStreetView = this.streetView
+
+    // vicquick fork: Immich photos as a native clustered layer (Layers → Photos).
+    this.immichManager = new ImmichManager(this)
+    window.dawarichImmich = this.immichManager
+
+    // vicquick fork: live rain radar overlay (Layers → Weather).
+    this.weatherManager = new WeatherManager(this)
+    window.dawarichWeather = this.weatherManager
+
+    // vicquick fork: elevation + speed profile panel (opens on track click).
+    this.trackProfile = new TrackProfileManager(this)
+    window.dawarichTrackProfile = this.trackProfile
+
+    // vicquick fork: Waymarked Trails hiking overlay (Layers → Trails).
+    this.trailsManager = new TrailsManager(this)
+    window.dawarichTrails = this.trailsManager
+
+    // vicquick fork: German DOP20 (20cm) over the satellite basemap, mounted
+    // per-viewport. "idle" also covers basemap swaps, which wipe custom layers.
+    this.dopManager = new DopManager(this)
+    window.dawarichDop = this.dopManager
+    const refreshDop = () => { this.dopManager.refresh().catch(() => {}) }
+    this.map.on("moveend", refreshDop)
+    this.map.on("idle", refreshDop)
+    refreshDop()
 
     // Listen for tab changes to trigger timeline feed loading via Turbo Frame
     this.boundHandleTabChanged = this.handleTabChanged.bind(this)
@@ -335,7 +432,9 @@ export default class extends Controller {
       new Date(this.endDateValue),
     )
 
-    this.loadMapData().then(() => {
+    // vicquick fork: don't fit the camera to the initial date's data — keep the
+    // restored/home view set above. Date navigation still fits normally.
+    this.loadMapData({ fitBounds: false }).then(() => {
       if (this.settings?.familyEnabled) {
         this.loadFamilyMembers()
       }
@@ -348,6 +447,35 @@ export default class extends Controller {
     if (this.settings?.familyEnabled && this.hasFamilyMembersListTarget) {
       this.familyMembersListTarget.style.display = "block"
     }
+  }
+
+  // vicquick fork: rebuild a route shared via ?dir= (base64url of {c,s}). Dispatch
+  // to the place-sheet controller which owns the directions UI.
+  restoreSharedRouteFromUrl() {
+    try {
+      const enc = new URLSearchParams(window.location.search).get("dir")
+      if (!enc) return
+      const json = decodeURIComponent(escape(atob(enc.replace(/-/g, "+").replace(/_/g, "/"))))
+      const data = JSON.parse(json)
+      setTimeout(() => document.dispatchEvent(new CustomEvent("directions:restore", { detail: data })), 600)
+    } catch (_) { /* malformed link — ignore */ }
+  }
+
+  // vicquick fork: open a place shared via ?p=lon,lat[&pname=…] — the clean
+  // share link. Flies there and opens the place sheet.
+  restoreSharedPlaceFromUrl() {
+    try {
+      const q = new URLSearchParams(window.location.search)
+      const p = q.get("p")
+      if (!p) return
+      const [lon, lat] = p.split(",").map(Number)
+      if (!isFinite(lon) || !isFinite(lat)) return
+      const name = q.get("pname") || `${lat.toFixed(5)}, ${lon.toFixed(5)}`
+      setTimeout(() => {
+        try { this.map?.flyTo({ center: [lon, lat], zoom: 17 }) } catch (_) {}
+        document.dispatchEvent(new CustomEvent("place-sheet:open", { detail: { name, lat, lon } }))
+      }, 700)
+    } catch (_) { /* malformed link — ignore */ }
   }
 
   disconnect() {
@@ -384,20 +512,29 @@ export default class extends Controller {
    */
   async initializeMap() {
     // Reopen at the user's last viewport instead of the zoomed-out globe.
-    // When the date range has data, fitBounds overrides this; when it has
-    // none, the map stays on the last-known view rather than the world.
     const lastView = loadLastView(this.apiKeyValue)
+
+    // vicquick fork: camera priority is (1) the latest tracked point at city
+    // zoom, (2) upstream's saved last viewport, (3) the Lüneburg home extent —
+    // never the OLDEST tracked point, which is what upstream's fitBounds did.
+    const hasInitial = this.hasInitialLatValue && this.hasInitialLonValue &&
+      this.initialLatValue !== 0 && this.initialLonValue !== 0
+    const HOME = { center: [10.4147, 53.2520], zoom: 12 }
+    const initialCamera = hasInitial
+      ? { center: [this.initialLonValue, this.initialLatValue], zoom: 14 }
+      : (lastView ? { center: lastView.center, zoom: lastView.zoom } : HOME)
 
     const map = await MapInitializer.initialize(
       this.containerTarget,
       {
-        mapStyle: this.settings.mapStyle,
+        // vicquick fork: basemap follows the UI theme (light/dark).
+        mapStyle: this.themeBasemap(),
         globeProjection: this.settings.globeProjection,
         hiddenTileCategories: this.settings.hiddenTileCategories || [],
         disabledPoiGroups: this.settings.disabledPoiGroups || [],
         customTheme: this.settings.customTheme,
         vectorTilesUrl: this.settings.vectorTilesUrl,
-        ...(lastView ? { center: lastView.center, zoom: lastView.zoom } : {}),
+        ...initialCamera,
       },
       this.apiKeyValue,
     )
@@ -411,8 +548,103 @@ export default class extends Controller {
     }
 
     this.map = map
+    // vicquick fork note: view persistence is upstream's server-backed
+    // saveView/loadLastView (syncs across devices). Our old localStorage
+    // "dawarichMapView" block was dropped here — same feature, worse storage.
     this._persistView = () => saveView(this.map, this.apiKeyValue)
     this.map.on("moveend", this._persistView)
+
+    // vicquick fork: expose the map for the discovery/place-sheet controllers
+    window.dawarichMap = this.map
+
+    // vicquick fork: keep the camera sheet-aware — floating overlays register
+    // their footprint so marker focus / recenter / fitBounds stay in the
+    // visible map area instead of hiding behind a sheet or panel.
+    installMapPadding(this.map)
+
+    // vicquick fork: basemap DEFAULTS to the UI theme (light/dark) on every load —
+    // we no longer auto-restore a raster base (it flashed, and the user wants
+    // dark/light by default). The Layers control still lets you switch live.
+    this._currentBasemap = this.themeBasemap()
+    // Single source of truth for "which basemap is actually showing", so the
+    // Layers control highlights the real one. It used to re-derive this with
+    // its own theme check (`data-theme === "dark"`), which never matched our
+    // actual theme name ("dawarich-dark") — so it lit up "Light" while the map
+    // rendered Dark.
+    window.dawarichActiveBasemap = () => this._userBasemap || this._currentBasemap
+    this.observeThemeForBasemap()
+    window.dawarichSelectBasemap = (name) => this.settingsController?.selectBasemap(name)
+
+
+    // vicquick fork: device geolocation control (locate me / start point for routing)
+    try {
+      this.geolocateControl = new maplibregl.GeolocateControl({
+        positionOptions: { enableHighAccuracy: true },
+        trackUserLocation: true,
+        showUserHeading: true,
+      })
+      this.map.addControl(this.geolocateControl, "bottom-left")
+      // vicquick fork: locate the user automatically on arrival (best-effort —
+      // the browser may require a gesture / prior permission grant) — but
+      // RESPECT an explicit opt-out. Turning the control off used to last only
+      // until the next full page load (e.g. a preset/day-range navigation),
+      // which silently re-enabled tracking.
+      const optedOut = () => {
+        try { return localStorage.getItem("dawarichGeolocate") === "off" } catch (_) { return false }
+      }
+      this.geolocateControl.on("trackuserlocationstart", () => {
+        try { localStorage.setItem("dawarichGeolocate", "on") } catch (_) { /* noop */ }
+      })
+      this.geolocateControl.on("trackuserlocationend", () => {
+        // Fires for BOTH "user clicked it off" and "map pan moved tracking to
+        // background". Only a genuine OFF is an opt-out.
+        try {
+          if (this.geolocateControl._watchState === "OFF") {
+            localStorage.setItem("dawarichGeolocate", "off")
+          }
+        } catch (_) { /* noop */ }
+      })
+      const locateNow = () => {
+        if (optedOut()) return
+        try { this.geolocateControl.trigger() } catch (_) { /* noop */ }
+      }
+      if (this.map.loaded()) locateNow()
+      else this.map.once("load", locateNow)
+    } catch (e) {
+      // non-fatal if geolocation is unavailable
+    }
+  }
+
+  // vicquick fork: pick basemap from the current UI theme.
+  themeBasemap() {
+    return getCurrentTheme() === "dark" ? "dark" : "white"
+  }
+
+  // vicquick fork: swap the basemap when the UI theme toggles (white ↔ dark).
+  observeThemeForBasemap() {
+    try {
+      this._themeObserver = new MutationObserver(() => {
+        // vicquick fork: if the user manually picked a non-theme basemap
+        // (Topo/Satellite/Outdoor) from the Layers control, don't yank it back
+        // to a light/dark vector style when the UI theme toggles. "mapy" was
+        // missing here, so picking Outdoor and then hitting a theme change
+        // silently threw you back to the default map.
+        const RASTER = ["topo", "aerial", "mapy"]
+        if (RASTER.includes(this._userBasemap)) return
+        const want = this.themeBasemap()
+        if (want === this._currentBasemap) return
+        this._currentBasemap = want
+        if (this.settingsController?.applyBasemap) {
+          this.settingsController.applyBasemap(want)
+        }
+      })
+      this._themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme", "class"],
+      })
+    } catch (e) {
+      // observer is best-effort
+    }
   }
 
   /**
@@ -489,6 +721,13 @@ export default class extends Controller {
 
     this.startDateValue = start
     this.endDateValue = end
+
+    // Re-sync the live settings snapshot from the settings cache before
+    // rebuilding layers. Layer toggles write to the cache + backend but not
+    // to this shared object — a full page load re-reads everything so it
+    // never mattered, but this SPA path was resurrecting layers the user
+    // had just switched OFF (tracks kept drawing with every toggle dark).
+    try { Object.assign(this.settings, SettingsManager.getSettings()) } catch (_) { /* keep current */ }
 
     this._clearDayHighlight?.()
     this.loadMapData().then(() => {
@@ -1416,6 +1655,20 @@ export default class extends Controller {
   }
   toggleFlights(event) {
     return this.routesManager.toggleFlights(event)
+  }
+
+  // vicquick fork: filter the tracks layer by SOURCE (live tracking vs a
+  // specific imported GPX file). One filter expression on the existing
+  // layer — no extra layers. Unchecked sources collect into a hidden set;
+  // -1 stands for "live tracking" (tracks without an import_id).
+  toggleTrackSource() {
+    const hidden = []
+    document.querySelectorAll("[data-track-source]").forEach((cb) => {
+      if (cb.checked) return
+      hidden.push(cb.dataset.trackSource === "tracking" ? -1 : Number(cb.dataset.trackSource))
+    })
+    const tracksLayer = this.layerManager.getLayer("tracks")
+    tracksLayer?.setSourceFilter?.(hidden)
   }
   toggleSpeedColoredRoutes(event) {
     return this.routesManager.toggleSpeedColoredRoutes(event)

@@ -28,3 +28,47 @@
     transition-duration: 50ms;
   }
 }
+
+/* Phones (≤768px): bottom sheet instead of a near-full-width right wall, so
+   the map stays visible AND interactive above it (vicquick fork). */
+@media (max-width: 768px) {
+  .place-drawer {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: 80vh;
+    border-left: none;
+    border-top: 1px solid oklch(var(--bc) / 0.1);
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+    transform: translateY(110%); /* parked below the screen */
+  }
+  .place-drawer--open {
+    transform: translateY(0);
+  }
+  .place-drawer .place-drawer__grab {
+    display: flex;
+  }
+}
+
+/* Grabber handle — hidden on desktop (right-edge drawer doesn't need it). */
+.place-drawer__grab {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0 4px;
+  cursor: grab;
+  touch-action: none;
+}
+.place-drawer__grab::before {
+  content: "";
+  width: 40px;
+  height: 5px;
+  border-radius: 999px;
+  background: oklch(var(--bc) / 0.25);
+}

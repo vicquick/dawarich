@@ -20,6 +20,15 @@ module Map
       # Theme tokens power both the poster studio and the Appearance section's
       # custom map colors.
       load_poster_studio_context
+
+      # vicquick fork: open the map centred on the most recent tracked point
+      # (city-level default zoom). Coords live in the PostGIS `lonlat` geometry —
+      # the latitude/longitude columns are often nil — so read from there.
+      last = current_user.points.where.not(lonlat: nil).order(timestamp: :desc).first
+      if last&.lonlat
+        @last_lon = last.lonlat.x
+        @last_lat = last.lonlat.y
+      end
     end
 
     private
@@ -29,6 +38,8 @@ module Map
       return date_param_range.begin.to_i if date_param_range
       return import_window_start if import_window_start
 
+      # vicquick fork: default the map to TODAY, not the user's very first point
+      # (that opened the map on a 2013 date and fit the camera to ancient data).
       Time.zone.today.beginning_of_day.to_i
     end
 

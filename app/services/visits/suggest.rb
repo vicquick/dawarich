@@ -40,7 +40,8 @@ class Visits::Suggest
   private
 
   ERROR_DEDUP_WINDOW = 1.hour
-  TIMELINE_PATH = '/map/v2?panel=timeline&date=today&status=suggested'
+  # vicquick fork: /map is canonical here (upstream still points at /map/v2).
+  TIMELINE_PATH = '/map?panel=timeline&date=today&status=suggested'
 
   # Detection replaces machine rows wholesale, so a debounced re-run over an
   # ongoing stay "creates" visits every few minutes. Only a visit that does

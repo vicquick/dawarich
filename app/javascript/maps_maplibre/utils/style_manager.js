@@ -351,6 +351,36 @@ function hiddenLayerIds(hiddenCategories) {
 }
 
 /**
+ * vicquick fork: thin out basemap POI LABELS so the map reads like Google's —
+ * icons appear early, names only once you're close enough to care, and crowded
+ * names drop out instead of stacking.
+ *
+ * The stock style draws a label from (min_zoom - 1) with 2px collision padding,
+ * so at city zoom every shop name fights for space. We delay labels by ~one
+ * zoom (icons still show at the old threshold via the separate poi_circles
+ * layer), widen the padding so MapLibre's collision detection culls crowded
+ * ones, and sort by the tile's own min_zoom so the notable places win.
+ * @param {Object} style - Cloned MapLibre style object (mutated in place)
+ */
+function declutterPoiLabels(style) {
+  for (const layer of style.layers) {
+    if (layer.id !== "pois") continue
+
+    const kindFilter = layer.filter?.[1]
+    layer.filter = [
+      "all",
+      ...(kindFilter ? [kindFilter] : []),
+      [">=", ["zoom"], ["coalesce", ["get", "min_zoom"], 15]],
+    ]
+    layer.layout = layer.layout || {}
+    layer.layout["text-padding"] = 7
+    layer.layout["symbol-sort-key"] = ["coalesce", ["get", "min_zoom"], 15]
+    layer.layout["text-size"] = ["interpolate", ["linear"], ["zoom"], 15, 9.5, 19, 13]
+    layer.layout["text-max-width"] = 7
+  }
+}
+
+/**
  * Get a map style with configured tile source
  * @param {string} styleName - Name of the style (dark, light, white, black, grayscale)
  * @param {Object} options
@@ -424,6 +454,9 @@ export async function getMapStyle(styleName = "light", options = {}) {
       const kinds = enabledPoiKinds(disabledPoi)
       applyPoiFilter(clonedStyle, kinds)
     }
+
+    // Run last: it rewrites the same layer's filter/layout.
+    declutterPoiLabels(clonedStyle)
 
     return clonedStyle
   } catch (error) {

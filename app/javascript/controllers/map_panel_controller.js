@@ -73,11 +73,17 @@ export default class extends Controller {
       // Ctrl+L (address bar), etc. must stay with the browser.
       if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
 
+      // "L" no longer opens a panel tab — layers live in the floating Layers
+      // control now, so the shortcut opens that instead.
+      if (e.key === "l" || e.key === "L") {
+        e.preventDefault()
+        document.querySelector('[data-action*="layers-control#toggleOpen"]')?.click()
+        return
+      }
+
       const keyToTab = {
         t: "timeline-feed",
         T: "timeline-feed",
-        l: "layers",
-        L: "layers",
         "/": "search",
         c: "tools",
         C: "tools",
@@ -154,6 +160,20 @@ export default class extends Controller {
     if (clusterGlobalHandlersBoundBy === this) {
       clusterGlobalHandlersBoundBy = null
     }
+  }
+
+  /**
+   * Cluster button → the floating Layers control (same path as the L key).
+   * The layers-control Stimulus scope lives on its own element, so we go
+   * through its trigger button rather than reaching into the controller.
+   */
+  toggleLayers(event) {
+    // Stop the ORIGINAL click here: the synthetic .click() below stops its
+    // own propagation, but this cluster tap would still bubble to the
+    // layers-control's outside-click listener and close the panel in the
+    // same instant it opened.
+    event?.stopPropagation()
+    document.querySelector('[data-action*="layers-control#toggleOpen"]')?.click()
   }
 
   /**

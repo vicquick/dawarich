@@ -9,6 +9,28 @@ import {
 } from "maps_maplibre/utils/settings_manager"
 import { applySpeedColors } from "maps_maplibre/utils/speed_colors"
 
+// vicquick fork: collapse a place's tags into one pin "state". Anchors win over
+// collections (a starred Home still reads as Home), and everything else falls
+// back to a plain saved dot. Names match the user's tag list exactly.
+const PLACE_STATE_BY_TAG = {
+  Home: "home",
+  Work: "work",
+  Favourite: "favourite",
+  Starred: "starred",
+  "Want to go": "want_to_go",
+}
+const PLACE_STATE_ORDER = ["home", "work", "favourite", "starred", "want_to_go"]
+
+function placeState(tags) {
+  if (!Array.isArray(tags) || tags.length === 0) return "saved"
+  const states = new Set()
+  for (const t of tags) {
+    const s = PLACE_STATE_BY_TAG[t && t.name]
+    if (s) states.add(s)
+  }
+  return PLACE_STATE_ORDER.find((s) => states.has(s)) || "saved"
+}
+
 /**
  * Tracks loading counts across multiple data sources
  * Reports live item counts instead of percentage progress
@@ -512,8 +534,15 @@ export class DataLoader {
           nameLocked: Boolean(place.name_locked),
           // Stringify tags for MapLibre GL JS compatibility
           tags: JSON.stringify(place.tags || []),
-          // Use first tag's color if available
-          color: place.tags?.[0]?.color || "#6366f1",
+          // vicquick fork: use the server-computed colour (null for hidden tags
+          // like Default list / untagged) so those get filtered off the map.
+          color: place.color || null,
+          // vicquick fork: a single "state" the pin styling keys off of, so the
+          // map speaks a minimal shape+colour language — wishlist places read as
+          // hollow rings, starred as a glowing amber dot, anchors (home/work)
+          // filled in their hue. MapLibre expressions can't parse the tags JSON,
+          // so we resolve it here to one enum.
+          state: placeState(place.tags),
         },
       })),
     }

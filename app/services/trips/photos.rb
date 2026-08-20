@@ -38,7 +38,9 @@ class Trips::Photos
       url: "/api/v1/photos/#{asset[:id]}/thumbnail.jpg?api_key=#{user.api_key}&source=#{asset[:source]}",
       source: asset[:source],
       orientation: asset[:orientation],
-      taken_at: asset[:capturedAt] || asset[:localDateTime]
+      taken_at: asset[:capturedAt] || asset[:localDateTime],
+      # vicquick fork: videos ride along as their poster frame; view badges them.
+      type: asset[:type]
     }
   end
 end

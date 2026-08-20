@@ -4,6 +4,24 @@ import {
 } from "maps_maplibre/utils/settings_manager"
 import { BaseLayer } from "./base_layer"
 
+// vicquick fork: every track used to render in the SAME indigo (the serializer
+// hands out one DEFAULT_COLOR and there's no colour column), so a day with
+// several hikes was one indistinguishable tangle. Give each track its own
+// colour, picked from its id so it's stable across reloads — the OrganicMaps
+// look. Hues chosen to stay legible on both the light and dark basemaps.
+const TRACK_PALETTE = [
+  "#3b82f6", "#f97316", "#a855f7", "#10b981", "#ef4444",
+  "#eab308", "#06b6d4", "#ec4899", "#84cc16", "#f43f5e",
+]
+// NB: ["at", i, ["literal", [...]]] is rejected — MapLibre wants array<color>
+// and won't coerce a string array. A `match` over id % N is the working form.
+const TRACK_COLOR = [
+  "match",
+  ["%", ["to-number", ["get", "id"], 0], TRACK_PALETTE.length],
+  ...TRACK_PALETTE.flatMap((c, i) => [i, c]),
+  TRACK_PALETTE[0],
+]
+
 /**
  * Tracks layer for saved routes with segment visualization support
  *
@@ -56,11 +74,15 @@ export class TracksLayer extends BaseLayer {
           "line-cap": "round",
         },
         paint: {
-          "line-color":
-            SettingsManager.getSetting("trackColor") ||
-            LAYER_COLOR_DEFAULTS.trackColor,
-          "line-width": 4,
-          "line-opacity": 0.7,
+          // vicquick fork: TRACK_COLOR is a per-track expression derived from
+          // the track id (OrganicMaps-style distinct colours), so upstream's
+          // single user-configurable `trackColor` setting is deliberately not
+          // applied here — one colour for every track was the bug we fixed.
+          "line-color": TRACK_COLOR,
+          // Bolder, fully opaque line that thickens as you zoom in — a tracked
+          // hike should read like a route (OrganicMaps/Komoot), not a hairline.
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 12, 5, 16, 7],
+          "line-opacity": 0.95,
         },
       },
       // Selection Layer 1: White border (widest, bottom of selection stack)
@@ -124,6 +146,37 @@ export class TracksLayer extends BaseLayer {
     })
 
     this.setVisibility(this.visible)
+    // Re-apply the persisted source filter — layers are recreated on every
+    // data load / basemap swap and a plain addLayer has no filter.
+    this.applySourceFilter()
+  }
+
+  // vicquick fork: filter tracks by SOURCE. `hiddenKeys` collects what to
+  // HIDE: -1 = live tracking (no import_id), any other number = that
+  // imported file's id. One expression on the existing line layer.
+  setSourceFilter(hiddenKeys) {
+    this._hiddenSourceKeys = Array.isArray(hiddenKeys) ? hiddenKeys : []
+    try { localStorage.setItem("dawarichTrackSourceHidden", JSON.stringify(this._hiddenSourceKeys)) } catch (_) { /* noop */ }
+    this.applySourceFilter()
+  }
+
+  hiddenSourceKeys() {
+    if (this._hiddenSourceKeys) return this._hiddenSourceKeys
+    try {
+      this._hiddenSourceKeys = JSON.parse(localStorage.getItem("dawarichTrackSourceHidden") || "[]")
+    } catch (_) {
+      this._hiddenSourceKeys = []
+    }
+    return this._hiddenSourceKeys
+  }
+
+  applySourceFilter() {
+    if (!this.map?.getLayer(this.id)) return
+    const hidden = this.hiddenSourceKeys()
+    const filter = hidden.length
+      ? ["!", ["in", ["coalesce", ["get", "import_id"], -1], ["literal", hidden]]]
+      : null
+    try { this.map.setFilter(this.id, filter) } catch (_) { /* expression rejected — show all */ }
   }
 
   /**

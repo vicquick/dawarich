@@ -69,7 +69,12 @@ class Tracks::GeojsonSerializer
       end_at: track.end_at.iso8601,
       distance: track.distance.to_i,
       avg_speed: track.avg_speed.to_f,
-      duration: track.duration
+      duration: track.duration,
+      # True when the drawn line is the map-matched one (vicquick fork).
+      matched: matched_path_for(track).present?,
+      # Source attribution: absent import_id = live Dawarich tracking; an id
+      # points at the imported file (GPX etc.). Drives the track-source filter.
+      import_id: (track.import_id if track.respond_to?(:import_id))
     }
   end
 
@@ -202,7 +207,25 @@ class Tracks::GeojsonSerializer
   end
 
   def geometry_for(track)
-    geometry = RGeo::GeoJSON.encode(track.original_path)
+    # vicquick fork: prefer the map-matched line (snapped to real OSM ways by
+    # Valhalla) over the raw point-to-point line — no more straight cuts
+    # through buildings. Falls back to the raw path whenever matching hasn't
+    # run or wasn't confident; the raw line is never modified.
+    path = matched_path_for(track) || track.original_path
+    geometry = RGeo::GeoJSON.encode(path)
     geometry.respond_to?(:as_json) ? geometry.as_json.deep_symbolize_keys : geometry
+  end
+
+  def matched_path_for(track)
+    return nil unless track.respond_to?(:matched_path)
+    return nil if track.matched_path.nil?
+    # Display thresholds by source: live tracking only swaps in a confident
+    # match (the raw recording is real data). Imported tracks swap in at much
+    # lower confidence — Takeout "originals" are Google's own straight-line
+    # interpolations, so nearly any street-following match is an improvement.
+    threshold = track.try(:import_id) ? 0.4 : 0.7
+    return nil if track.matched_confidence.to_f < threshold
+
+    track.matched_path
   end
 end

@@ -2,6 +2,8 @@
 
 class OwnTracks::PointCreator
   RETURNING_COLUMNS = Point::UPSERT_RETURNING_COLUMNS
+  # vicquick fork: OwnTracks writes hit transient lock timeouts on mobile.
+  UPSERT_MAX_RETRIES = 3
 
   attr_reader :params, :user_id
 
@@ -39,13 +41,29 @@ class OwnTracks::PointCreator
     created_points = []
 
     locations.each_slice(1000) do |batch|
-      result = Point.archival_safe_upsert_all(
-        batch,
-        returning: Arel.sql(RETURNING_COLUMNS)
-      )
+      # vicquick fork: retry wrapper kept around upstream's archival-safe upsert.
+      result = with_upsert_retry do
+        Point.archival_safe_upsert_all(
+          batch,
+          returning: Arel.sql(RETURNING_COLUMNS)
+        )
+      end
       created_points.concat(result) if result
     end
 
     created_points
+  end
+
+  def with_upsert_retry
+    retries = 0
+    begin
+      yield
+    rescue ActiveRecord::Deadlocked, ActiveRecord::QueryCanceled => e
+      retries += 1
+      raise e if retries > UPSERT_MAX_RETRIES
+
+      sleep(0.1 * retries)
+      retry
+    end
   end
 end

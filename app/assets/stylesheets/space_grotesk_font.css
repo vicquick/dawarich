@@ -1,0 +1,36 @@
+/* Space Grotesk as the app-wide UI face (vicquick fork).
+ *
+ * Variable font, weights 300-700, self-hosted from /public/fonts (OFL licence
+ * sits next to the file) — no CDN, consistent with the no-third-party rule.
+ * Loaded after tailwind.css in the layout, so these overrides win over the
+ * compiled "Inter var" stack without a tailwind rebuild.
+ */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/fonts/SpaceGrotesk.woff2") format("woff2-variations");
+}
+
+html,
+body,
+.font-sans,
+.maplibregl-map,
+.maplibregl-popup-content {
+  font-family:
+    "Space Grotesk",
+    "Inter var",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+/* Space Grotesk's tabular figures keep date/time readouts from wobbling as
+ * they tick over — dates, timers, coordinates. */
+.map-date-pill,
+.timeline-calendar,
+.wx__time {
+  font-variant-numeric: tabular-nums;
+}

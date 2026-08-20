@@ -1,42 +1,51 @@
-import { translate } from "i18n"
 import maplibregl from "maplibre-gl"
 import {
   formatDistance,
   formatSpeed,
   minutesToDaysHoursMinutes,
-} from "maps_maplibre/utils/format_helpers"
+} from "maps/helpers"
 import {
   escapeHtml,
   formatTimestamp,
 } from "maps_maplibre/utils/geojson_transformers"
 
+// vicquick fork: drive the animated white selection ring on the places layer
+// (feature-state, keyed on the place id via the source's promoteId). Module
+// scope so it survives the unbound `handlePlaceClick` and is reachable from the
+// place sheet's close() via window.dawarichClearPlaceSel.
+let _selPlaceId = null
+let _popTimer = null
+
+function selectPlacePin(id) {
+  const map = window.dawarichMap
+  const src = "places-source"
+  if (!map || id == null || !map.getSource(src)) return
+  if (_selPlaceId != null && _selPlaceId !== id) {
+    try { map.setFeatureState({ source: src, id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+  }
+  _selPlaceId = id
+  try {
+    map.setFeatureState({ source: src, id }, { selected: true, pop: true })
+    clearTimeout(_popTimer)
+    _popTimer = setTimeout(() => {
+      try { map.setFeatureState({ source: src, id }, { pop: false }) } catch (_) { /* noop */ }
+    }, 160)
+  } catch (_) { /* noop */ }
+}
+
+function clearPlaceSelection() {
+  const map = window.dawarichMap
+  if (map && _selPlaceId != null && map.getSource("places-source")) {
+    try { map.setFeatureState({ source: "places-source", id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+  }
+  _selPlaceId = null
+}
+
+if (typeof window !== "undefined") window.dawarichClearPlaceSel = clearPlaceSelection
+
 /**
  * Handles map interaction events (clicks, info display)
  */
-/**
- * Format the coordinates a feature carries in its properties. Returns null when
- * either is absent or blank, so the caller can fall back to the geometry.
- * `Number("")` is 0 and finite, so a plain isFinite check is not enough.
- */
-// A tiled feature can represent many merged points but carries ONE arbitrary
-// member's id/coords — aggregates (no id) and merged cells (count > 1) get no popup.
-export function shouldShowPointPopup(properties = {}) {
-  if (properties.id == null) return false
-  return (properties.count ?? 1) <= 1
-}
-
-function storedCoordinates(properties) {
-  const { latitude, longitude } = properties
-  if (latitude == null || longitude == null) return null
-  if (latitude === "" || longitude === "") return null
-
-  const lat = Number(latitude)
-  const lon = Number(longitude)
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
-
-  return `${lat.toFixed(6)}, ${lon.toFixed(6)}`
-}
-
 export class EventHandlers {
   constructor(map, controller) {
     this.map = map
@@ -84,8 +93,6 @@ export class EventHandlers {
     if (pointsLayer?.justDragged) return
 
     const feature = e.features[0]
-    if (!shouldShowPointPopup(feature.properties)) return
-
     const pointId = feature.properties.id
     const actions = pointId
       ? [
@@ -94,13 +101,13 @@ export class EventHandlers {
             handler: "handleDelete",
             id: pointId,
             entityType: "point",
-            label: translate("messages.delete"),
+            label: "Delete",
           },
         ]
       : []
 
     this.controller.showInfo(
-      translate("map_info.location_point"),
+      "Location Point",
       this._buildPointInfoContent(feature.properties, feature.geometry),
       actions,
     )
@@ -115,7 +122,7 @@ export class EventHandlers {
     if (!anomaliesLayer) return
 
     const content = anomaliesLayer.buildPopupContent(feature.properties)
-    this.controller.showInfo(translate("messages.anomaly_point"), content)
+    this.controller.showInfo("Anomaly Point", content)
   }
 
   /**
@@ -134,7 +141,7 @@ export class EventHandlers {
     const feature = e.features[0]
     container.innerHTML = `
       <div class="mt-3 pt-3 border-t border-base-300">
-        <div class="text-sm font-semibold mb-1">${translate("map_info.selected_point")}</div>
+        <div class="text-sm font-semibold mb-1">Selected Point</div>
         ${this._buildPointInfoContent(feature.properties, feature.geometry)}
       </div>
     `
@@ -150,16 +157,11 @@ export class EventHandlers {
    */
   _buildPointInfoContent(properties, geometry) {
     const distanceUnit = this.controller.settings.distance_unit || "km"
-    // Prefer the stored values carried in the properties. A clicked feature's
-    // geometry comes back snapped to the tile grid, so reading coordinates off
-    // it shows a position that doesn't match the one in the points list.
-    const stored = storedCoordinates(properties)
     const coords = geometry?.coordinates
     const coordStr =
-      stored ??
-      (coords && coords.length >= 2
+      coords && coords.length >= 2
         ? `${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}`
-        : null)
+        : null
     const pointId = properties.id
     const addressFrame = pointId
       ? `<turbo-frame id="point-address-${pointId}" src="/points/${pointId}/address" loading="lazy"></turbo-frame>`
@@ -167,11 +169,11 @@ export class EventHandlers {
     return `
       <div class="space-y-2">
         ${addressFrame}
-        ${coordStr ? `<div><span class="font-semibold">${translate("map_info.coordinates")}:</span> ${coordStr}</div>` : ""}
-        <div><span class="font-semibold">${translate("map_info.time")}:</span> ${formatTimestamp(properties.timestamp, this.controller.timezoneValue)}</div>
-        ${properties.battery ? `<div><span class="font-semibold">${translate("map_info.battery")}:</span> ${properties.battery}%</div>` : ""}
-        ${properties.altitude ? `<div><span class="font-semibold">${translate("map_info.altitude")}:</span> ${Math.round(properties.altitude)}m</div>` : ""}
-        ${properties.velocity ? `<div><span class="font-semibold">${translate("map_info.speed")}:</span> ${formatSpeed(properties.velocity * 3.6, distanceUnit)}</div>` : ""}
+        ${coordStr ? `<div><span class="font-semibold">Coordinates:</span> ${coordStr}</div>` : ""}
+        <div><span class="font-semibold">Time:</span> ${formatTimestamp(properties.timestamp, this.controller.timezoneValue)}</div>
+        ${properties.battery ? `<div><span class="font-semibold">Battery:</span> ${properties.battery}%</div>` : ""}
+        ${properties.altitude ? `<div><span class="font-semibold">Altitude:</span> ${Math.round(properties.altitude)}m</div>` : ""}
+        ${properties.velocity ? `<div><span class="font-semibold">Speed:</span> ${formatSpeed(properties.velocity * 3.6, distanceUnit)}</div>` : ""}
       </div>
     `
   }
@@ -204,12 +206,12 @@ export class EventHandlers {
 
     const content = `
       <div class="space-y-2">
-        ${properties.photo_url ? `<img src="${escapeHtml(properties.photo_url)}" alt="${translate("map_info.photo")}" class="w-full rounded-lg mb-2" />` : ""}
-        ${properties.taken_at ? `<div><span class="font-semibold">${translate("map_info.taken")}:</span> ${formatTimestamp(properties.taken_at, this.controller.timezoneValue)}</div>` : ""}
+        ${properties.photo_url ? `<img src="${escapeHtml(properties.photo_url)}" alt="Photo" class="w-full rounded-lg mb-2" />` : ""}
+        ${properties.taken_at ? `<div><span class="font-semibold">Taken:</span> ${formatTimestamp(properties.taken_at, this.controller.timezoneValue)}</div>` : ""}
       </div>
     `
 
-    this.controller.showInfo(translate("map_info.photo"), content)
+    this.controller.showInfo("Photo", content)
   }
 
   /**
@@ -217,37 +219,31 @@ export class EventHandlers {
    */
   handlePlaceClick(e) {
     const feature = e.features[0]
-    const properties = feature.properties
-
-    const content = `
-      <div class="space-y-2">
-        ${properties.tag ? `<div class="badge badge-sm badge-primary">${escapeHtml(properties.tag)}</div>` : ""}
-        ${properties.description ? `<div>${escapeHtml(properties.description)}</div>` : ""}
-        ${
-          properties.nameLocked
-            ? `<div class="text-xs opacity-70" data-testid="place-name-lock">${translate("map_info.place_name_locked")}</div>`
-            : ""
-        }
-      </div>
-    `
-
-    const actions = properties.id
-      ? [
-          {
-            type: "button",
-            handler: "handleEdit",
-            id: properties.id,
-            entityType: "place",
-            label: translate("messages.edit"),
-          },
-        ]
-      : []
-
-    this.controller.showInfo(
-      escapeHtml(properties.name) || translate("map_info.place"),
-      content,
-      actions,
+    const p = feature.properties
+    const coords = feature.geometry?.coordinates || []
+    // The map feature carries `tags` as a (stringified) array — surface the
+    // first tag's name + colour to the sheet as a badge.
+    let tags = []
+    try {
+      tags = typeof p.tags === "string" ? JSON.parse(p.tags) : (p.tags || [])
+    } catch (_) { tags = [] }
+    // vicquick fork: a saved place opens the Google-style place sheet
+    // (info + hours + Directions / category / Share), same as POIs/search.
+    document.dispatchEvent(
+      new CustomEvent("place-sheet:open", {
+        detail: {
+          name: p.name || "Place",
+          address: p.note || "",
+          lat: coords[1],
+          lon: coords[0],
+          type: tags[0]?.name || "Saved place",
+          tags,
+          savedPlaceId: p.id,
+        },
+      }),
     )
+    // Ring the selected pin (animated) — cleared when the sheet closes.
+    selectPlacePin(p.id)
   }
 
   /**
@@ -265,8 +261,8 @@ export class EventHandlers {
   _renderAreaInfo(properties) {
     const content = `
       <div class="space-y-2">
-        ${properties.radius ? `<div><span class="font-semibold">${translate("map_info.radius")}:</span> ${Math.round(properties.radius)}m</div>` : ""}
-        ${properties.latitude && properties.longitude ? `<div><span class="font-semibold">${translate("map_info.center")}:</span> ${properties.latitude.toFixed(6)}, ${properties.longitude.toFixed(6)}</div>` : ""}
+        ${properties.radius ? `<div><span class="font-semibold">Radius:</span> ${Math.round(properties.radius)}m</div>` : ""}
+        ${properties.latitude && properties.longitude ? `<div><span class="font-semibold">Center:</span> ${properties.latitude.toFixed(6)}, ${properties.longitude.toFixed(6)}</div>` : ""}
       </div>
     `
 
@@ -277,20 +273,20 @@ export class EventHandlers {
             handler: "openAreaEditModal",
             id: properties.id,
             entityType: "area",
-            label: translate("messages.edit"),
+            label: "Edit",
           },
           {
             type: "button",
             handler: "handleDelete",
             id: properties.id,
             entityType: "area",
-            label: translate("messages.delete"),
+            label: "Delete",
           },
         ]
       : []
 
     this.controller.showInfo(
-      escapeHtml(properties.name) || translate("map_info.area"),
+      escapeHtml(properties.name) || "Area",
       content,
       actions,
     )
@@ -667,6 +663,9 @@ export class EventHandlers {
     const fullFeature = this._getFullTrackFeature(properties) || clickedFeature
     this.selectedTrackFeature = fullFeature
 
+    // vicquick fork: open the elevation + speed profile for this track.
+    try { window.dawarichTrackProfile?.open(properties.id) } catch (_) { /* noop */ }
+
     // Keep the on-map highlight + segment visualization — those are visual
     // feedback for the click itself, independent of the info surface.
     try {
@@ -804,10 +803,7 @@ export class EventHandlers {
       trackDistanceKm,
     )
 
-    this.controller.showInfo(
-      translate("map_info.track_number", { id: properties.id }),
-      content,
-    )
+    this.controller.showInfo(`Track #${properties.id}`, content)
 
     // Set up the show points toggle handler (uses event delegation)
     this._setupTrackPointsToggle()
@@ -831,9 +827,9 @@ export class EventHandlers {
                  id="track-points-toggle"
                  class="toggle toggle-sm toggle-success"
                  data-track-id="${properties.id}" />
-          <span class="label-text font-medium">${translate("map_info.show_points")}</span>
+          <span class="label-text font-medium">Show Points</span>
         </label>
-        <p class="text-xs text-base-content/60 ml-10">${translate("map_info.show_points_help")}</p>
+        <p class="text-xs text-base-content/60 ml-10">Enable to view and drag points to edit track</p>
       </div>
     `
 
@@ -849,19 +845,19 @@ export class EventHandlers {
           <svg id="track-replay-pause-icon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 hidden" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
           </svg>
-          <span id="track-replay-label">${translate("replay.replay")}</span>
+          <span id="track-replay-label">Replay</span>
         </button>
       </div>
     `
 
     return `
       <div class="space-y-2">
-        <div><span class="font-semibold">${translate("map_info.start")}:</span> ${formatTimestamp(properties.start_at, this.controller.timezoneValue)}</div>
-        <div><span class="font-semibold">${translate("map_info.end")}:</span> ${formatTimestamp(properties.end_at, this.controller.timezoneValue)}</div>
-        <div><span class="font-semibold">${translate("map_info.duration")}:</span> ${minutesToDaysHoursMinutes(durationMinutes)}</div>
-        <div><span class="font-semibold">${translate("map_info.distance")}:</span> ${formatDistance(trackDistanceKm, distanceUnit)}</div>
-        <div><span class="font-semibold">${translate("map_info.average_speed")}:</span> ${formatSpeed(properties.avg_speed || 0, distanceUnit)}</div>
-        ${properties.dominant_mode ? `<div><span class="font-semibold">${translate("map_info.mode")}:</span> ${escapeHtml(properties.dominant_mode_emoji)} ${escapeHtml(translate(`transportation_modes.${properties.dominant_mode}`))}</div>` : ""}
+        <div><span class="font-semibold">Start:</span> ${formatTimestamp(properties.start_at, this.controller.timezoneValue)}</div>
+        <div><span class="font-semibold">End:</span> ${formatTimestamp(properties.end_at, this.controller.timezoneValue)}</div>
+        <div><span class="font-semibold">Duration:</span> ${minutesToDaysHoursMinutes(durationMinutes)}</div>
+        <div><span class="font-semibold">Distance:</span> ${formatDistance(trackDistanceKm, distanceUnit)}</div>
+        <div><span class="font-semibold">Avg Speed:</span> ${formatSpeed(properties.avg_speed || 0, distanceUnit)}</div>
+        ${properties.dominant_mode ? `<div><span class="font-semibold">Mode:</span> ${escapeHtml(properties.dominant_mode_emoji)} ${escapeHtml(properties.dominant_mode)}</div>` : ""}
         ${showPointsToggle}
         <div id="track-point-info-container"></div>
         ${replayButton}

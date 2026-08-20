@@ -21,6 +21,7 @@ class Users::OtpChallengeController < ApplicationController
     if authenticate_otp(user, otp_code)
       clear_otp_session
       user.reset_failed_otp_attempts!
+      user.remember_me = true # issue the persistent 6-month cookie after 2FA too
       sign_in(user)
       redirect_to after_sign_in_path_for(user), notice: I18n.t('controllers.users.otp_challenge.signed_in_successfully')
     elsif user.otp_locked?

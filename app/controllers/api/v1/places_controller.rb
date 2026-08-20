@@ -6,6 +6,16 @@ module Api
       before_action :set_place, only: %i[show update destroy]
 
       def index
+        # vicquick fork: name search for the map search bar — match the user's
+        # own SAVED (tagged) places like Home/Work/Starred, not the thousands of
+        # untagged auto-visit places.
+        if params[:q].present?
+          term = ActiveRecord::Base.sanitize_sql_like(params[:q].to_s.strip)
+          places = current_api_user.places.includes(:tags, :active_visits).tagged
+                                   .where('places.name ILIKE ?', "%#{term}%").limit(8)
+          return render json: places.map { |place| serialize_place(place) }
+        end
+
         @places = current_api_user.places.includes(:tags, :active_visits)
 
         if params[:tag_ids].present?
@@ -68,6 +78,21 @@ module Api
       end
 
       def create
+        # vicquick fork: dedupe — reuse an existing place at ~the same spot with
+        # the same name instead of creating duplicates on repeated Save/tag.
+        lat = place_params[:latitude].to_f
+        lon = place_params[:longitude].to_f
+        existing = current_api_user.places
+                                   .where(name: place_params[:name])
+                                   .where('ABS(latitude - ?) < 0.0006 AND ABS(longitude - ?) < 0.001', lat, lon)
+                                   .first
+        if existing
+          @place = existing
+          set_tags if params.dig(:place, :tag_ids) # categories are exclusive
+          @place = current_api_user.places.includes(:tags, :visits).find(@place.id)
+          return render json: serialize_place(@place), status: :ok
+        end
+
         @place = current_api_user.places.build(place_params.except(:tag_ids))
         @place.user_named = true
 
@@ -163,7 +188,8 @@ module Api
         return if tag_ids.empty?
 
         tags = current_api_user.tags.where(id: tag_ids)
-        @place.tags << tags
+        new_tags = tags.to_a - @place.tags.to_a
+        @place.tags << new_tags if new_tags.any?
       end
 
       def set_tags
@@ -172,7 +198,17 @@ module Api
         @place.tags = tags
       end
 
+      # vicquick fork: tags hidden from the map (their places drop off unless
+      # also tagged something meaningful) + priority so Home/Work win the
+      # colour/badge over generic tags like Starred.
+      MAP_HIDDEN_TAGS = ['Default list'].freeze
+      MAP_TAG_PRIORITY = { 'Home' => 0, 'Work' => 1, 'Favourite' => 2 }.freeze
+
       def serialize_place(place)
+        tags = place.tags.to_a
+                    .reject { |t| MAP_HIDDEN_TAGS.include?(t.name) }
+                    .sort_by { |t| MAP_TAG_PRIORITY.fetch(t.name, 10) }
+        primary = tags.first
         {
           id: place.id,
           name: place.name,
@@ -180,12 +216,15 @@ module Api
           longitude: place.lon,
           source: place.source,
           note: place.note,
-          icon: place.tags.first&.icon,
-          color: place.tags.first&.color,
+          # vicquick fork: `primary` is the priority-sorted tag (Home/Work beat
+          # Starred), not tags.first — drives map pin colour.
+          icon: primary&.icon,
+          # nil colour for places with no shown tag -> filtered off the map.
+          color: primary&.color,
           visits_count: place.active_visits.size,
           name_locked: place.name_locked?,
           created_at: place.created_at,
-          tags: place.tags.map do |tag|
+          tags: tags.map do |tag|
             {
               id: tag.id,
               name: tag.name,

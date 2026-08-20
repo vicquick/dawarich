@@ -36,7 +36,9 @@ const DEFAULT_SETTINGS = {
       road_default: "#808080",
     },
   },
-  enabledMapLayers: ["Heatmap", "Tracks"],
+  // vicquick fork: default view shows saved Places only (tracks/heatmap off) —
+  // a clean Google-Maps-style start; other layers toggle on via the Layers panel.
+  enabledMapLayers: ["Places"],
   routeOpacity: 0.6,
   fogOfWarRadius: 50,
   fogOfWarThreshold: 50,
@@ -333,6 +335,19 @@ export class SettingsManager {
       console.warn("[Settings] API key not set, cannot save to backend")
       return null
     }
+
+    // Serialize saves: every PATCH carries the FULL settings payload, so two
+    // overlapping requests can finish out of order and the earlier state wins
+    // — rapid toggling left a layer re-enabled server-side (observed: Tracks
+    // resurrected on every reload after switching all layers off quickly).
+    // Chaining on the previous save guarantees last-toggle-wins.
+    const run = () => SettingsManager._saveToBackendNow(settings)
+    const chained = (SettingsManager._savePromise || Promise.resolve()).then(run, run)
+    SettingsManager._savePromise = chained.catch(() => null)
+    return chained
+  }
+
+  static async _saveToBackendNow(settings) {
 
     try {
       const enabledMapLayers = SettingsManager._collapseLayerSettings(settings)

@@ -1293,4 +1293,33 @@
 .timeline-lowconf-toggle[aria-expanded="true"] {
   color: oklch(var(--bc) / 0.8);
   border-style: solid;
+/* --- Mobile range presets (vicquick fork) ---
+   Lives at the top of the timeline rail on phones; the mobile date pill has
+   no dropdown anymore, so Today / 7 days / Month + custom range moved here. */
+.timeline-rail__ranges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid oklch(var(--bc) / 0.08);
+}
+.timeline-rail__preset-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+.timeline-rail__custom summary {
+  list-style: none;
+}
+.timeline-rail__custom summary::-webkit-details-marker {
+  display: none;
+}
+.timeline-rail__custom summary::before {
+  content: "›";
+  display: inline-block;
+  margin-right: 0.35rem;
+  transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.timeline-rail__custom[open] summary::before {
+  transform: rotate(90deg);
 }

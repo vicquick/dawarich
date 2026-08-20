@@ -1,0 +1,39 @@
+<%# Live road-incidents toggle (vicquick fork) — NAPSPAN closures/roadworks. %>
+<div data-controller="traffic-incidents"
+     data-traffic-incidents-api-key-value="<%= current_user.api_key %>"
+     class="traffic-toggle">
+  <button type="button"
+          data-traffic-incidents-target="btn"
+          data-action="click->traffic-incidents#toggle"
+          class="traffic-toggle__btn" aria-pressed="false"
+          aria-label="Toggle live road incidents" title="Live road incidents">⚠</button>
+</div>
+
+<style>
+  .traffic-toggle {
+    position: absolute;
+    right: 0.75rem;
+    top: max(4.75rem, calc(env(safe-area-inset-top) + 4rem));
+    z-index: 555;
+  }
+  .traffic-toggle__btn {
+    width: 2.6rem; height: 2.6rem; border-radius: 50%;
+    border: 1px solid color-mix(in oklch, oklch(var(--bc)) 12%, transparent);
+    background: oklch(var(--b1)); color: oklch(var(--bc));
+    font-size: 1.1rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.26);
+    transition: background .18s ease, color .18s ease;
+  }
+  .traffic-toggle__btn[aria-pressed="true"] { background: #ea4335; color: #fff; border-color: #ea4335; }
+  /* show the incident count as a small badge when active */
+  .traffic-toggle__btn[aria-pressed="true"][data-count]:not([data-count="0"])::after {
+    content: attr(data-count);
+    position: absolute; transform: translate(1.1rem, -1.1rem);
+    background: oklch(var(--b1)); color: #ea4335;
+    font-size: .62rem; font-weight: 700; line-height: 1;
+    padding: 2px 5px; border-radius: 999px; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+  }
+  /* hidden while routing (the map is the hero then) */
+  body.routing-active .traffic-toggle { display: none; }
+</style>

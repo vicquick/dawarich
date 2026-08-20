@@ -1,0 +1,45 @@
+<%# vicquick fork: story management — every trip animation in one place.
+    Create happens from a trip's page; here you preview, share, publish,
+    and delete. %>
+<div class="w-full my-5 px-4 max-w-4xl mx-auto">
+  <%= render layout: 'shared/page_header', locals: { title: 'Stories' } do %>
+    <span class="text-sm opacity-60"><%= @stories.count %> <%= 'story'.pluralize(@stories.count) %></span>
+  <% end %>
+
+  <% if @stories.empty? %>
+    <div class="text-center py-16 opacity-70">
+      <div class="text-5xl mb-4">🎬</div>
+      <p class="font-medium">No stories yet</p>
+      <p class="text-sm mt-1">Open a <%= link_to 'trip', trips_path, class: 'link' %> and press “Create story” to turn it into a shareable animation.</p>
+    </div>
+  <% else %>
+    <div class="space-y-3">
+      <% @stories.each do |story| %>
+        <div class="flex items-center gap-4 p-4 bg-base-200 rounded-xl">
+          <div class="text-2xl">🎬</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-semibold truncate"><%= story.display_title %></div>
+            <div class="text-xs opacity-60">
+              <%= story.trip.started_at.strftime('%-d %b %Y') %> ·
+              <%= story.published? ? '🌍 public' : '🔒 private' %>
+              <%= " · 🎵 #{story.audio.filename}" if story.audio.attached? %>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap justify-end">
+            <%= link_to 'Open', story_public_path(story.token), class: 'btn btn-primary btn-sm' %>
+            <button type="button" class="btn btn-outline btn-sm"
+                    data-share-url="<%= story_public_url(story.token) %>"
+                    onclick="navigator.clipboard.writeText(this.dataset.shareUrl).then(() => { this.textContent = 'Copied!'; setTimeout(() => this.textContent = 'Copy link', 1500) })">Copy link</button>
+            <%= button_to story.published? ? 'Unpublish' : 'Publish',
+                  story_path(story), method: :patch,
+                  params: { 'story[published]' => (!story.published?).to_s },
+                  class: "btn btn-sm #{story.published? ? 'btn-warning btn-outline' : 'btn-success'}" %>
+            <%= button_to '✕', story_path(story), method: :delete,
+                  class: 'btn btn-ghost btn-sm btn-circle',
+                  form: { data: { turbo_confirm: 'Delete this story? The trip stays untouched.' } } %>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+</div>
