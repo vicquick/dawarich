@@ -1293,6 +1293,8 @@
 .timeline-lowconf-toggle[aria-expanded="true"] {
   color: oklch(var(--bc) / 0.8);
   border-style: solid;
+}
+
 /* --- Mobile range presets (vicquick fork) ---
    Lives at the top of the timeline rail on phones; the mobile date pill has
    no dropdown anymore, so Today / 7 days / Month + custom range moved here. */
