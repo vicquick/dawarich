@@ -90,6 +90,8 @@ RSpec.describe Trip, type: :model do
     end
     let(:user) { create(:user, settings: settings) }
     let(:trip) { create(:trip, user:) }
+    # vicquick fork: each preview also carries :type, so the view can badge a
+    # video (which now rides along as its poster frame instead of being dropped).
     let(:expected_photos) do
       [
         {
@@ -97,14 +99,16 @@ RSpec.describe Trip, type: :model do
           url: "/api/v1/photos/456/thumbnail.jpg?api_key=#{user.api_key}&source=immich",
           source: 'immich',
           orientation: 'portrait',
-          taken_at: '2024-01-02T01:00:00.000Z'
+          taken_at: '2024-01-02T01:00:00.000Z',
+          type: 'photo'
         },
         {
           id: '789',
           url: "/api/v1/photos/789/thumbnail.jpg?api_key=#{user.api_key}&source=immich",
           source: 'immich',
           orientation: 'portrait',
-          taken_at: '2024-01-02T02:00:00.000Z'
+          taken_at: '2024-01-02T02:00:00.000Z',
+          type: 'photo'
         }
       ]
     end

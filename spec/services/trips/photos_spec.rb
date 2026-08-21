@@ -60,14 +60,17 @@ RSpec.describe Trips::Photos do
             url: '/api/v1/photos/1/thumbnail.jpg?api_key=test-api-key&source=immich',
             source: 'immich',
             orientation: 'landscape',
-            taken_at: '2024-01-02T13:30:00Z'
+            taken_at: '2024-01-02T13:30:00Z',
+            # vicquick fork: :type rides along so the view can badge videos.
+            type: nil
           },
           {
             id: 2,
             url: '/api/v1/photos/2/thumbnail.jpg?api_key=test-api-key&source=photoprism',
             source: 'photoprism',
             orientation: 'portrait',
-            taken_at: '2024-01-03T08:00:00Z'
+            taken_at: '2024-01-03T08:00:00Z',
+            type: nil
           }
         ]
 

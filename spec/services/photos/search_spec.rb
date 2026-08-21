@@ -111,7 +111,11 @@ RSpec.describe Photos::Search do
       end
     end
 
-    context 'when filtering out videos' do
+    # vicquick fork: videos are kept rather than dropped. Discarding them
+    # silently shrank a trip's gallery (the Sweden trip showed 201 of 202
+    # assets); Immich serves a poster frame on the same thumbnail endpoint, so a
+    # video tile renders like any other and the view badges it.
+    context 'when the source returns a video' do
       let(:immich_photo) { { 'type' => 'video', 'id' => '1' } }
 
       before do
@@ -122,8 +126,11 @@ RSpec.describe Photos::Search do
           .and_return([immich_photo])
       end
 
-      it 'excludes video assets' do
-        expect(service.call).to eq([])
+      it 'keeps video assets, tagged with their type' do
+        result = service.call
+
+        expect(result.size).to eq(1)
+        expect(result.first).to include(id: '1', type: 'video', source: 'immich')
       end
     end
   end
