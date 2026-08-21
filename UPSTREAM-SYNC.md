@@ -114,14 +114,28 @@ docker exec dw-app sh -c "bundle exec rails db:schema:load"
 docker exec dw-app sh -c "bundle exec rspec"
 ```
 
-**Reload the schema between full runs.** Leftover users from an interrupted run
-made `preheating_job_spec` report `enqueued 26` instead of 2 — a phantom failure
-that cost real time. If a spec fails in the full suite but passes alone,
-suspect DB residue before suspecting the code:
+**Reload the schema before every full run** — not just after an interrupted one:
 
 ```bash
 docker exec dw-app sh -c "bundle exec rails db:schema:load"
 ```
+
+A full suite leaks ~12 users past transaction rollback, and
+`spec/jobs/cache/preheating_job_spec.rb:60` asserts `Cache::PreheatingJob`
+enqueues exactly 2 jobs while the job counts **every** user in the database. So
+the second consecutive run reports a failure the first did not, on an
+identically-ordered suite (`config.order = :random` is commented out, so
+ordering is not the variable — accumulated rows are). Measured: 26 enqueued
+after one interrupted run, 12 users still resident after a clean one.
+
+That spec is byte-identical to upstream and passes on a fresh schema, so it is
+upstream fragility surfaced by reusing a container, not fork damage and not
+something to "fix" here — a divergence would just conflict at the next sync. CI
+is immune because every run starts on a pristine database.
+
+**The general rule:** a spec that fails in the full suite but passes alone is DB
+residue until proven otherwise. Reload the schema and re-run before reading a
+single line of the code it points at.
 
 JS suite needs no container: `node --test spec/javascript/`. Run per-file — the
 directory-mode aggregate under-reports.
