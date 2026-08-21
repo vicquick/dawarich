@@ -173,9 +173,9 @@ Rails.application.routes.draw do
   # dash groups — so the constraint separates them with no ambiguity. Declared
   # the other way round (as it was after the sync), the unconstrained :token
   # route swallowed every /s/:id request and shared links 404'd.
-  UUID_RE = /\h{8}-\h{4}-\h{4}-\h{4}-\h{12}/
-  get  '/s/:id',         to: 'shared/links#show',     as: :public_shared_link,        id: UUID_RE
-  post '/s/:id/unlock',  to: 'shared/links#unlock',   as: :unlock_public_shared_link, id: UUID_RE
+  uuid_re = /\h{8}-\h{4}-\h{4}-\h{4}-\h{12}/
+  get  '/s/:id',         to: 'shared/links#show',     as: :public_shared_link,        id: uuid_re
+  post '/s/:id/unlock',  to: 'shared/links#unlock',   as: :unlock_public_shared_link, id: uuid_re
 
   # vicquick fork: public cinematic story page — tokened, publish-gated
   get 's/:token', to: 'public/stories#show', as: :story_public

@@ -224,9 +224,22 @@ if want lint-base; then
   else
     warn "npx unavailable — biome skipped"
   fi
-  echo "        ${DIM}rubocop needs the bundle; run inside the app container:${RST}"
-  echo "        ${DIM}  FILES=\$(git diff --name-only --diff-filter=AM $FORK_REF...HEAD | grep -E '\\.(rb|rake)\$|^Gemfile\$') ${RST}"
-  echo "        ${DIM}  bundle exec rubocop --force-exclusion \$FILES${RST}"
+  if command -v bundle >/dev/null 2>&1; then
+    rbfiles=$(git diff --name-only --diff-filter=AM "$FORK_REF"...HEAD \
+                | grep -E '\.(rb|rake)$|^Gemfile$|^Rakefile$' | xargs)
+    if [ -n "$rbfiles" ]; then
+      # shellcheck disable=SC2086
+      out=$(bundle exec rubocop --force-exclusion --format simple $rbfiles 2>&1 | tail -1)
+      case "$out" in
+        *"no offenses"*) ok "rubocop clean vs $FORK_REF ($out)" ;;
+        *)               bad "rubocop: $out" ;;
+      esac
+    else
+      ok "no ruby files changed vs $FORK_REF"
+    fi
+  else
+    warn "no bundler here — rubocop skipped; re-run inside the app container"
+  fi
 fi
 
 # -------------------------------------------------------------------- routes
