@@ -15,8 +15,6 @@ class Points::AnomalyFilterJob < ApplicationJob
     )
   end
 
-  retry_on ActiveRecord::Deadlocked, wait: :polynomially_longer, attempts: 3
-
   def perform(user_id, start_time, end_time)
     Points::AnomalyFilter.new(user_id, start_time, end_time).call
   end
