@@ -106,6 +106,36 @@ if want schema; then
   fi
 fi
 
+# ----------------------------------------------------------------- toolchain
+# Upstream owns .ruby-version and Gemfile.lock; the fork owns the Dockerfiles
+# that have to honour them. Upstream bumping .ruby-version 3.4.6 -> 3.4.9 while
+# our Dockerfile still said ruby:3.4.6-slim broke the FIRST production deploy
+# after the 2026-08-20 merge: the Gemfile does `ruby File.read('.ruby-version')`,
+# so bundler demanded 3.4.9 inside a 3.4.6 image and exited 18
+# (Bundler::RubyVersionMismatch). Nothing in the test suite can see this — it
+# only exists at image-build time.
+if want toolchain; then
+  hdr toolchain "Dockerfiles honour the versions upstream declares"
+  drift=0
+  rv=$(tr -d '[:space:]' < .ruby-version 2>/dev/null)
+  if [ -n "$rv" ]; then
+    while read -r df; do
+      [ -f "$df" ] || continue
+      pin=$(grep -m1 -oE '^FROM ruby:[0-9]+\.[0-9]+\.[0-9]+' "$df" 2>/dev/null | sed 's/^FROM ruby://')
+      [ -n "$pin" ] || continue
+      [ "$pin" = "$rv" ] \
+        || { bad "$df pins ruby $pin but .ruby-version says $rv"; drift=1; }
+    done < <(find . -name 'Dockerfile*' -not -path './.git/*' 2>/dev/null)
+  fi
+  bw=$(awk '/BUNDLED WITH/{getline; gsub(/[[:space:]]/,""); print}' Gemfile.lock 2>/dev/null)
+  dbv=$(grep -m1 -oE 'BUNDLE_VERSION=[0-9.]+' Dockerfile 2>/dev/null | cut -d= -f2)
+  if [ -n "$bw" ] && [ -n "$dbv" ] && [ "$bw" != "$dbv" ]; then
+    bad "Dockerfile BUNDLE_VERSION=$dbv but Gemfile.lock BUNDLED WITH $bw"
+    drift=1
+  fi
+  [ "$drift" -eq 0 ] && ok "ruby and bundler pins agree with the repo"
+fi
+
 # ------------------------------------------------------------------ partials
 # A shared view kept ours while upstream deleted the partial it renders. Fails
 # at request time as ActionView::MissingTemplate, which in a request spec takes
