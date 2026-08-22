@@ -80,6 +80,13 @@ RUN mkdir -p tmp/pids tmp/cache tmp/sockets \
 RUN cp -r public /tmp/public_assets
 
 # Copy entrypoint scripts and grant execution permissions
+# entrypoint-env-guard.sh is sourced by web- and sidekiq-entrypoint via
+# `. "$(dirname "$0")/entrypoint-env-guard.sh"`, so it must land in the same
+# directory as them. Upstream added it after our merge-base; this Dockerfile is
+# fork-authored, so it did not inherit the COPY and both entrypoints died on
+# "cannot open .../entrypoint-env-guard.sh".
+COPY ./docker/entrypoint-env-guard.sh /usr/local/bin/entrypoint-env-guard.sh
+
 COPY ./docker/web-entrypoint.sh /usr/local/bin/web-entrypoint.sh
 RUN chmod +x /usr/local/bin/web-entrypoint.sh
 
