@@ -4,6 +4,7 @@ module Map
   class MaplibreController < ApplicationController
     include SafeTimestampParser
     include ImportTimeWindow
+    include PosterStudioContext
 
     before_action :authenticate_user!
     layout 'map'
@@ -11,48 +12,26 @@ module Map
     def index
       @start_at = parsed_start_at
       @end_at = parsed_end_at
-
-      # Status counts shown in the Timeline tab's FILTER section — scoped to
-      # the calendar's currently-visible month so the numbers reflect "what
-      # you're looking at" rather than the user's lifetime totals.
-      summary = Timeline::MonthSummary.new(user: current_user, month: timeline_month).call
-      @status_counts = summary[:status_counts] || {}
-
-      # Pending-suggestion badge on the map-edge cluster — kept lifetime-scoped
-      # so the user sees their global review backlog at a glance, regardless
-      # of which month the calendar lands on.
-      @suggestions_pending_count = current_user.scoped_visits.suggested.count
+      @import_id = import_record&.id
 
       # Tag chips displayed in the rail; capped so the list doesn't explode.
       @timeline_tags = current_user.tags.order(:name).limit(8)
+
+      # Theme tokens power both the poster studio and the Appearance section's
+      # custom map colors.
+      load_poster_studio_context
 
       # vicquick fork: open the map centred on the most recent tracked point
       # (city-level default zoom). Coords live in the PostGIS `lonlat` geometry —
       # the latitude/longitude columns are often nil — so read from there.
       last = current_user.points.where.not(lonlat: nil).order(timestamp: :desc).first
-      if last&.lonlat
-        @last_lon = last.lonlat.x
-        @last_lat = last.lonlat.y
-      end
+      return unless last&.lonlat
+
+      @last_lon = last.lonlat.x
+      @last_lat = last.lonlat.y
     end
 
     private
-
-    # Reuses the same month-resolution rule as the calendar helper so the
-    # filter pills are aligned with whatever month the calendar lands on
-    # (params[:date] > params[:start_at] > today in user's tz).
-    def timeline_month
-      tz = current_user.safe_settings.timezone.presence || 'UTC'
-      candidate = params[:date].presence || params[:start_at].presence
-      if candidate
-        parsed = begin
-          Date.parse(candidate)
-        rescue StandardError
-          nil
-        end
-      end
-      parsed || Time.use_zone(tz) { Date.current }
-    end
 
     def start_at
       return safe_timestamp(params[:start_at]) if params[:start_at].present?

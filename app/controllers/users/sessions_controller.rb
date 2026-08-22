@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class Users::SessionsController < Devise::SessionsController
+  include PendingImportClaimable
+
   before_action :load_invitation_context, only: [:new]
   before_action :check_email_password_login_allowed, only: [:create]
   prepend_before_action :check_otp_required, only: [:create]
@@ -9,11 +11,19 @@ class Users::SessionsController < Devise::SessionsController
     super
   end
 
-  # Force "remember me" so the 6-month persistent cookie is always issued —
-  # a private daily-use map app should not log you out overnight.
+  # vicquick fork: force "remember me" so the 6-month persistent cookie is
+  # always issued — a private daily-use map app should not log you out
+  # overnight.
   def create
     params[:user] ||= {}
     params[:user][:remember_me] = '1'
+    super
+  end
+
+  protected
+
+  def after_sign_in_path_for(resource)
+    claim_pending_import_for(resource)
     super
   end
 
@@ -39,7 +49,8 @@ class Users::SessionsController < Devise::SessionsController
     return unless DawarichSettings.oidc_enabled?
     return if ALLOW_EMAIL_PASSWORD_LOGIN
 
-    redirect_to root_path, alert: 'Email/password login is disabled. Please use OIDC to sign in.'
+    redirect_to root_path,
+                alert: I18n.t('controllers.users.sessions.email_password_login_is_disabled_please_use_oidc_to_sign')
   end
 
   def load_invitation_context

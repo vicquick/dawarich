@@ -111,7 +111,11 @@ RSpec.describe Photos::Search do
       end
     end
 
-    context 'when filtering out videos' do
+    # vicquick fork: videos are kept rather than dropped. Discarding them
+    # silently shrank a trip's gallery (the Sweden trip showed 201 of 202
+    # assets); Immich serves a poster frame on the same thumbnail endpoint, so a
+    # video tile renders like any other and the view badges it.
+    context 'when the source returns a video' do
       let(:immich_photo) { { 'type' => 'video', 'id' => '1' } }
 
       before do
@@ -122,8 +126,11 @@ RSpec.describe Photos::Search do
           .and_return([immich_photo])
       end
 
-      it 'excludes video assets' do
-        expect(service.call).to eq([])
+      it 'keeps video assets, tagged with their type' do
+        result = service.call
+
+        expect(result.size).to eq(1)
+        expect(result.first).to include(id: '1', type: 'video', source: 'immich')
       end
     end
   end
@@ -146,6 +153,50 @@ RSpec.describe Photos::Search do
         expect(service.start_date).to eq(start_date)
         expect(service.end_date).to eq(end_date)
       end
+    end
+  end
+
+  describe '.cached' do
+    let(:immich_photo) { { 'type' => 'image', 'id' => '1' } }
+    let(:serialized_photo) { { id: '1', source: 'immich' } }
+    let(:args) { { start_date: '2024-01-01', end_date: '2024-03-01' } }
+
+    before do
+      allow(user).to receive(:immich_integration_configured?).and_return(true)
+      allow(user).to receive(:photoprism_integration_configured?).and_return(false)
+      allow_any_instance_of(Api::PhotoSerializer).to receive(:call).and_return(serialized_photo)
+    end
+
+    it 'returns the search results' do
+      allow_any_instance_of(Immich::RequestPhotos).to receive(:call).and_return([immich_photo])
+
+      expect(described_class.cached(user, **args)).to eq([serialized_photo])
+    end
+
+    it 'does not re-run the upstream search on a second call within the window' do
+      call_count = 0
+      allow_any_instance_of(Immich::RequestPhotos).to receive(:call) do
+        call_count += 1
+        [immich_photo]
+      end
+
+      described_class.cached(user, **args)
+      described_class.cached(user, **args)
+
+      expect(call_count).to eq(1)
+    end
+
+    it 'does not cache an empty result, so a transient empty re-queries upstream' do
+      call_count = 0
+      allow_any_instance_of(Immich::RequestPhotos).to receive(:call) do
+        call_count += 1
+        []
+      end
+
+      described_class.cached(user, **args)
+      described_class.cached(user, **args)
+
+      expect(call_count).to eq(2)
     end
   end
 end

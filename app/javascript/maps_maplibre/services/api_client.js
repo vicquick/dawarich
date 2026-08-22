@@ -3,9 +3,10 @@
  * Wraps all API endpoints with consistent error handling
  */
 export class ApiClient {
-  constructor(apiKey) {
+  constructor(apiKey, importId = null) {
     this.apiKey = apiKey
     this.baseURL = "/api/v1"
+    this.importId = importId
   }
 
   /**
@@ -22,6 +23,8 @@ export class ApiClient {
       slim: "true",
       order: "asc",
     })
+
+    if (this.importId) params.append("import_id", this.importId)
 
     const response = await fetch(`${this.baseURL}/points?${params}`, {
       headers: this.getHeaders(),
@@ -634,6 +637,8 @@ export class ApiClient {
       per_page: "10000", // Get all points in area (up to 10k)
     })
 
+    if (this.importId) params.append("import_id", this.importId)
+
     const response = await fetch(`${this.baseURL}/points?${params}`, {
       headers: this.getHeaders(),
     })
@@ -908,6 +913,30 @@ export class ApiClient {
 
     if (!response.ok) {
       throw new Error(`Failed to fetch timeline: ${response.statusText}`)
+    }
+
+    return response.json()
+  }
+
+  /**
+   * Fetch AirTrail flights for a date range as a GeoJSON FeatureCollection.
+   * @param {Object} options - { start_at, end_at }
+   * @returns {Promise<Object>} GeoJSON FeatureCollection
+   */
+  async fetchFlights({ start_at, end_at } = {}) {
+    const params = new URLSearchParams()
+    if (start_at) params.set("start_at", start_at)
+    if (end_at) params.set("end_at", end_at)
+
+    const query = params.toString()
+    const url = query
+      ? `${this.baseURL}/flights?${query}`
+      : `${this.baseURL}/flights`
+
+    const response = await fetch(url, { headers: this.getHeaders() })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch flights: ${response.statusText}`)
     }
 
     return response.json()

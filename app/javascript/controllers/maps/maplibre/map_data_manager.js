@@ -1,6 +1,13 @@
+import { translate } from "i18n"
 import maplibregl from "maplibre-gl"
 import { Toast } from "maps_maplibre/components/toast"
 import { UpgradeBanner } from "maps_maplibre/components/upgrade_banner"
+import {
+  flightWindows,
+  maskLines,
+  maskPoints,
+} from "maps_maplibre/utils/flight_mask"
+import { trimOutlierCoords } from "maps_maplibre/utils/geometry"
 import { isGatedPlan } from "maps_maplibre/utils/layer_gate"
 import { performanceMonitor } from "maps_maplibre/utils/performance_monitor"
 
@@ -42,6 +49,8 @@ export class MapDataManager {
     let data = null
 
     try {
+      this.layerManager.updatePointTileRange(startDate, endDate)
+
       // 1. Initialize all layers with empty data for correct z-ordering
       await this._setupLayers({
         pointsGeoJSON: EMPTY_GEOJSON,
@@ -82,12 +91,17 @@ export class MapDataManager {
           )
           this._updateTracksLayer(tracksGeoJSON)
           // Tracks usually have the largest bbox of any layer (they include
-          // every leg between visits), so once they arrive we always re-fit
-          // to them — even if the initial fit already snapped to visits or
-          // points. Tracks tend to contain those locations too, so the new
-          // view supersets the old one rather than losing context.
+          // every leg between visits), so when they arrive late we re-fit to
+          // them — but if an earlier fit already covers them we skip the
+          // pointless blink, and otherwise ease rather than snap so the late
+          // correction reads as intentional. skipIfCovered only applies
+          // after a real fit: the initial world view trivially "covers"
+          // everything and must not suppress the only fit.
           if (fitBounds && tracksGeoJSON?.features?.length) {
-            this._fitMapToBounds(tracksGeoJSON)
+            this._fitMapToBounds(tracksGeoJSON, {
+              skipIfCovered: this._hasFittedBounds,
+              animate: this._hasFittedBounds,
+            })
             this._hasFittedBounds = true
           }
         },
@@ -110,8 +124,10 @@ export class MapDataManager {
         this._showDataWindowBanner()
       }
 
-      // 6. Fit bounds if requested — use the first available data source
-      if (fitBounds) {
+      // 6. Fit bounds if requested — use the first available data source.
+      // Skipped when the tracks background fetch already fitted (it can
+      // land first on fast responses) so we never fit twice.
+      if (fitBounds && !this._hasFittedBounds) {
         this._hasFittedBounds = this._fitToFirstAvailable([
           data.pointsGeoJSON,
           data.routesGeoJSON,
@@ -144,7 +160,9 @@ export class MapDataManager {
       if (showLoading) {
         this.controller.hideProgress()
       }
-      Toast.error("Failed to load location data. Please try again.")
+      Toast.error(
+        translate("messages.failed_to_load_location_data_please_try_again"),
+      )
       throw error
     } finally {
       const duration = performanceMonitor.measure("load-map-data")
@@ -202,11 +220,16 @@ export class MapDataManager {
         isComplete: false,
       })
 
-      const { points, pointsGeoJSON, routesGeoJSON, routesBaseGeoJSON } =
-        await this.dataLoader.fetchPointsData(
-          this.controller.startDateValue,
-          this.controller.endDateValue,
-        )
+      const {
+        points,
+        pointsGeoJSON,
+        allPointsGeoJSON,
+        routesGeoJSON,
+        routesBaseGeoJSON,
+      } = await this.dataLoader.fetchPointsData(
+        this.controller.startDateValue,
+        this.controller.endDateValue,
+      )
 
       if (!this.lastLoadedData) this.lastLoadedData = {}
       this.lastLoadedData.points = points
@@ -215,11 +238,12 @@ export class MapDataManager {
       this.lastLoadedData.routesBaseGeoJSON = routesBaseGeoJSON
 
       this._updateLayerBySource("points", pointsGeoJSON)
-      this._updateLayerBySource("heatmap", pointsGeoJSON)
+      // Heatmap, fog and scratch need all points
+      this._updateLayerBySource("heatmap", allPointsGeoJSON)
       this._updateLayerBySource("routes", routesGeoJSON)
       this._updateLayerBySource("routes-base", routesBaseGeoJSON)
-      this._updateLayerBySource("fog", pointsGeoJSON)
-      this._updateLayerBySource("scratch", pointsGeoJSON)
+      this._updateLayerBySource("fog", allPointsGeoJSON)
+      this._updateLayerBySource("scratch", allPointsGeoJSON)
 
       this.controller.updateLoadingCounts({
         counts: { points: points.length },
@@ -256,6 +280,7 @@ export class MapDataManager {
       photos: "photos",
       fog: "fog",
       scratch: "scratch",
+      flights: "flights",
     }
     const layerName = layerMap[source]
     if (!layerName) return
@@ -263,6 +288,44 @@ export class MapDataManager {
     const layer = this.layerManager?.getLayer(layerName)
     if (layer) {
       layer.update(geoJSON)
+    }
+
+    if (source === "flights") {
+      this.applyFlightMask()
+    }
+  }
+
+  /**
+   * Give AirTrail flights render priority: when the Flights layer is visible,
+   * hide GPS points/routes/tracks that fall inside a flight's time window.
+   * When hidden, restore the original (unmasked) GPS geometry. Reversible.
+   */
+  applyFlightMask() {
+    const flightsLayer = this.layerManager?.getLayer("flights")
+    const data = this.lastLoadedData
+    if (!data) return
+
+    const pointsLayer = this.layerManager?.getLayer("points")
+    const routesLayer = this.layerManager?.getLayer("routes")
+    const tracksLayer = this.layerManager?.getLayer("tracks")
+
+    const windows = flightsLayer?.visible
+      ? flightWindows(data.flightsGeoJSON)
+      : []
+
+    if (windows.length === 0) {
+      pointsLayer?.update(data.pointsGeoJSON || EMPTY_GEOJSON)
+      routesLayer?.update(data.routesGeoJSON || EMPTY_GEOJSON)
+      if (data.tracksGeoJSON) tracksLayer?.update(data.tracksGeoJSON)
+      return
+    }
+
+    pointsLayer?.update(
+      maskPoints(data.pointsGeoJSON || EMPTY_GEOJSON, windows),
+    )
+    routesLayer?.update(maskLines(data.routesGeoJSON || EMPTY_GEOJSON, windows))
+    if (data.tracksGeoJSON) {
+      tracksLayer?.update(maskLines(data.tracksGeoJSON, windows))
     }
   }
 
@@ -308,6 +371,7 @@ export class MapDataManager {
         data.areasGeoJSON,
         data.tracksGeoJSON,
         data.placesGeoJSON,
+        data.flightsGeoJSON,
       )
 
       // Setup event handlers after layers are added
@@ -393,37 +457,53 @@ export class MapDataManager {
 
   /**
    * Fit map to data bounds. Handles Point, LineString, and Polygon geometries.
+   * Sparse extreme outliers (stray GPS points, lone far-away arcs) are trimmed
+   * first so one bad coordinate can't drag the viewport into the ocean.
    * @private
    */
-  _fitMapToBounds(geojson) {
+  _fitMapToBounds(geojson, { animate = false, skipIfCovered = false } = {}) {
     if (!geojson?.features?.length) return
 
-    const bounds = new maplibregl.LngLatBounds()
+    const coords = []
 
     for (const feature of geojson.features) {
       const { type, coordinates } = feature.geometry
       if (type === "Point") {
-        bounds.extend(coordinates)
+        coords.push(coordinates)
       } else if (type === "LineString") {
-        for (const coord of coordinates) {
-          bounds.extend(coord)
-        }
+        coords.push(...coordinates)
       } else if (type === "Polygon" || type === "MultiLineString") {
         for (const ring of coordinates) {
-          for (const coord of ring) {
-            bounds.extend(coord)
-          }
+          coords.push(...ring)
         }
       }
     }
 
-    if (!bounds.isEmpty()) {
-      this.map.fitBounds(bounds, {
-        padding: 50,
-        maxZoom: 15,
-        animate: false,
-      })
+    const bounds = new maplibregl.LngLatBounds()
+    for (const coord of trimOutlierCoords(coords)) {
+      bounds.extend(coord)
     }
+
+    if (bounds.isEmpty()) return
+    if (skipIfCovered && this._boundsCovered(bounds)) return
+
+    this.map.fitBounds(bounds, {
+      padding: 50,
+      maxZoom: 15,
+      animate,
+    })
+  }
+
+  /**
+   * Whether the current viewport already contains the given bounds.
+   * @private
+   */
+  _boundsCovered(bounds) {
+    const view = this.map.getBounds()
+    return (
+      view.contains(bounds.getSouthWest()) &&
+      view.contains(bounds.getNorthEast())
+    )
   }
 
   /**
@@ -438,7 +518,9 @@ export class MapDataManager {
 
     if (startDate < twelveMonthsAgo) {
       UpgradeBanner.show({
-        message: "Your Lite plan includes the last 12 months of data.",
+        message: translate(
+          "messages.your_lite_plan_includes_the_last_12_months_of_data",
+        ),
         upgradeUrl: this.controller.upgradeUrlValue,
         utmContent: "data_retention",
       })

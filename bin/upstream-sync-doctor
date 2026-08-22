@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# upstream-sync-doctor — post-sync integrity checks for this fork.
+#
+# Every check here exists because the 2026-08-20 sync broke in exactly that way
+# and CI took ~16 minutes per round trip to tell us. Run this instead: it is
+# static, needs no database, and finishes in seconds.
+#
+#   bin/upstream-sync-doctor              # all static checks
+#   bin/upstream-sync-doctor --rails      # + route checks (boots Rails)
+#   bin/upstream-sync-doctor --check NAME # one check, by name
+#
+# Exit 0 = clean, 1 = at least one check failed.
+#
+# Each check prints FAIL lines that name a concrete file. Nothing here decides
+# whether a divergence is a bug or a deliberate fork choice — that judgement is
+# the Q&A pass in UPSTREAM-SYNC.md.
+
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 2
+
+UPSTREAM_REF="${UPSTREAM_REF:-upstream/master}"
+FORK_REF="${FORK_REF:-origin/master}"
+
+RED=$'\e[31m'; GRN=$'\e[32m'; YLW=$'\e[33m'; DIM=$'\e[2m'; RST=$'\e[0m'
+[ -t 1 ] || { RED=; GRN=; YLW=; DIM=; RST=; }
+
+FAILED=0
+ONLY="${*:0}"
+WANT_RAILS=0
+PICK=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rails) WANT_RAILS=1 ;;
+    --check) PICK="$2"; shift ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  esac
+  shift
+done
+
+want() { [ -z "$PICK" ] || [ "$PICK" = "$1" ]; }
+hdr()  { want "$1" && printf '\n%s── %s%s  %s\n' "$DIM" "$1" "$RST" "$2"; }
+ok()   { printf '   %sok%s   %s\n' "$GRN" "$RST" "$1"; }
+bad()  { printf '   %sFAIL%s %s\n' "$RED" "$RST" "$1"; FAILED=1; }
+warn() { printf '   %swarn%s %s\n' "$YLW" "$RST" "$1"; }
+
+MB="$(git merge-base "$FORK_REF" "$UPSTREAM_REF" 2>/dev/null)"
+if [ -z "$MB" ]; then
+  echo "cannot resolve merge-base of $FORK_REF and $UPSTREAM_REF — run: git fetch origin upstream" >&2
+  exit 2
+fi
+
+# ---------------------------------------------------------------- fork-work
+# The sync's worst possible outcome: a fork feature silently gone. Compare
+# against the MERGE-BASE, not upstream's tip — measuring against the tip counts
+# every file upstream legitimately deleted as "fork-only" and buries the signal
+# (that mistake produced a 109-file false alarm on 2026-08-20; the real answer
+# was 0).
+if want fork-files; then
+  hdr fork-files "every file the fork authored still exists"
+  missing=0
+  while read -r f; do
+    [ -n "$f" ] || continue
+    [ -e "$f" ] || { bad "lost fork-authored file: $f"; missing=$((missing+1)); }
+  done < <(comm -23 \
+             <(comm -23 <(git ls-tree -r "$FORK_REF" --name-only | sort) \
+                        <(git ls-tree -r "$MB"        --name-only | sort)) \
+             <(git ls-tree -r "$UPSTREAM_REF" --name-only | sort))
+  [ "$missing" -eq 0 ] && ok "no fork-authored file lost"
+fi
+
+# ------------------------------------------------------------------- schema
+# CI builds the test DB with `rails db:schema:load`, so a migration missing
+# from schema.rb does not exist as far as specs are concerned — and production
+# stays fine because it runs db:migrate, which is why this drifts unnoticed.
+if want schema; then
+  hdr schema "db/schema.rb reflects every migration"
+  if [ ! -f db/schema.rb ]; then
+    warn "no db/schema.rb"
+  else
+    sv=$(grep -oE 'define\(version: [0-9_]+\)' db/schema.rb | grep -oE '[0-9_]+' | tr -d _)
+    latest=$(ls db/migrate/ 2>/dev/null | grep -oE '^[0-9]{14}' | sort | tail -1)
+    if [ -n "$sv" ] && [ -n "$latest" ] && [ "$sv" -lt "$latest" ]; then
+      bad "schema version $sv is behind latest migration $latest"
+    fi
+    drift=0
+    for m in db/migrate/*.rb; do
+      [ -e "$m" ] || continue
+      # create_table :foo  ->  create_table "foo" must appear
+      while read -r t; do
+        [ -n "$t" ] || continue
+        grep -q "create_table \"$t\"" db/schema.rb \
+          || { bad "table '$t' from $(basename "$m") missing in schema.rb"; drift=1; }
+      done < <(grep -oE 'create_table :[a-z_0-9]+' "$m" | sed 's/create_table ://')
+      # add_column :table, :col  ->  "col" must appear inside that table block
+      while read -r pair; do
+        [ -n "$pair" ] || continue
+        tbl=${pair%%|*}; col=${pair##*|}
+        blk=$(sed -n "/create_table \"$tbl\"/,/^  end$/p" db/schema.rb)
+        [ -n "$blk" ] || continue   # table itself already reported above
+        grep -q "\"$col\"" <<<"$blk" \
+          || { bad "column $tbl.$col from $(basename "$m") missing in schema.rb"; drift=1; }
+      done < <(grep -oE 'add_column :[a-z_0-9]+, :[a-z_0-9]+' "$m" \
+                 | sed -E 's/add_column :([a-z_0-9]+), :([a-z_0-9]+)/\1|\2/')
+    done
+    [ "$drift" -eq 0 ] && ok "schema.rb covers all migrations"
+  fi
+fi
+
+# ------------------------------------------------------------------ partials
+# A shared view kept ours while upstream deleted the partial it renders. Fails
+# at request time as ActionView::MissingTemplate, which in a request spec takes
+# out every example that renders that page.
+if want partials; then
+  hdr partials "every rendered partial exists"
+  miss=0
+  while read -r ref; do
+    [ -n "$ref" ] || continue
+    dir=$(dirname "$ref"); base=$(basename "$ref")
+    [ "$dir" = "." ] && continue                      # bare name: local lookup, skip
+    ls app/views/"$dir"/_"$base".* >/dev/null 2>&1 \
+      || { bad "partial not found: $ref  (rendered from $(grep -rl "render '$ref'" app/views | head -1))"; miss=1; }
+  done < <(grep -rhoE "render '[a-z0-9_]+(/[a-z0-9_]+)+'" app/views 2>/dev/null \
+             | sed -E "s/render '//;s/'//" | sort -u)
+  [ "$miss" -eq 0 ] && ok "all rendered partials resolve"
+fi
+
+# ----------------------------------------------------------------- js-imports
+# The signature cross-file failure: layer_manager.js resolved to upstream and
+# imports a helper, event_handlers.js resolved to ours and never had it.
+if want js-imports; then
+  hdr js-imports "named JS imports resolve to a real export"
+  miss=0
+  while read -r line; do
+    [ -n "$line" ] || continue
+    src=${line%%|*}; rest=${line#*|}
+    path=${rest%%|*}; names=${rest##*|}
+    # importmap-ish resolution: try the literal path under app/javascript, then
+    # the last two segments, then the basename.
+    tgt=""
+    for cand in "app/javascript/$path.js" \
+                "app/javascript/${path#*/}.js" \
+                $(find app/javascript -name "$(basename "$path").js" 2>/dev/null); do
+      [ -f "$cand" ] && { tgt="$cand"; break; }
+    done
+    [ -n "$tgt" ] || continue          # unresolved module: bare npm dep, skip
+    for n in $(tr ',' ' ' <<<"$names"); do
+      n=$(tr -d ' ' <<<"$n"); [ -n "$n" ] || continue
+      grep -qE "export (default )?(async )?(function\*?|const|let|var|class) $n\b|export \{[^}]*\b$n\b" "$tgt" \
+        || { bad "$src imports '$n' from $tgt, which does not export it"; miss=1; }
+    done
+  done < <(grep -rhoE "^import \{[^}]+\} from \"[^\"]+\"" app/javascript --include='*.js' -r 2>/dev/null \
+             | while read -r l; do
+                 f=$(grep -rl "$l" app/javascript --include='*.js' 2>/dev/null | head -1)
+                 nm=$(sed -E 's/^import \{([^}]+)\}.*/\1/' <<<"$l")
+                 pa=$(sed -E 's/.*from "([^"]+)".*/\1/' <<<"$l")
+                 echo "$f|$pa|$nm"
+               done | sort -u)
+  [ "$miss" -eq 0 ] && ok "all named imports resolve"
+fi
+
+# -------------------------------------------------------------- dsl-duplicates
+# Union merges happily emit the same registration twice. For most Rails DSLs the
+# second silently wins: a duplicated `retry_on` cost us the retries-exhausted
+# logging and re-raised instead.
+if want dsl-dupes; then
+  hdr dsl-dupes "no DSL registration declared twice in one file"
+  dupes=0
+  while read -r hit; do
+    [ -n "$hit" ] || continue
+    bad "duplicate registration: $hit"; dupes=1
+  done < <(
+    for f in $(git diff --name-only "$MB"...HEAD -- app/ 2>/dev/null | grep '\.rb$'); do
+      [ -f "$f" ] || continue
+      # Key on keyword + first argument only. The duplicate that actually bit us
+      # was `retry_on X, ... do |job, error|` alongside a bare `retry_on X, ...`:
+      # not identical lines, but the same registration — and the later one wins,
+      # silently discarding the first one's block.
+      grep -oE '^\s+(retry_on|discard_on|belongs_to|has_one|before_action|after_action|around_action|queue_as) +[:A-Za-z_][A-Za-z_:0-9]*' "$f" \
+        | sed -E 's/^\s+//' | sort | uniq -d \
+        | while read -r d; do [ -n "$d" ] && echo "$f: $d"; done
+    done
+  )
+  [ "$dupes" -eq 0 ] && ok "no duplicated registrations"
+fi
+
+# ------------------------------------------------------------ stimulus-targets
+# Views bind data-<controller>-target names the controller must declare, or the
+# element silently stops syncing. This is how 26 transportation-settings targets
+# went missing with the sliders still rendering.
+if want stimulus; then
+  hdr stimulus "every bound Stimulus target is declared"
+  miss=0
+  while read -r pair; do
+    [ -n "$pair" ] || continue
+    ctrl=${pair%%|*}; name=${pair##*|}
+    # data-maps--maplibre-target -> app/javascript/controllers/maps/maplibre_controller.js
+    path="app/javascript/controllers/$(sed 's|--|/|g' <<<"$ctrl")_controller.js"
+    [ -f "$path" ] || continue
+    if ! grep -q 'static targets' "$path"; then
+      # No targets block at all: a no-op/stub controller kept only so an old
+      # data-controller attribute still resolves. Undeclared targets there are
+      # dead markup, not a silent feature break.
+      warn "$(basename "$path") declares no targets; view still binds '$name' (dead markup?)"
+      continue
+    fi
+    sed -n '/static targets = \[/,/^  \]/p' "$path" | grep -q "\"$name\"" \
+      || { bad "$path does not declare target '$name' (bound in a view)"; miss=1; }
+  done < <(grep -rhoE 'data-[a-z0-9-]+-target="[a-zA-Z]+"' app/views 2>/dev/null \
+             | sed -E 's/data-(.*)-target="(.*)"/\1|\2/' | sort -u)
+  [ "$miss" -eq 0 ] && ok "all bound targets declared"
+fi
+
+# ----------------------------------------------------------------- lint-base
+# biome and rubocop in CI diff against the PR base — origin/master — while a
+# local `master` on a sync branch is stale by design. Verifying against the
+# wrong base is how a formatting failure survived a "green" local run.
+if want lint-base; then
+  hdr lint-base "lint the same file set CI will"
+  if command -v npx >/dev/null 2>&1; then
+    n=$(npx --yes @biomejs/biome@2.3.11 ci . --reporter=github \
+          --changed --since="$FORK_REF" --no-errors-on-unmatched 2>/dev/null \
+          | grep -c '^::error')
+    [ "$n" -eq 0 ] && ok "biome clean vs $FORK_REF" || bad "biome: $n errors vs $FORK_REF"
+  else
+    warn "npx unavailable — biome skipped"
+  fi
+  if command -v bundle >/dev/null 2>&1; then
+    rbfiles=$(git diff --name-only --diff-filter=AM "$FORK_REF"...HEAD \
+                | grep -E '\.(rb|rake)$|^Gemfile$|^Rakefile$' | xargs)
+    if [ -n "$rbfiles" ]; then
+      # shellcheck disable=SC2086
+      out=$(bundle exec rubocop --force-exclusion --format simple $rbfiles 2>&1 | tail -1)
+      case "$out" in
+        *"no offenses"*) ok "rubocop clean vs $FORK_REF ($out)" ;;
+        *)               bad "rubocop: $out" ;;
+      esac
+    else
+      ok "no ruby files changed vs $FORK_REF"
+    fi
+  else
+    warn "no bundler here — rubocop skipped; re-run inside the app container"
+  fi
+fi
+
+# -------------------------------------------------------------------- routes
+# Needs Rails. Two distinct hazards, both ours, both silent:
+#   shadowing — a fork route declared before an upstream one with an overlapping
+#               pattern swallows it (/s/:token ate /s/:id)
+#   squatting — an unnamed route inside a namespace claims the bare namespace
+#               name, so map_path stopped meaning /map
+if want routes && [ "$WANT_RAILS" -eq 1 ]; then
+  hdr routes "no greedy route shadows another"
+  if ! command -v bundle >/dev/null 2>&1; then
+    warn "no bundler here — run with --rails inside the app container"
+  else
+    # Only a genuinely GREEDY earlier route is a hazard: same verb, same shape,
+    # and its dynamic segments carry no requirement, so it swallows everything
+    # the later route wanted. Our /s/:token ate upstream's /s/:id exactly this
+    # way. The two coexist safely now only because the shared-link route pins
+    # :id to a uuid — so a constrained pair is deliberate and NOT reported.
+    # Mounted engines (no controller) are skipped: Rack apps legitimately overlap.
+    #
+    # There is no static check for the mirror hazard — a rename leaving dangling
+    # foo_path call sites. A regex cannot tell a route helper from a local named
+    # file_path, and trying produced ~230 false positives. rspec already catches
+    # it: a missing helper raises NoMethodError the first time it is called.
+    bundle exec rails runner '
+      groups = Hash.new { |h, k| h[k] = [] }
+      Rails.application.routes.routes.each do |r|
+        next if r.defaults[:controller].nil?
+        shape = r.path.spec.to_s.sub(/\(\.:format\)\z/, "").gsub(/:[a-z_]+/, ":x")
+        groups[[r.verb, shape]] << r
+      end
+      groups.each do |(verb, shape), rr|
+        next if rr.size < 2
+        first = rr.first
+        segs  = first.path.spec.to_s.scan(/:([a-z_]+)/).flatten - ["format"]
+        next if segs.any? && segs.all? { |sg| first.requirements.key?(sg.to_sym) }
+        # same controller AND action on both sides is a duplicate definition,
+        # not one route hiding another
+        next if rr.map { |r| [r.defaults[:controller], r.defaults[:action]] }.uniq.size == 1
+        later = rr[1..].map { |r| "#{r.name || "(unnamed)"}->#{r.defaults[:controller]}" }
+        puts "SHADOW #{verb} #{shape}: #{first.name || "(unnamed)"}->#{first.defaults[:controller]} " \
+             "is unconstrained and precedes #{later.join(", ")}"
+      end
+    ' 2>/dev/null > /tmp/.doctor_shadows
+    if [ -s /tmp/.doctor_shadows ]; then
+      while read -r l; do bad "${l#SHADOW }"; done < /tmp/.doctor_shadows
+    else
+      ok "no greedy route shadowing"
+    fi
+    rm -f /tmp/.doctor_shadows
+  fi
+elif want routes; then
+  hdr routes "no route shadows or renames an upstream route"
+  warn "skipped — pass --rails (inside the app container) to run"
+fi
+
+printf '\n'
+if [ "$FAILED" -eq 0 ]; then
+  printf '%sall checks passed%s — mechanical integrity is fine.\n' "$GRN" "$RST"
+  printf '%sThat is not "the sync is done": stale expectations (a spec asserting\n' "$DIM"
+  printf 'upstream behaviour the fork deliberately changed) are invisible here and\n'
+  printf 'need the Q&A pass in UPSTREAM-SYNC.md.%s\n' "$RST"
+else
+  printf '%ssome checks failed%s — see UPSTREAM-SYNC.md for how to classify each.\n' "$RED" "$RST"
+fi
+exit "$FAILED"

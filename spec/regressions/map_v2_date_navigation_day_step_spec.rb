@@ -12,7 +12,9 @@ RSpec.describe 'Map v2 date-navigation step is exactly one day', type: :request 
   def nav_links_from(body)
     doc = Nokogiri::HTML(body)
     hrefs = doc.css('a.btn').map { |a| a['href'] }.compact.select do |href|
-      href.start_with?('/map/v2?') && href.include?('start_at=') && href.include?('end_at=')
+      # vicquick fork: the nav renders the canonical /map (the fork dropped the
+      # version from the URL); /map/v2 only survives as a redirect.
+      href.start_with?('/map?') && href.include?('start_at=') && href.include?('end_at=')
     end
     hrefs.map { |h| Rack::Utils.parse_nested_query(URI.parse(h).query) }
   end
@@ -22,7 +24,7 @@ RSpec.describe 'Map v2 date-navigation step is exactly one day', type: :request 
     let(:end_at)   { Time.zone.parse('2026-04-28 23:59:00') }
 
     it 'shifts the prev link back exactly 24 hours, preserving the window width' do
-      get map_v2_path(start_at: start_at.iso8601, end_at: end_at.iso8601)
+      get map_path(start_at: start_at.iso8601, end_at: end_at.iso8601)
 
       params_sets = nav_links_from(response.body)
       prev_link = params_sets.find do |p|
@@ -41,7 +43,7 @@ RSpec.describe 'Map v2 date-navigation step is exactly one day', type: :request 
     end
 
     it 'shifts the next link forward exactly 24 hours, preserving the window width' do
-      get map_v2_path(start_at: start_at.iso8601, end_at: end_at.iso8601)
+      get map_path(start_at: start_at.iso8601, end_at: end_at.iso8601)
 
       params_sets = nav_links_from(response.body)
       next_link = params_sets.find do |p|
@@ -69,7 +71,7 @@ RSpec.describe 'Map v2 date-navigation step is exactly one day', type: :request 
     let(:end_at)   { Time.zone.now.end_of_day }
 
     it 'shifts the prev link back exactly 24 hours' do
-      get map_v2_path(start_at: start_at.iso8601, end_at: end_at.iso8601)
+      get map_path(start_at: start_at.iso8601, end_at: end_at.iso8601)
 
       params_sets = nav_links_from(response.body)
       prev_link = params_sets.find do |p|

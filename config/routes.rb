@@ -64,9 +64,6 @@ Rails.application.routes.draw do
       end
     end
 
-    resources :maps, only: %i[index]
-    patch 'maps', to: 'maps#update'
-
     resource :two_factor, only: %i[show create destroy], controller: 'two_factor' do
       post :verify, on: :member
     end
@@ -100,9 +97,17 @@ Rails.application.routes.draw do
   get 'trial/resume', to: 'trial/resume#show', as: :trial_resume
   get 'trial/welcome', to: 'trial/welcome#show', as: :trial_welcome
 
-  resources :imports
+  resources :imports do
+    resource :extraction, only: %i[create destroy], controller: 'imports/extractions'
+  end
   resources :tracks, only: [] do
     resources :segments, controller: 'tracks/segments', only: %i[index update]
+
+    resource :share_link, only: %i[new create destroy], controller: 'tracks/share_links' do
+      patch :revoke
+      post  :regenerate
+      post  :regenerate_phrase
+    end
   end
   # Temporary (302) during the unified-timeline rollout; promote to :moved_permanently (301)
   # once the redesign is known-stable so browsers cache the redirect.
@@ -125,6 +130,7 @@ Rails.application.routes.draw do
     end
   end
   resources :exports, only: %i[index create destroy]
+  resources :posters, only: %i[create destroy]
   resources :trips do
     member do
       post :recalculate
@@ -132,32 +138,69 @@ Rails.application.routes.draw do
       # vicquick fork: create/find this trip's shareable story
       post :story, to: 'stories#create'
     end
+    resources :notes, controller: 'trips/notes', only: %i[create update destroy]
+
+    resource :share_link, only: %i[new create destroy], controller: 'trips/share_links' do
+      patch :revoke
+      post  :regenerate
+      post  :regenerate_phrase
+    end
+  end
+
+  namespace :share_links do
+    resource :hub, only: :show, controller: 'hubs'
+    resources :shares, only: [] do
+      member { patch :revoke }
+    end
+    resource :timeline, only: %i[new create destroy], controller: 'timelines' do
+      patch :revoke
+      post  :regenerate
+      post  :regenerate_phrase
+    end
+    resource :live, only: %i[new create destroy], controller: 'lives' do
+      patch :revoke
+      post  :regenerate
+      post  :regenerate_phrase
+    end
   end
   resources :stories, only: %i[index update destroy]
+
+  # Public shared-link viewer.
+  #
+  # vicquick fork: this shares the /s/ prefix with our story pages below, so it
+  # must be declared FIRST and constrained. shared_links.id is a uuid, while a
+  # story token is SecureRandom.urlsafe_base64(16) and never carries the uuid's
+  # dash groups — so the constraint separates them with no ambiguity. Declared
+  # the other way round (as it was after the sync), the unconstrained :token
+  # route swallowed every /s/:id request and shared links 404'd.
+  uuid_re = /\h{8}-\h{4}-\h{4}-\h{4}-\h{12}/
+  get  '/s/:id',         to: 'shared/links#show',     as: :public_shared_link,        id: uuid_re
+  post '/s/:id/unlock',  to: 'shared/links#unlock',   as: :unlock_public_shared_link, id: uuid_re
+
   # vicquick fork: public cinematic story page — tokened, publish-gated
   get 's/:token', to: 'public/stories#show', as: :story_public
   post 's/:token/unlock', to: 'public/stories#unlock', as: :story_unlock
   get 's/:token/photo/:sig', to: 'public/stories#photo', as: :story_photo, sig: %r{[^/]+}
   resources :tags, except: [:show]
 
-  # Family management routes (only if feature is enabled)
-  if DawarichSettings.family_feature_enabled?
-    resource :family, only: %i[show new create edit update destroy] do
-      resources :invitations, except: %i[edit update], controller: 'family/invitations'
-      resources :members, only: %i[destroy], controller: 'family/memberships'
-      resources :location_requests, only: %i[show create], controller: 'family/location_requests' do
-        member do
-          patch :accept
-          patch :decline
-        end
+  # Family management routes. Always defined — per-user access is enforced by
+  # ApplicationController#ensure_family_feature_available!, since the routes are
+  # built at boot and cannot depend on the current user's plan.
+  resource :family, only: %i[show new create edit update destroy] do
+    resources :invitations, except: %i[edit update], controller: 'family/invitations'
+    resources :members, only: %i[destroy], controller: 'family/memberships'
+    resources :location_requests, only: %i[show create], controller: 'family/location_requests' do
+      member do
+        patch :accept
+        patch :decline
       end
-
-      patch 'location_sharing', to: 'family/location_sharing#update', as: :location_sharing
     end
 
-    get 'invitations/:token', to: 'family/invitations#show', as: :public_invitation
-    post 'family/memberships', to: 'family/memberships#create', as: :accept_family_invitation
+    patch 'location_sharing', to: 'family/location_sharing#update', as: :location_sharing
   end
+
+  get 'invitations/:token', to: 'family/invitations#show', as: :public_invitation
+  post 'family/memberships', to: 'family/memberships#create', as: :accept_family_invitation
 
   resources :points, only: %i[index] do
     collection do
@@ -241,10 +284,15 @@ Rails.application.routes.draw do
 
   # Map namespace with versioning
   namespace :map do
-    get '/v1', to: 'leaflet#index', as: :v1
+    # vicquick fork: upstream deleted the Leaflet map (Map::LeafletController is
+    # gone as of the 2026-08-20 sync), so /map/v1 can no longer render it —
+    # redirect to our canonical /map instead of booting a missing controller.
+    get '/v1', to: redirect(path: '/map')
     # vicquick fork: /map is canonical (no version in the URL) — old /map/v2
     # links redirect there, query string preserved.
-    get '/v2', to: redirect { |_p, req| req.query_string.to_s.empty? ? '/map' : "/map?#{req.query_string}" }, as: :v2_legacy
+    get '/v2', as: :v2_legacy, to: redirect { |_p, req|
+      req.query_string.to_s.empty? ? '/map' : "/map?#{req.query_string}"
+    }
     resources :timeline_feeds, only: [:index] do
       get :track_info, on: :member
       get :calendar, on: :collection
@@ -255,15 +303,20 @@ Rails.application.routes.draw do
     # send Access-Control-Allow-Origin (memomaps ÖPNV, German state DOP WMS) —
     # MapLibre loads raster tiles with crossOrigin=anonymous, so they'd fail
     # without this. Same-origin → carries the session cookie (login-gated).
-    get '/tiles/:provider/:z/:x/:y', to: 'tile_proxy#xyz',
+    # Explicitly named: without `as:`, Rails fell back to the bare namespace
+    # name for these, so `map_path` resolved to the tile proxy (and demanded
+    # :provider/:z/:x/:y) instead of the map page. That is what forced /map to
+    # be named :map_v2 below.
+    get '/tiles/:provider/:z/:x/:y', to: 'tile_proxy#xyz', as: :tile_proxy,
         constraints: { z: /\d+/, x: /\d+/, y: /\d+/, format: /png|jpe?g/ }
-    get '/wms/:provider', to: 'tile_proxy#wms'
+    get '/wms/:provider', to: 'tile_proxy#wms', as: :wms_proxy
   end
 
   # Backward compatibility redirects
   # vicquick fork: /map renders the MapLibre map directly (no redirect) — it's
-  # the engine we're standardising on. Explicit /map/v1 still serves Leaflet.
-  get '/map', to: 'map/maplibre#index', as: :map_v2
+  # the engine we're standardising on. Named :map, same as upstream, now that
+  # the tile-proxy routes above no longer squat on that name.
+  get '/map', to: 'map/maplibre#index', as: :map
   # PWA share target — Android "share to Dawarich" lands here (vicquick fork).
   get '/share', to: 'share#receive', as: :share_target
   get '/maps/v2', to: redirect('/map')
@@ -290,6 +343,8 @@ Rails.application.routes.draw do
       patch 'settings', to: 'settings#update'
       get   'settings', to: 'settings#index'
       get   'settings/transportation_recalculation_status', to: 'settings#transportation_recalculation_status'
+      get   'settings/mobile', to: 'settings/mobile#show'
+      patch 'settings/mobile', to: 'settings/mobile#update'
       get   'users/me', to: 'users#me'
       delete 'users/me', to: 'users/destroy#destroy'
 
@@ -305,7 +360,10 @@ Rails.application.routes.draw do
 
       resources :areas,     only: %i[index show create update destroy]
       resources :imports,   only: %i[index show create]
-      resources :places,    only: %i[index show create update destroy] do
+      namespace :imports do
+        post :pending, to: 'pending#create'
+      end
+      resources :places, only: %i[index show create update destroy] do
         collection do
           get 'nearby'
           get 'search'
@@ -332,6 +390,7 @@ Rails.application.routes.draw do
       end
       resource :plan, only: [:show], controller: 'plan'
       resource :residency, only: [:show], controller: 'residency'
+      resource :demo_data, only: %i[show create destroy], controller: 'demo_data'
       resources :recalculations, only: [:create]
       resources :stats, only: :index
       resources :insights, only: :index do
@@ -368,6 +427,10 @@ Rails.application.routes.draw do
         get 'tracked_months', to: 'tracked_months#index'
       end
 
+      namespace :tiles do
+        get 'points/:z/:x/:y.mvt', to: 'points#show', defaults: { format: :mvt }
+      end
+
       resources :photos, only: %i[index] do
         member do
           get 'thumbnail', constraints: { id: %r{[^/]+} }
@@ -379,6 +442,8 @@ Rails.application.routes.draw do
       end
 
       resources :timeline, only: [:index]
+
+      resources :flights, only: %i[index]
 
       namespace :maps do
         resources :hexagons, only: [:index] do
@@ -403,6 +468,15 @@ Rails.application.routes.draw do
             get :history
           end
         end
+      end
+
+      resources :notes, only: %i[index show create update destroy]
+      namespace :shared do
+        get ':id/trip',   to: 'trips#show'
+        get ':id/points', to: 'points#index'
+        get ':id/route',  to: 'points#route'
+        get ':id/photos', to: 'photos#index'
+        get ':id/photos/:photo_id/thumbnail', to: 'photos#thumbnail', constraints: { photo_id: %r{[^/]+} }
       end
 
       post 'subscriptions/callback', to: 'subscriptions#callback'

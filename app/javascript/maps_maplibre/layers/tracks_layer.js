@@ -1,3 +1,7 @@
+import {
+  LAYER_COLOR_DEFAULTS,
+  SettingsManager,
+} from "maps_maplibre/utils/settings_manager"
 import { BaseLayer } from "./base_layer"
 
 // vicquick fork: every track used to render in the SAME indigo (the serializer
@@ -6,8 +10,16 @@ import { BaseLayer } from "./base_layer"
 // colour, picked from its id so it's stable across reloads — the OrganicMaps
 // look. Hues chosen to stay legible on both the light and dark basemaps.
 const TRACK_PALETTE = [
-  "#3b82f6", "#f97316", "#a855f7", "#10b981", "#ef4444",
-  "#eab308", "#06b6d4", "#ec4899", "#84cc16", "#f43f5e",
+  "#3b82f6",
+  "#f97316",
+  "#a855f7",
+  "#10b981",
+  "#ef4444",
+  "#eab308",
+  "#06b6d4",
+  "#ec4899",
+  "#84cc16",
+  "#f43f5e",
 ]
 // NB: ["at", i, ["literal", [...]]] is rejected — MapLibre wants array<color>
 // and won't coerce a string array. A `match` over id % N is the working form.
@@ -58,7 +70,9 @@ export class TracksLayer extends BaseLayer {
 
   getLayerConfigs() {
     return [
-      // Main tracks layer (bottom)
+      // Main tracks layer (bottom). Track features all carry the backend's
+      // uniform default color, so the user's track color setting replaces
+      // it directly; mode-colored segments live in their own layer.
       {
         id: this.id,
         type: "line",
@@ -68,10 +82,24 @@ export class TracksLayer extends BaseLayer {
           "line-cap": "round",
         },
         paint: {
+          // vicquick fork: TRACK_COLOR is a per-track expression derived from
+          // the track id (OrganicMaps-style distinct colours), so upstream's
+          // single user-configurable `trackColor` setting is deliberately not
+          // applied here — one colour for every track was the bug we fixed.
           "line-color": TRACK_COLOR,
           // Bolder, fully opaque line that thickens as you zoom in — a tracked
           // hike should read like a route (OrganicMaps/Komoot), not a hairline.
-          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 12, 5, 16, 7],
+          "line-width": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            8,
+            3.5,
+            12,
+            5,
+            16,
+            7,
+          ],
           "line-opacity": 0.95,
         },
       },
@@ -146,14 +174,23 @@ export class TracksLayer extends BaseLayer {
   // imported file's id. One expression on the existing line layer.
   setSourceFilter(hiddenKeys) {
     this._hiddenSourceKeys = Array.isArray(hiddenKeys) ? hiddenKeys : []
-    try { localStorage.setItem("dawarichTrackSourceHidden", JSON.stringify(this._hiddenSourceKeys)) } catch (_) { /* noop */ }
+    try {
+      localStorage.setItem(
+        "dawarichTrackSourceHidden",
+        JSON.stringify(this._hiddenSourceKeys),
+      )
+    } catch (_) {
+      /* noop */
+    }
     this.applySourceFilter()
   }
 
   hiddenSourceKeys() {
     if (this._hiddenSourceKeys) return this._hiddenSourceKeys
     try {
-      this._hiddenSourceKeys = JSON.parse(localStorage.getItem("dawarichTrackSourceHidden") || "[]")
+      this._hiddenSourceKeys = JSON.parse(
+        localStorage.getItem("dawarichTrackSourceHidden") || "[]",
+      )
     } catch (_) {
       this._hiddenSourceKeys = []
     }
@@ -164,9 +201,16 @@ export class TracksLayer extends BaseLayer {
     if (!this.map?.getLayer(this.id)) return
     const hidden = this.hiddenSourceKeys()
     const filter = hidden.length
-      ? ["!", ["in", ["coalesce", ["get", "import_id"], -1], ["literal", hidden]]]
+      ? [
+          "!",
+          ["in", ["coalesce", ["get", "import_id"], -1], ["literal", hidden]],
+        ]
       : null
-    try { this.map.setFilter(this.id, filter) } catch (_) { /* expression rejected — show all */ }
+    try {
+      this.map.setFilter(this.id, filter)
+    } catch (_) {
+      /* expression rejected — show all */
+    }
   }
 
   /**
@@ -386,11 +430,7 @@ export class TracksLayer extends BaseLayer {
    * @param {Array} segments - Array of segment data with mode, color, start_index, end_index
    */
   showSegments(trackFeature, segments) {
-    if (
-      !trackFeature ||
-      !trackFeature.geometry ||
-      trackFeature.geometry.type !== "LineString"
-    ) {
+    if (trackFeature?.geometry?.type !== "LineString") {
       return
     }
 
@@ -407,14 +447,19 @@ export class TracksLayer extends BaseLayer {
     // Create line features for each segment
     const segmentFeatures = segments
       .map((segment, idx) => {
-        const startIdx = Math.max(0, segment.start_index || 0)
-        const endIdx = Math.min(
-          coords.length - 1,
-          (segment.end_index || startIdx) + 1,
-        )
-
-        // Extract coordinates for this segment
-        const segmentCoords = coords.slice(startIdx, endIdx + 1)
+        // Prefer server-provided segment geometry (time-anchored segments);
+        // fall back to index slicing for legacy index-anchored segments.
+        let segmentCoords
+        if (segment.coordinates && segment.coordinates.length >= 2) {
+          segmentCoords = segment.coordinates
+        } else {
+          const startIdx = Math.max(0, segment.start_index || 0)
+          const endIdx = Math.min(
+            coords.length - 1,
+            (segment.end_index || startIdx) + 1,
+          )
+          segmentCoords = coords.slice(startIdx, endIdx + 1)
+        }
 
         // Need at least 2 points for a line
         if (segmentCoords.length < 2) {
@@ -574,7 +619,7 @@ export class TracksLayer extends BaseLayer {
    * @returns {Object|false} - The updated feature if successful, false otherwise
    */
   updateTrackFeature(trackFeature, options = {}) {
-    if (!trackFeature || !trackFeature.properties?.id) {
+    if (!trackFeature?.properties?.id) {
       console.warn("[TracksLayer] Cannot update track: invalid feature")
       return false
     }
@@ -587,7 +632,7 @@ export class TracksLayer extends BaseLayer {
 
     // Get current data
     const currentData = this.data || source._data
-    if (!currentData || !currentData.features) {
+    if (!currentData?.features) {
       console.warn("[TracksLayer] Cannot update track: no data")
       return false
     }

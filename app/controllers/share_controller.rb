@@ -10,11 +10,11 @@ class ShareController < ApplicationController
     place = GoogleMapsLink.from_shared_text(params[:url], params[:text], params[:title])
 
     if place.nil?
-      redirect_to map_v2_path, alert: "Couldn't read that shared link."
+      redirect_to map_path, alert: "Couldn't read that shared link."
       return
     end
 
-    redirect_to map_v2_path(
+    redirect_to map_path(
       p: "#{place[:lon]},#{place[:lat]}",
       pname: place[:name].presence
     )

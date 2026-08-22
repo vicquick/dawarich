@@ -40,26 +40,26 @@ namespace :e2e do
     { lat: 52.6000, lon: 13.5000, hour: 15.0, country: 'Germany' }
   ].freeze
 
-  E2E_ANOMALY_TRIP_NAME = 'E2E Anomaly Day'.freeze
-  E2E_ANOMALY_TRIP_START = '2025-10-15 11:00:00'.freeze
-  E2E_ANOMALY_TRIP_END   = '2025-10-15 18:00:00'.freeze
+  E2E_ANOMALY_TRIP_NAME = 'E2E Anomaly Day'
+  E2E_ANOMALY_TRIP_START = '2025-10-15 11:00:00'
+  E2E_ANOMALY_TRIP_END   = '2025-10-15 18:00:00'
 
   # Tag fixtures for timeline-filters spec "Tag chips" describe. Three tags
   # plus one "tag-holder" place that carries all three — so the e2e suite
   # can look up tag IDs via /api/v1/places (which exposes place.tags),
   # avoiding the need for a separate tags-index API endpoint.
   E2E_TAG_NAMES = %w[e2e-Home e2e-Work e2e-Travel].freeze
-  E2E_TAG_HOLDER_PLACE_NAME = 'E2E Tag Holder'.freeze
+  E2E_TAG_HOLDER_PLACE_NAME = 'E2E Tag Holder'
 
   # Fixed Track windows used by the timeline-replay and timeline-journey-leg
   # specs. These live deep in the past so they don't collide with other
   # fixtures or the demo data (which clusters around 2025-10-15).
-  E2E_REPLAY_TRACK_DAY     = '2020-10-03'.freeze
-  E2E_REPLAY_TRACK_START   = '2020-10-03 09:30:00 UTC'.freeze
-  E2E_REPLAY_TRACK_END     = '2020-10-03 10:30:00 UTC'.freeze
-  E2E_JOURNEY_TRACK_DAY    = '2020-06-06'.freeze
-  E2E_JOURNEY_TRACK_START  = '2020-06-06 09:00:00 UTC'.freeze
-  E2E_JOURNEY_TRACK_END    = '2020-06-06 10:00:00 UTC'.freeze
+  E2E_REPLAY_TRACK_DAY     = '2020-10-03'
+  E2E_REPLAY_TRACK_START   = '2020-10-03 09:30:00 UTC'
+  E2E_REPLAY_TRACK_END     = '2020-10-03 10:30:00 UTC'
+  E2E_JOURNEY_TRACK_DAY    = '2020-06-06'
+  E2E_JOURNEY_TRACK_START  = '2020-06-06 09:00:00 UTC'
+  E2E_JOURNEY_TRACK_END    = '2020-06-06 10:00:00 UTC'
 
   # Normal (non-anomaly) Berlin points that sit inside the anomaly trip
   # window. Demo data has many points but most carry country_name=nil, so
@@ -79,6 +79,40 @@ namespace :e2e do
     abort '✋ Refusing to run e2e:reset in production. Set ALLOW_E2E_RESET=1 to override.'
   end
 
+  # Parallel-worker seeding: E2E_PARALLEL_USERS=N clones the full demo dataset
+  # onto N-1 extra users (e2e-worker1..@dawarich.app, each with its own family)
+  # so each Playwright worker owns an isolated copy. Worker 0 stays
+  # demo@dawarich.app. Naming must stay in sync with
+  # e2e-dawarich-playwright/v2/helpers/constants.js and setup/auth.setup.js.
+  def e2e_parallel_users
+    [ENV.fetch('E2E_PARALLEL_USERS', '1').to_i, 1].max
+  end
+
+  # Matches ALL worker clones by email pattern, regardless of the current
+  # E2E_PARALLEL_USERS value, so e2e:reset cannot strand clones left behind
+  # by a prior seed with a higher N.
+  def e2e_seeded_users
+    User.where(email: E2E_USER_EMAILS)
+        .or(User.where("email LIKE 'e2e-worker%@dawarich.app'"))
+        .or(User.where("email LIKE 'family.member_.w%@dawarich.app'"))
+  end
+
+  def wait_for_sidekiq_to_settle
+    require 'sidekiq/api'
+    deadline = Time.current + 5.minutes
+    loop do
+      busy = Sidekiq::Workers.new.size
+      enqueued = Sidekiq::Queue.all.sum(&:size)
+      break if busy.zero? && enqueued.zero?
+
+      if Time.current > deadline
+        puts "  ↪ still busy after 5 minutes (busy=#{busy} enqueued=#{enqueued}) — continuing anyway"
+        break
+      end
+      sleep 2
+    end
+  end
+
   desc 'Reset demo + lite + family users to a clean state and re-seed canonical e2e data'
   task reset_and_seed: :environment do
     assert_safe_environment!
@@ -93,23 +127,55 @@ namespace :e2e do
     File.write(geojson_path, geojson)
     puts "✅ Wrote #{File.size(geojson_path)} bytes"
 
-    puts "\n🚀 Invoking demo:seed_data..."
-    Rake::Task['demo:seed_data'].invoke(geojson_path)
+    seed_tasks = %w[
+      demo:seed_data
+      e2e:seed_anomalies
+      e2e:seed_demo_trip
+      e2e:seed_tag_fixtures
+      e2e:seed_fixture_tracks
+    ]
 
-    puts "\n⚠️  Planting anomaly fixtures..."
-    Rake::Task['e2e:seed_anomalies'].invoke
+    seed_env_keys = %w[E2E_SEED_EMAIL E2E_SEED_API_KEY E2E_SEED_SUFFIX E2E_SEED_SKIP_LITE]
 
-    puts "\n🧭 Seeding the anomaly-window demo trip..."
-    Rake::Task['e2e:seed_demo_trip'].invoke
+    begin
+      (0...e2e_parallel_users).each do |worker|
+        if worker.zero?
+          seed_env_keys.each { |key| ENV.delete(key) }
+        else
+          ENV['E2E_SEED_EMAIL']     = "e2e-worker#{worker}@dawarich.app"
+          ENV['E2E_SEED_API_KEY']   = "demo_api_key_w#{worker}"
+          ENV['E2E_SEED_SUFFIX']    = ".w#{worker}"
+          ENV['E2E_SEED_SKIP_LITE'] = '1'
+        end
 
-    puts "\n🏷️  Seeding tag fixtures..."
-    Rake::Task['e2e:seed_tag_fixtures'].invoke
+        puts "\n🚀 Seeding worker #{worker} (#{ENV.fetch('E2E_SEED_EMAIL', 'demo@dawarich.app')})..."
+        seed_tasks.each { |name| Rake::Task[name].reenable }
+        Rake::Task['demo:seed_data'].invoke(geojson_path)
 
-    puts "\n🛤️  Seeding fixture tracks (timeline-replay + journey-leg specs)..."
-    Rake::Task['e2e:seed_fixture_tracks'].invoke
+        # The import enqueues track generation / geocoding / stats jobs. Those
+        # rebuild tracks, which nullifies any track_id assigned below (the #2630
+        # polluter) — wait for the churn to settle before planting fixtures.
+        puts "\n⏳ Waiting for background jobs to settle..."
+        wait_for_sidekiq_to_settle
+
+        puts "\n⚠️  Planting anomaly fixtures..."
+        Rake::Task['e2e:seed_anomalies'].invoke
+
+        puts "\n🧭 Seeding the anomaly-window demo trip..."
+        Rake::Task['e2e:seed_demo_trip'].invoke
+
+        puts "\n🏷️  Seeding tag fixtures..."
+        Rake::Task['e2e:seed_tag_fixtures'].invoke
+
+        puts "\n🛤️  Seeding fixture tracks (timeline-replay + journey-leg specs)..."
+        Rake::Task['e2e:seed_fixture_tracks'].invoke
+      end
+    ensure
+      seed_env_keys.each { |key| ENV.delete(key) }
+    end
 
     puts "\n🔕 Suppressing the changelog prompt + onboarding modal for e2e users..."
-    User.where(email: E2E_USER_EMAILS).find_each do |user|
+    e2e_seeded_users.find_each do |user|
       user.update_columns(
         changelog_consent: User.changelog_consents[:declined],
         settings: (user.settings || {}).merge('onboarding_completed' => true)
@@ -121,10 +187,10 @@ namespace :e2e do
   task seed_anomalies: :environment do
     assert_safe_environment!
 
-    user = User.find_by!(email: 'demo@dawarich.app')
+    user = User.find_by!(email: ENV.fetch('E2E_SEED_EMAIL', 'demo@dawarich.app'))
     base_day = Time.zone.parse('2025-10-15')
 
-    user.points.where(tracker_id: ['e2e-anomaly', 'e2e-backbone']).delete_all
+    user.points.where(tracker_id: %w[e2e-anomaly e2e-backbone]).delete_all
 
     E2E_TRIP_BACKBONE_FIXTURE.each do |row|
       ts = (base_day + (row[:hour] * 3600).to_i.seconds).to_i
@@ -157,14 +223,26 @@ namespace :e2e do
     count = user.points.where(tracker_id: 'e2e-anomaly').count
     puts "  ↪ planted #{count} anomaly points (#{count == E2E_ANOMALY_FIXTURE.size ? 'ok' : 'MISMATCH'})"
 
-    polluter = user.points.where(tracker_id: 'e2e-anomaly').order(:timestamp).first
+    # The #2630 polluter lives OUTSIDE the shared anomaly bbox (and under its
+    # own tracker_id) so the destructive area-selection specs that delete the
+    # ANOMALY_COORDS cluster never consume it mid-run. Keep in sync with
+    # POLLUTER_COORD in e2e-dawarich-playwright/v2/helpers/anomaly.js.
+    user.points.where(tracker_id: 'e2e-anomaly-polluter').delete_all
+    polluter_ts = (base_day + (16 * 3600).seconds).to_i
+    polluter = user.points.create!(
+      lonlat: 'POINT(13.7 52.7)',
+      timestamp: polluter_ts,
+      anomaly: true,
+      tracker_id: 'e2e-anomaly-polluter',
+      country_name: 'Germany'
+    )
     day_start = base_day.to_i
     day_end   = (base_day + 1.day).to_i
     polluter_track = user.tracks
                          .where('start_at >= ? AND start_at < ?', Time.zone.at(day_start), Time.zone.at(day_end))
                          .order(:start_at)
                          .first
-    if polluter && polluter_track
+    if polluter_track
       polluter.update_columns(track_id: polluter_track.id)
       puts "  ↪ assigned anomaly ##{polluter.id} to track ##{polluter_track.id} as #2630 controller-filter polluter"
     else
@@ -176,7 +254,7 @@ namespace :e2e do
   task seed_demo_trip: :environment do
     assert_safe_environment!
 
-    user = User.find_by!(email: 'demo@dawarich.app')
+    user = User.find_by!(email: ENV.fetch('E2E_SEED_EMAIL', 'demo@dawarich.app'))
 
     user.trips.where(name: E2E_ANOMALY_TRIP_NAME).destroy_all
 
@@ -197,7 +275,7 @@ namespace :e2e do
   task seed_tag_fixtures: :environment do
     assert_safe_environment!
 
-    user = User.find_by!(email: 'demo@dawarich.app')
+    user = User.find_by!(email: ENV.fetch('E2E_SEED_EMAIL', 'demo@dawarich.app'))
 
     tags = E2E_TAG_NAMES.map do |name|
       user.tags.find_or_create_by!(name: name)
@@ -221,7 +299,7 @@ namespace :e2e do
   task seed_fixture_tracks: :environment do
     assert_safe_environment!
 
-    user = User.find_by!(email: 'demo@dawarich.app')
+    user = User.find_by!(email: ENV.fetch('E2E_SEED_EMAIL', 'demo@dawarich.app'))
 
     _seed_fixture_track(
       user,
@@ -269,7 +347,7 @@ namespace :e2e do
     distance_meters = Point.total_distance(points, :m)
     builder = Class.new do
       include Tracks::TrackBuilder
-      def initialize(user); @user = user; end
+      def initialize(user) = @user = user
       attr_reader :user
     end.new(user)
     track = builder.create_track_from_points(
@@ -278,14 +356,16 @@ namespace :e2e do
 
     raise "Failed to create fixture track for tracker_id=#{tracker_id}" if track.nil?
 
-    puts "  ↪ fixture track ##{track.id} tracker=#{tracker_id} #{track.start_at.iso8601}..#{track.end_at.iso8601} (#{points.size} pts, #{distance_meters.to_i}m)"
+    puts "  ↪ fixture track ##{track.id} tracker=#{tracker_id} " \
+         "#{track.start_at.iso8601}..#{track.end_at.iso8601} " \
+         "(#{points.size} pts, #{distance_meters.to_i}m)"
   end
 
   desc 'Wipe data for the e2e users (demo, lite, family members) without deleting the users themselves'
   task reset: :environment do
     assert_safe_environment!
 
-    User.where(email: E2E_USER_EMAILS).find_each do |user|
+    e2e_seeded_users.find_each do |user|
       print "  ↪ #{user.email} ... "
       reset_user_data!(user)
       puts 'done'

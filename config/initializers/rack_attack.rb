@@ -27,9 +27,15 @@ Rack::Attack.enabled = false if Rails.env.test?
 # Configurable per-plan limits. Override in tests via Rack::Attack.api_rate_limits=
 class Rack::Attack
   class << self
-    attr_accessor :api_rate_limits
+    attr_accessor :api_rate_limits, :shared_links_viewer_limit, :tiles_limit, :tiles_burst_limit
   end
-  self.api_rate_limits = { 'lite' => 200, 'pro' => 1_000 }
+  self.api_rate_limits = { 'lite' => 200, 'pro' => 1_000, 'family' => 1_000 }
+  self.shared_links_viewer_limit = 120
+  # Vector tiles fetch in bursts (10–30 per pan); ~250 uncached pans/hr.
+  self.tiles_limit = 5_000
+  # Short-window companion: pans and rapid zooms fit easily; sustained
+  # hammering of the DB-heaviest endpoint does not.
+  self.tiles_burst_limit = 300
 end
 
 # Dynamic per-user rate limiting keyed by API token.
@@ -39,18 +45,47 @@ Rack::Attack.throttle('api/token',
                       limit: proc { |req| req.env['rack.attack.api_rate_limit'] || 1_000 },
                       period: 1.hour) do |req|
   next unless req.path.start_with?('/api/')
+  # Tiles burst 10–30 requests per map pan and would burn this quota in
+  # minutes; they run on their own api/tiles throttle below.
+  next if req.path.start_with?('/api/v1/tiles/')
   next if DawarichSettings.self_hosted?
 
   api_key = req.params['api_key'] || bearer_token(req.get_header('HTTP_AUTHORIZATION'))
   next if api_key.blank?
 
   user_plan = Rails.cache.fetch("rack_attack/plan/#{api_key}", expires_in: 2.minutes) do
-    User.where(api_key: api_key).pick(:plan)
+    User.find_by(api_key: api_key)&.effective_plan&.to_s
   end
   next if user_plan.nil?
 
   req.env['rack.attack.api_rate_limit'] = Rack::Attack.api_rate_limits[user_plan] || 1_000
   api_key
+end
+
+# Vector tile requests, exempted from api/token above. Keyed by raw token —
+# no plan lookup, no DB query; browser caching absorbs most repeats anyway.
+Rack::Attack.throttle('api/tiles',
+                      limit: proc { Rack::Attack.tiles_limit },
+                      period: 1.hour) do |req|
+  next unless req.path.start_with?('/api/v1/tiles/')
+  next if DawarichSettings.self_hosted?
+
+  api_key = req.params['api_key'] || bearer_token(req.get_header('HTTP_AUTHORIZATION'))
+  next if api_key.blank?
+
+  "tiles:#{api_key}"
+end
+
+Rack::Attack.throttle('api/tiles_burst',
+                      limit: proc { Rack::Attack.tiles_burst_limit },
+                      period: 30.seconds) do |req|
+  next unless req.path.start_with?('/api/v1/tiles/')
+  next if DawarichSettings.self_hosted?
+
+  api_key = req.params['api_key'] || bearer_token(req.get_header('HTTP_AUTHORIZATION'))
+  next if api_key.blank?
+
+  "tiles_burst:#{api_key}"
 end
 
 # Points creation rate limit: 10,000 req/hr per API key.
@@ -244,6 +279,46 @@ Rack::Attack.throttle('admin/flipper', limit: 30, period: 5.minutes) do |req|
   req.ip if req.path.start_with?('/admin/flipper')
 end
 
+# Shared-link viewer + public shared API: anonymous traffic, no API key.
+# Per-IP throttle protects against runaway crawlers / bots on cloud. Self-hosted
+# instances serve their own public pages with no quota.
+Rack::Attack.throttle('shared_links/viewer',
+                      limit: proc { Rack::Attack.shared_links_viewer_limit },
+                      period: 1.minute) do |req|
+  next if DawarichSettings.self_hosted?
+
+  req.ip if req.path.match?(%r{\A/s/[^/]+\z}) || req.path.start_with?('/api/v1/shared/')
+end
+
+# Anonymous share WebSocket upgrades (/cable?share_id=...), keyed on IP. Matched
+# only when share_id is present so authenticated multi-tab users are unaffected.
+Rack::Attack.throttle('shared_links/cable',
+                      limit: proc { Rack::Attack.shared_links_viewer_limit },
+                      period: 1.minute) do |req|
+  next if DawarichSettings.self_hosted?
+
+  req.ip if req.path == '/cable' && req.params['share_id'].present?
+end
+
+# Magic-phrase unlock attempts: 5 per (IP, link) per 5 minutes.
+Rack::Attack.throttle('shared_links/unlock', limit: 5, period: 5.minutes) do |req|
+  if req.post? && (match = req.path.match(%r{\A/s/([^/]+)/unlock\z}))
+    "#{req.ip}:#{match[1]}"
+  end
+end
+
+# Unauthenticated tools/signup-handoff endpoint: 60 uploads/hour per IP.
+# Prevents abuse of the public pending-import surface (no API key required,
+# accepts up to 100MB files).
+Rack::Attack.throttle('api/v1/imports/pending CREATE', limit: 60, period: 1.hour) do |req|
+  req.ip if req.post? && req.path.start_with?('/api/v1/imports/pending')
+end
+
+# Companion throttle for the signup claim path that consumes ?import_ticket=.
+Rack::Attack.throttle('imports/claim attempts', limit: 30, period: 1.hour) do |req|
+  req.ip if req.get? && req.path.start_with?('/users/sign_up') && req.params['import_ticket'].present?
+end
+
 Rack::Attack.throttled_responder = lambda do |request|
   match_data = request.env['rack.attack.match_data'] || {}
   now = Time.current
@@ -251,6 +326,9 @@ Rack::Attack.throttled_responder = lambda do |request|
 
   headers = {
     'Content-Type' => 'application/json',
+    # 429s must never be cached — tiles are the dominant throttled URL shape
+    # and a heuristically-cached rejection would outlive the throttle window.
+    'Cache-Control' => 'no-store',
     'Retry-After' => (period - (now.to_i % period)).to_s
   }
 

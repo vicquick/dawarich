@@ -22,9 +22,11 @@ RSpec.describe 'Imports map and points pages default to the import time range',
 
   before { sign_in user }
 
-  describe 'GET /map/v2 with only import_id' do
+  # vicquick fork: /map/v2 now 301s to the canonical /map, so requesting the
+  # legacy path here returned an empty redirect body instead of the page.
+  describe 'GET /map with only import_id' do
     it 'renders a window covering the full import range' do
-      get '/map/v2', params: { import_id: import.id }
+      get '/map', params: { import_id: import.id }
 
       expect(response.body).to include(%(data-maps--maplibre-start-date-value="#{expected_start_iso}"))
       expect(response.body).to include(%(data-maps--maplibre-end-date-value="#{expected_end_iso}"))
@@ -49,9 +51,9 @@ RSpec.describe 'Imports map and points pages default to the import time range',
     end
   end
 
-  describe 'GET /map/v2 without import_id and without time params' do
+  describe 'GET /map without import_id and without time params' do
     it 'falls back to today' do
-      get '/map/v2'
+      get '/map'
 
       expected = Time.use_zone('Etc/UTC') { Time.zone.today.beginning_of_day.iso8601 }
       expect(response.body).to include(%(data-maps--maplibre-start-date-value="#{expected}"))

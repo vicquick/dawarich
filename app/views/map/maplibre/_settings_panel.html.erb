@@ -808,16 +808,19 @@
                        data-status="confirmed" data-testid="filter-confirmed"
                        data-action="change->timeline-feed#filterChanged" checked />
                 <span class="flex-1">Confirmed</span>
-                <%= render 'map/timeline_feeds/filter_count',
-                           status: 'confirmed', count: @status_counts&.dig('confirmed').to_i %>
+                <span class="timeline-filter-row__count"><%= @status_counts&.dig('confirmed').to_i %></span>
               </label>
               <label class="timeline-filter-row">
                 <input type="checkbox" class="checkbox checkbox-xs checkbox-warning"
                        data-status="suggested" data-testid="filter-suggested"
                        data-action="change->timeline-feed#filterChanged" checked />
                 <span class="flex-1">Suggested</span>
-                <%= render 'map/timeline_feeds/filter_count',
-                           status: 'suggested', count: @status_counts&.dig('suggested').to_i %>
+                <% count = @status_counts&.dig('suggested').to_i %>
+                <% if count.positive? %>
+                  <span class="badge badge-warning badge-sm"><%= count %></span>
+                <% else %>
+                  <span class="timeline-filter-row__count"><%= count %></span>
+                <% end %>
               </label>
             </div>
 

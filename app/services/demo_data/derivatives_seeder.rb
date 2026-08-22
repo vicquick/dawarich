@@ -5,8 +5,13 @@ require 'zlib'
 class DemoData::DerivativesSeeder
   FIXTURE = Rails.root.join('lib/assets/demo_derivatives.json.gz').freeze
 
-  BERLIN_TOPONYMS = { 'countries' => ['Germany'],                       'cities' => ['Berlin'] }.freeze
-  PRAGUE_MIXED    = { 'countries' => ['Germany', 'Czech Republic'],     'cities' => %w[Berlin Prague] }.freeze
+  BERLIN_TOPONYMS = [
+    { 'country' => 'Germany', 'cities' => [{ 'city' => 'Berlin', 'points' => 1200, 'stayed_for' => 28_800 }] }
+  ].freeze
+  PRAGUE_MIXED = [
+    { 'country' => 'Germany', 'cities' => [{ 'city' => 'Berlin', 'points' => 900, 'stayed_for' => 21_600 }] },
+    { 'country' => 'Czech Republic', 'cities' => [{ 'city' => 'Prague', 'points' => 300, 'stayed_for' => 2880 }] }
+  ].freeze
 
   def initialize(user, anchor, import: nil)
     @user = user
@@ -98,7 +103,7 @@ class DemoData::DerivativesSeeder
       distance: row['distance_meters'],
       demo: true
     )
-    trip.notes = row['notes'] if row['notes'].present?
+    trip.description = row['notes'] if row['notes'].present?
     trip.save!
     trip
   end

@@ -1,3 +1,4 @@
+import { translate } from "i18n"
 import maplibregl from "maplibre-gl"
 import { escapeHtml } from "../utils/geojson_transformers"
 import { BaseLayer } from "./base_layer"
@@ -83,13 +84,13 @@ export class FamilyLayer extends BaseLayer {
           minute: "2-digit",
           hour12: false,
         })
-      : "Unknown"
+      : translate("common.unknown")
 
-    const name = props.name || "Family member"
+    const name = props.name || translate("family.member")
     const html = `
       <div style="min-width:160px">
         <div style="font-weight:600;margin-bottom:4px">${escapeHtml(name)}</div>
-        <div style="font-size:12px;opacity:0.8">Last seen: ${escapeHtml(lastSeen)}</div>
+        <div style="font-size:12px;opacity:0.8">${translate("live_share.last_seen_short")}: ${escapeHtml(lastSeen)}</div>
       </div>
     `
 
@@ -188,7 +189,18 @@ export class FamilyLayer extends BaseLayer {
   updateMember(member) {
     const features = this.data?.features || []
     const memberId = member.user_id || member.id
-    const coords = [member.longitude, member.latitude]
+    const lon = Number(member.longitude)
+    const lat = Number(member.latitude)
+
+    if (!this._isValidCoord(lon, lat)) {
+      console.warn(
+        "[FamilyLayer] Skipping member update with invalid coordinates:",
+        member,
+      )
+      return
+    }
+
+    const coords = [lon, lat]
     const color = member.color || this.getMemberColor(memberId)
 
     // Find existing or add new
@@ -275,6 +287,13 @@ export class FamilyLayer extends BaseLayer {
     source.setData({ type: "FeatureCollection", features })
   }
 
+  _isValidCoord(lon, lat) {
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false
+    if (lon === 0 && lat === 0) return false
+    if (lon < -180 || lon > 180 || lat < -90 || lat > 90) return false
+    return true
+  }
+
   /**
    * Get consistent color for member
    */
@@ -325,7 +344,7 @@ export class FamilyLayer extends BaseLayer {
       },
       properties: {
         id: location.user_id,
-        name: location.email || "Unknown",
+        name: location.email || translate("common.unknown"),
         email: location.email,
         color: location.color || this.getMemberColor(location.user_id),
         lastUpdate: Date.now(),

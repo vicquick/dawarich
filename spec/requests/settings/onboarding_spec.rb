@@ -27,19 +27,19 @@ RSpec.describe 'settings/onboarding', type: :request do
     end
 
     describe 'POST /settings/onboarding/demo_data' do
-      it 'creates demo data and redirects to map v2' do
+      it 'creates demo data and redirects to the canonical map' do
         post demo_data_settings_onboarding_path
 
         expect(response).to have_http_status(:redirect)
-        expect(response.location).to include('/map/v2', 'panel=timeline', 'date=')
+        expect(response.location).to include('/map', 'panel=timeline', 'date=')
       end
 
-      it 'is idempotent and redirects to map v2' do
+      it 'is idempotent and redirects to the canonical map' do
         post demo_data_settings_onboarding_path
         post demo_data_settings_onboarding_path
 
         expect(response).to have_http_status(:redirect)
-        expect(response.location).to include('/map/v2', 'panel=timeline', 'date=')
+        expect(response.location).to include('/map', 'panel=timeline', 'date=')
       end
 
       context 'when user is on a non-UTC timezone' do

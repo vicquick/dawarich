@@ -2,6 +2,9 @@
 
 require 'rails_helper'
 
+# vicquick fork: these asserted a versioned map URL (%r{/map/v\d}). The fork
+# made /map canonical and un-versioned, so preferred_map_path returns /map —
+# the assertion was inherited from upstream and had been failing since.
 RSpec.describe 'GET /trial/welcome', type: :request do
   let(:user) { create(:user, status: :trial, active_until: 7.days.from_now) }
   let(:token) do
@@ -22,7 +25,7 @@ RSpec.describe 'GET /trial/welcome', type: :request do
   it 'signs in the user and redirects to the map with a welcome flash' do
     get "/trial/welcome?token=#{token}"
     expect(response).to have_http_status(:found)
-    expect(response).to redirect_to(%r{/map/v\d})
+    expect(response).to redirect_to(map_path)
     expect(flash[:notice]).to include('Welcome to Dawarich')
     expect(flash[:notice]).to include(user.active_until.strftime('%B %d, %Y'))
   end
@@ -40,7 +43,7 @@ RSpec.describe 'GET /trial/welcome', type: :request do
       get "/trial/welcome?token=#{token}"
 
       expect(response).to have_http_status(:found)
-      expect(response).to redirect_to(%r{/map/v\d})
+      expect(response).to redirect_to(map_path)
       expect(flash[:notice]).to include('activated')
     end
   end
@@ -112,7 +115,7 @@ RSpec.describe 'GET /trial/welcome', type: :request do
       Rails.cache.clear
       t = issue_welcome_token(user)
       get "/trial/welcome?token=#{t}"
-      expect(response).to redirect_to(%r{/map/v\d})
+      expect(response).to redirect_to(map_path)
 
       # Follow the redirect so the first request's flash gets consumed —
       # otherwise Rack carries it into the next request and masks what the
@@ -121,7 +124,7 @@ RSpec.describe 'GET /trial/welcome', type: :request do
 
       # Same session, same signed-in user — simulate reload.
       get "/trial/welcome?token=#{t}"
-      expect(response).to redirect_to(%r{/map/v\d})
+      expect(response).to redirect_to(map_path)
       expect(flash[:alert]).to be_blank
       # The reload branch intentionally does NOT set a new flash; the prior
       # redirect's notice has already been consumed above.
@@ -159,7 +162,7 @@ RSpec.describe 'GET /trial/welcome', type: :request do
       end
 
       get "/trial/welcome?token=#{t}"
-      expect(response).to redirect_to(%r{/map/v\d})
+      expect(response).to redirect_to(map_path)
 
       consume_writes = writes.select { |o| o.key?(:unless_exist) }
       expect(consume_writes).not_to(
@@ -185,7 +188,7 @@ RSpec.describe 'GET /trial/welcome', type: :request do
       end
 
       get "/trial/welcome?token=#{t}"
-      expect(response).to redirect_to(%r{/map/v\d})
+      expect(response).to redirect_to(map_path)
 
       delete destroy_user_session_path
       get "/trial/welcome?token=#{t}"

@@ -21,27 +21,74 @@ function selectPlacePin(id) {
   const src = "places-source"
   if (!map || id == null || !map.getSource(src)) return
   if (_selPlaceId != null && _selPlaceId !== id) {
-    try { map.setFeatureState({ source: src, id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+    try {
+      map.setFeatureState(
+        { source: src, id: _selPlaceId },
+        { selected: false, pop: false },
+      )
+    } catch (_) {
+      /* noop */
+    }
   }
   _selPlaceId = id
   try {
     map.setFeatureState({ source: src, id }, { selected: true, pop: true })
     clearTimeout(_popTimer)
     _popTimer = setTimeout(() => {
-      try { map.setFeatureState({ source: src, id }, { pop: false }) } catch (_) { /* noop */ }
+      try {
+        map.setFeatureState({ source: src, id }, { pop: false })
+      } catch (_) {
+        /* noop */
+      }
     }, 160)
-  } catch (_) { /* noop */ }
+  } catch (_) {
+    /* noop */
+  }
 }
 
 function clearPlaceSelection() {
   const map = window.dawarichMap
   if (map && _selPlaceId != null && map.getSource("places-source")) {
-    try { map.setFeatureState({ source: "places-source", id: _selPlaceId }, { selected: false, pop: false }) } catch (_) { /* noop */ }
+    try {
+      map.setFeatureState(
+        { source: "places-source", id: _selPlaceId },
+        { selected: false, pop: false },
+      )
+    } catch (_) {
+      /* noop */
+    }
   }
   _selPlaceId = null
 }
 
-if (typeof window !== "undefined") window.dawarichClearPlaceSel = clearPlaceSelection
+if (typeof window !== "undefined")
+  window.dawarichClearPlaceSel = clearPlaceSelection
+
+// Restored from upstream during the 2026-08-20 sync: layer_manager.js imports
+// this, but our resolution of this file predated it and dropped the export.
+// A tiled feature can represent many merged points but carries ONE arbitrary
+// member's id/coords — aggregates (no id) and merged cells (count > 1) get no popup.
+export function shouldShowPointPopup(properties = {}) {
+  if (properties.id == null) return false
+  return (properties.count ?? 1) <= 1
+}
+
+// Restored from upstream during the 2026-08-20 sync alongside
+// shouldShowPointPopup. Format the coordinates a feature carries in its
+// properties. Returns null when either is absent or blank, so the caller can
+// fall back to the geometry. `Number("")` is 0 and finite, so a plain isFinite
+// check is not enough.
+function storedCoordinates(properties) {
+  const { latitude, longitude } = properties
+  if (latitude == null || longitude == null) return null
+  if (latitude === "" || longitude === "") return null
+
+  const lat = Number(latitude)
+  const lon = Number(longitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+
+  return `${lat.toFixed(6)}, ${lon.toFixed(6)}`
+}
 
 /**
  * Handles map interaction events (clicks, info display)
@@ -157,11 +204,16 @@ export class EventHandlers {
    */
   _buildPointInfoContent(properties, geometry) {
     const distanceUnit = this.controller.settings.distance_unit || "km"
+    // Prefer the stored values carried in the properties. A clicked feature's
+    // geometry comes back snapped to the tile grid, so reading coordinates off
+    // it shows a position that doesn't match the one in the points list.
+    const stored = storedCoordinates(properties)
     const coords = geometry?.coordinates
     const coordStr =
-      coords && coords.length >= 2
+      stored ??
+      (coords && coords.length >= 2
         ? `${coords[1].toFixed(6)}, ${coords[0].toFixed(6)}`
-        : null
+        : null)
     const pointId = properties.id
     const addressFrame = pointId
       ? `<turbo-frame id="point-address-${pointId}" src="/points/${pointId}/address" loading="lazy"></turbo-frame>`
@@ -225,8 +277,10 @@ export class EventHandlers {
     // first tag's name + colour to the sheet as a badge.
     let tags = []
     try {
-      tags = typeof p.tags === "string" ? JSON.parse(p.tags) : (p.tags || [])
-    } catch (_) { tags = [] }
+      tags = typeof p.tags === "string" ? JSON.parse(p.tags) : p.tags || []
+    } catch (_) {
+      tags = []
+    }
     // vicquick fork: a saved place opens the Google-style place sheet
     // (info + hours + Directions / category / Share), same as POIs/search.
     document.dispatchEvent(
@@ -664,7 +718,11 @@ export class EventHandlers {
     this.selectedTrackFeature = fullFeature
 
     // vicquick fork: open the elevation + speed profile for this track.
-    try { window.dawarichTrackProfile?.open(properties.id) } catch (_) { /* noop */ }
+    try {
+      window.dawarichTrackProfile?.open(properties.id)
+    } catch (_) {
+      /* noop */
+    }
 
     // Keep the on-map highlight + segment visualization — those are visual
     // feedback for the click itself, independent of the info surface.
