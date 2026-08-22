@@ -133,7 +133,27 @@ if want toolchain; then
     bad "Dockerfile BUNDLE_VERSION=$dbv but Gemfile.lock BUNDLED WITH $bw"
     drift=1
   fi
-  [ "$drift" -eq 0 ] && ok "ruby and bundler pins agree with the repo"
+  # Same family, second instance: entrypoints source sibling scripts that a
+  # fork-authored Dockerfile has to COPY. Upstream added entrypoint-env-guard.sh
+  # after our merge-base; our Dockerfile never inherited the COPY, so every boot
+  # died before db:migrate and production crash-looped. Nothing at build time
+  # complains — the file is simply absent at runtime.
+  while read -r hit; do
+    [ -n "$hit" ] || continue
+    sh=${hit%%|*}; dep=${hit##*|}
+    [ -f "docker/$dep" ] || continue          # not a repo file; skip
+    grep -q "COPY .*docker/$dep" Dockerfile 2>/dev/null \
+      || { bad "docker/$sh sources '$dep' but Dockerfile never COPYs it"; drift=1; }
+  done < <(
+    for f in docker/*.sh; do
+      [ -f "$f" ] || continue
+      grep -oE '\. +"\$\(dirname "\$0"\)/[a-zA-Z0-9_.-]+"' "$f" 2>/dev/null \
+        | grep -oE '/[a-zA-Z0-9_.-]+"$' | tr -d '/"' \
+        | while read -r d; do [ -n "$d" ] && echo "$(basename "$f")|$d"; done
+    done
+  )
+
+  [ "$drift" -eq 0 ] && ok "ruby/bundler pins agree; entrypoint deps are copied"
 fi
 
 # ------------------------------------------------------------------ partials

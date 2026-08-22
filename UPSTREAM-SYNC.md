@@ -86,6 +86,7 @@ surface one CI run at a time.
 | `dsl-dupes` | a union merge registering `retry_on`/`has_one`/… twice, where the second silently wins |
 | `stimulus` | views binding Stimulus targets the controller no longer declares — renders fine, silently stops syncing |
 | `lint-base` | biome/rubocop against **`origin/master`**, the base CI actually diffs against |
+| `toolchain` | a Dockerfile pinning a ruby/bundler version the repo no longer declares, or an entrypoint sourcing a script the Dockerfile never COPYs |
 | `routes` | a greedy unconstrained route shadowing another (needs `--rails`) |
 
 ### 4. Run the suite locally, not through CI
@@ -140,13 +141,65 @@ single line of the code it points at.
 JS suite needs no container: `node --test spec/javascript/`. Run per-file — the
 directory-mode aggregate under-reports.
 
-### 5. Promote
+### 5. Promote — and expect to deploy
 
 Only once the doctor is clean, the suite is green locally, and CI agrees:
 
 ```bash
 git checkout master && git reset --hard sync-<date>
 git push --force-with-lease origin master
+# or: gh pr merge <n> --merge   (keeps PR history; merge-base still lands on
+# upstream's tip, so it costs the next sync nothing — verified 2026-08-22)
+```
+
+**Landing on `master` is a production deploy.** `dawarich-app` tracks `master`
+behind a push webhook, so the merge itself ships. Budget for that before you
+press the button:
+
+```bash
+# 1. Fresh dump FIRST. The nightly one can be hours old.
+docker exec <db-container> pg_dump -U dawarich -d dawarich \
+  | gzip > /mnt/storagebox/gex44/dawarich-pre-upstream-sync-$(date +%Y%m%d-%H%M%S).sql.gz
+
+# 2. Baseline the counts, so you can prove afterwards what the migrations did.
+psql -c "select 'points',count(*) from points
+         union all select 'visits',count(*) from visits
+         union all select 'tracks',count(*) from tracks
+         union all select 'track_segments',count(*) from track_segments;"
+
+# 3. Know what is about to run. docker/web-entrypoint.sh runs db:migrate on boot.
+comm -13 <(git ls-tree <old-master> --name-only db/migrate/ | sed 's|db/migrate/||' | sort) \
+         <(git ls-tree HEAD          --name-only db/migrate/ | sed 's|db/migrate/||' | sort)
+```
+
+**CI green does not mean deployable.** The 2026-08-22 deploy broke twice on
+surfaces no test suite touches, both from the same blind spot — *upstream owns
+the scripts, this fork owns the Dockerfile*:
+
+- upstream bumped `.ruby-version` to 3.4.9 while our Dockerfile still pinned
+  `ruby:3.4.6-slim`; the Gemfile reads `.ruby-version`, so `bundle install`
+  exited 18 (`Bundler::RubyVersionMismatch`). The local test container happened
+  to be on 3.4.9 already, which is exactly why the suite passed and the image
+  could not build.
+- upstream added `docker/entrypoint-env-guard.sh`, sourced by both web and
+  sidekiq entrypoints; our Dockerfile had no `COPY` for it, so every boot died
+  before `db:migrate`. **This one took production down** — the failed build had
+  already retired the old container.
+
+The `toolchain` check now covers both. Run the doctor before promoting, not
+just before opening the PR.
+
+**Redeploy the workers too.** `dawarich-sidekiq` is a *separate* Coolify app
+(uuid `dhajiz6gsq75tjyl0co68in4`) and does not follow the web app's deploy. Left
+alone it runs pre-sync job code against a post-migration schema. Confirm both
+land on the same image:
+
+```bash
+docker inspect <web-container>     --format '{{.Config.Image}}'
+docker inspect <sidekiq-container> --format '{{.Config.Image}}'
+TOK=$(cat /root/.secrets/coolify-api-key)
+curl -s -X POST "http://localhost:8000/api/v1/deploy?uuid=dhajiz6gsq75tjyl0co68in4" \
+  -H "Authorization: Bearer $TOK"
 ```
 
 ---
