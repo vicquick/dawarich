@@ -208,6 +208,51 @@ if want js-imports; then
   [ "$miss" -eq 0 ] && ok "all named imports resolve"
 fi
 
+# ------------------------------------------------------------- js-specifiers
+# js-imports above answers "does the target export this name?" and SKIPS a
+# specifier it cannot resolve, assuming a bare npm dep. That blind spot shipped
+# a dead map: upstream's b7920c02 deleted app/javascript/maps/, and our copy of
+# event_handlers.js kept `from "maps/helpers"`. Nothing resolved it, nothing
+# flagged it, and the browser refused the whole maps--maplibre module graph —
+# the map never initialised, with no server-side error to find. Also parse
+# MULTI-LINE imports: that dead one spanned five lines, so the single-line
+# regex above never saw it either.
+if want js-specifiers; then
+  hdr js-specifiers "every JS module specifier resolves to a pin or a file"
+  dead=0
+  pins=$(grep -oE "^pin '[^']+'" config/importmap.rb 2>/dev/null | sed "s/^pin '//;s/'$//")
+  roots=$(grep -oE "^pin_all_from '[^']+', under: '[^']+'" config/importmap.rb 2>/dev/null \
+          | sed -E "s/^pin_all_from '([^']+)', under: '([^']+)'/\2 \1/")
+  exists() { [ -f "$1.js" ] || [ -f "$1/index.js" ] || { [ "${1%.js}" != "$1" ] && [ -f "$1" ]; }; }
+  while IFS='|' read -r src spec; do
+    [ -n "$spec" ] || continue
+    case "$spec" in
+      .*) exists "$(cd "$(dirname "$src")" && printf '%s/%s' "$(pwd)" "$spec")" \
+            || { bad "$src imports '$spec', which resolves to no file"; dead=1; }
+          continue ;;
+    esac
+    grep -qxF "$spec" <<<"$pins" && continue          # explicit pin (incl. vendored)
+    head=${spec%%/*}; rest=${spec#"$head"}; rest=${rest#/}
+    dir=$(awk -v h="$head" '$1==h {print $2; exit}' <<<"$roots")
+    if [ -z "$dir" ]; then
+      bad "$src imports '$spec' — no importmap pin and no pin_all_from covers '$head'"; dead=1
+    elif [ -z "$rest" ]; then
+      [ -f "$dir/index.js" ] || { bad "$src imports '$spec' but $dir/index.js is missing"; dead=1; }
+    elif ! exists "$dir/$rest"; then
+      bad "$src imports '$spec' — $dir/$rest.js does not exist"; dead=1
+    fi
+  done < <(
+    find app/javascript -name '*.js' 2>/dev/null | sort | while read -r f; do
+      # flatten first: a multi-line `import {\n a,\n} from "x"` is one statement
+      tr '\n' ' ' <"$f" \
+        | grep -oE '(from|import\() *"[^"]+"' \
+        | sed -E 's/.*"([^"]+)".*/\1/' \
+        | while read -r s; do echo "$f|$s"; done
+    done | sort -u
+  )
+  [ "$dead" -eq 0 ] && ok "all module specifiers resolve"
+fi
+
 # -------------------------------------------------------------- dsl-duplicates
 # Union merges happily emit the same registration twice. For most Rails DSLs the
 # second silently wins: a duplicated `retry_on` cost us the retries-exhausted

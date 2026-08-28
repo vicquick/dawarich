@@ -3,7 +3,7 @@ import {
   formatDistance,
   formatSpeed,
   minutesToDaysHoursMinutes,
-} from "maps/helpers"
+} from "maps_maplibre/utils/format_helpers"
 import {
   escapeHtml,
   formatTimestamp,
