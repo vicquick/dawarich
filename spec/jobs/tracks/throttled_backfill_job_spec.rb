@@ -3,6 +3,8 @@
 require 'rails_helper'
 
 RSpec.describe Tracks::ThrottledBackfillJob, type: :job do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:user) { create(:user) }
 
   before do
@@ -49,17 +51,27 @@ RSpec.describe Tracks::ThrottledBackfillJob, type: :job do
         expect(Tracks::TimeChunkProcessorJob).not_to have_been_enqueued.on_queue('tracks')
       end
 
-      it 'slices the walk into day-sized chunks' do
-        described_class.perform_now(user.id, nil)
+      # Chunks follow calendar days in the app time zone. A 30-day slice that
+      # spans a DST change therefore ends with a 23 h or 25 h chunk, and this
+      # example was red for 30 days after every change (e.g. 25 Oct - 24 Nov).
+      # Pin the clock to a window without a change so "day-sized" means 24 h.
+      context 'with the clock pinned to a window without a DST change' do
+        around do |example|
+          travel_to(Time.zone.local(2026, 6, 15, 12, 0, 0)) { example.run }
+        end
 
-        expect(Tracks::TimeChunkProcessorJob).to have_been_enqueued.with(
-          user.id,
-          anything,
-          hash_including(
-            start_timestamp: newest_point.timestamp - 1.day.to_i,
-            end_timestamp: newest_point.timestamp
+        it 'slices the walk into day-sized chunks' do
+          described_class.perform_now(user.id, nil)
+
+          expect(Tracks::TimeChunkProcessorJob).to have_been_enqueued.with(
+            user.id,
+            anything,
+            hash_including(
+              start_timestamp: newest_point.timestamp - 1.day.to_i,
+              end_timestamp: newest_point.timestamp
+            )
           )
-        )
+        end
       end
 
       it 're-enqueues itself with the cursor moved below the slice' do
