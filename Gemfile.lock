@@ -87,7 +87,7 @@ GEM
       securerandom (>= 0.3)
       tzinfo (~> 2.0, >= 2.0.5)
       uri (>= 0.13.1)
-    addressable (2.9.0)
+    addressable (2.9.1)
       public_suffix (>= 2.0.2, < 8.0)
     aes_key_wrap (1.1.0)
     anyway_config (2.8.0)
@@ -151,7 +151,7 @@ GEM
     crack (1.0.1)
       bigdecimal
       rexml
-    crass (1.0.7)
+    crass (1.0.8)
     cronex (0.15.0)
       tzinfo
       unicode (>= 0.4.4.5)
@@ -579,8 +579,8 @@ GEM
     ruby-next-core (1.2.0)
     ruby-progressbar (1.13.0)
     rubyzip (3.4.1)
-    sanitize (7.0.0)
-      crass (~> 1.0.2)
+    sanitize (7.0.1)
+      crass (~> 1.0.8)
       nokogiri (>= 1.16.8)
     securerandom (0.4.1)
     selenium-webdriver (4.45.0)
