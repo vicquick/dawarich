@@ -143,6 +143,14 @@ RSpec.describe Tracks::TimeChunker do
       context 'with custom chunk size' do
         let(:options) { { chunk_size: 12.hours, start_at: 2.days.ago, end_at: Time.current } }
 
+        # point2 sits exactly on start_at (2.days.ago). The options are evaluated
+        # a moment after the points are created; once that crosses a second
+        # boundary, point2 falls just before the range, the first chunk is
+        # dropped as empty and only 2 chunks remain. Freeze the clock.
+        around do |example|
+          freeze_time { example.run }
+        end
+
         it 'creates smaller chunks' do
           chunks = chunker.call
 
