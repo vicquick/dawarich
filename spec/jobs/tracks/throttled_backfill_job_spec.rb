@@ -3,6 +3,8 @@
 require 'rails_helper'
 
 RSpec.describe Tracks::ThrottledBackfillJob, type: :job do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:user) { create(:user) }
 
   before do
